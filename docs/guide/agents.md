@@ -109,6 +109,47 @@ export class SessionCreate implements Action {
 
 See the [MCP reference](/guide/mcp#controlling-exposure) for the full `McpActionConfig` type.
 
+## Designing Actions for Agents
+
+Not every action should be an MCP tool, and the actions you _do_ expose shouldn't just be thin wrappers around your database. Agents work best when tools represent **intentions** — higher-order operations that reflect what a user is trying to accomplish — rather than raw CRUD endpoints that force the agent to orchestrate multi-step workflows on its own.
+
+Consider user onboarding. You could expose three tools — `user-create`, `email-send-welcome`, `workspace-create-default` — and hope the agent calls them in the right order with the right parameters. Or you could expose one:
+
+```ts
+export class UserOnboard implements Action {
+  name = "user:onboard";
+  description = "Create a new user account, send welcome email, and set up default workspace";
+  inputs = z.object({
+    name: z.string().min(3).describe("Display name"),
+    email: z.string().email().describe("Email address (used for login)"),
+    password: secret(z.string().min(8).describe("Password")),
+    company: z.string().optional().describe("Company name for workspace"),
+  });
+  web = { route: "/user/onboard", method: HTTP_METHOD.PUT };
+  mcp = { tool: true };
+
+  async run(params: ActionParams<UserOnboard>) {
+    const user = await UserOps.create(params);
+    await EmailOps.sendWelcome(user);
+    await WorkspaceOps.createDefault(user, params.company);
+    return { user: serializeUser(user) };
+  }
+}
+```
+
+The agent calls `user-onboard` once and three things happen. No multi-step orchestration, no missed steps, no half-created state if the agent loses context midway.
+
+This doesn't mean you can't have fine-grained actions — `user:create` is still useful as an HTTP endpoint or background task. Just set `mcp = { tool: false }` on the low-level actions and expose the higher-order workflow as the tool. You keep full flexibility for your HTTP clients while giving agents the right level of abstraction.
+
+A few principles that hold up in practice:
+
+- **Name tools by intent, not by verb + resource.** `user-onboard` is clearer to an agent than `user-create`. The description matters too — agents read it to decide which tool to call.
+- **Bundle related side effects.** If operation A always requires operations B and C, make one tool that does all three. The agent doesn't know your business rules — your server does.
+- **Use `.describe()` on every Zod field.** These descriptions become the parameter documentation agents see. "Email address (used for login)" is more useful than just `z.string().email()`.
+- **Don't expose internal plumbing.** Admin actions, cleanup jobs, and migration tasks aren't useful to agents. Use `mcp = { tool: false }` liberally.
+
+For a deeper dive on tool design patterns for AI agents — including composition, batching, and context injection — see the [Arcade tool design patterns guide](https://www.arcade.dev/patterns).
+
 ## The Agent Auth Experience
 
 When an agent connects to your MCP server, it goes through an OAuth 2.1 flow with PKCE:
