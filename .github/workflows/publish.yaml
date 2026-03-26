@@ -3,7 +3,9 @@ name: Publish
 on:
   push:
     branches: [main]
-    paths: [packages/keryx/package.json]
+    paths:
+      - packages/keryx/package.json
+      - packages/resque-admin/package.json
 
 jobs:
   publish:
@@ -11,6 +13,15 @@ jobs:
     permissions:
       contents: write
       id-token: write
+    strategy:
+      matrix:
+        include:
+          - package: keryx
+            dir: packages/keryx
+            npm_name: keryx
+          - package: resque-admin
+            dir: packages/resque-admin
+            npm_name: "@keryxjs/resque-admin"
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -24,8 +35,8 @@ jobs:
       - name: Check if version changed
         id: version
         run: |
-          LOCAL=$(node -p "require('./packages/keryx/package.json').version")
-          REMOTE=$(npm view keryx version 2>/dev/null || echo "0.0.0")
+          LOCAL=$(node -p "require('./${{ matrix.dir }}/package.json').version")
+          REMOTE=$(npm view ${{ matrix.npm_name }} version 2>/dev/null || echo "0.0.0")
           echo "local=$LOCAL" >> "$GITHUB_OUTPUT"
           echo "remote=$REMOTE" >> "$GITHUB_OUTPUT"
           if [ "$LOCAL" != "$REMOTE" ]; then
@@ -37,10 +48,12 @@ jobs:
       - name: Publish to npm
         if: steps.version.outputs.changed == 'true'
         run: npm publish --access public --provenance
-        working-directory: packages/keryx
+        working-directory: ${{ matrix.dir }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release
-        if: steps.version.outputs.changed == 'true'
+        if: steps.version.outputs.changed == 'true' && matrix.package == 'keryx'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
