@@ -5,6 +5,7 @@ example/frontend/dist
 actionhero
 packages/keryx/.env
 packages/keryx/README.md
+packages/resque-admin/.env
 example/backend/.env
 example/frontend/.env
 types
