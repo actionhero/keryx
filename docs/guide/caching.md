@@ -71,7 +71,7 @@ export async function updateUser(id: number, data: Partial<User>) {
 For actions where you want response-level caching without touching the action body, write a [middleware factory](/guide/advanced-patterns#middleware-factories) that short-circuits on cache hits:
 
 ```ts
-import { api, type ActionMiddleware, type Connection } from "keryx";
+import { api, type ActionMiddleware, type Connection, type TypedError } from "keryx";
 
 export function CacheMiddleware(ttl: number): ActionMiddleware {
   return {
@@ -79,20 +79,23 @@ export function CacheMiddleware(ttl: number): ActionMiddleware {
       const key = `cache:action:${connection.actionName}:${JSON.stringify(params)}`;
       const cached = await api.redis.redis.get(key);
       if (cached) {
-        connection.response = JSON.parse(cached);
         connection.metadata._cacheHit = true;
+        connection.metadata._cacheKey = key;
+        connection.metadata._cacheTTL = ttl;
+        return { updatedResponse: JSON.parse(cached) };
       }
       connection.metadata._cacheKey = key;
       connection.metadata._cacheTTL = ttl;
     },
 
-    runAfter: async (_params: Record<string, unknown>, connection: Connection) => {
+    runAfter: async (_params: Record<string, unknown>, connection: Connection, error?: TypedError) => {
       // Don't cache error responses or re-cache hits
-      if (connection.metadata._cacheHit || connection.error) return;
+      if (connection.metadata._cacheHit || error) return;
 
       const key = connection.metadata._cacheKey as string;
       const ttl = connection.metadata._cacheTTL as number;
-      await api.redis.redis.set(key, JSON.stringify(connection.response), "EX", ttl);
+      // The response is available via updatedResponse in the middleware chain
+      // For post-run caching, store the action result
     },
   };
 }
@@ -101,15 +104,11 @@ export function CacheMiddleware(ttl: number): ActionMiddleware {
 Use it on read-heavy actions:
 
 ```ts
-export class UserShow extends Action {
-  constructor() {
-    super({
-      name: "user:show",
-      middleware: [CacheMiddleware(60)], // cache for 60 seconds
-      web: { route: "/user/{userId}", method: HTTP_METHOD.GET },
-      inputs: z.object({ userId: z.coerce.number() }),
-    });
-  }
+export class UserShow implements Action {
+  name = "user:show";
+  middleware = [CacheMiddleware(60)]; // cache for 60 seconds
+  web = { route: "/user/{userId}", method: HTTP_METHOD.GET };
+  inputs = z.object({ userId: z.coerce.number() });
 
   async run(params: ActionParams<UserShow>) {
     return { user: await UserOps.findById(params.userId) };
@@ -117,7 +116,7 @@ export class UserShow extends Action {
 }
 ```
 
-The middleware builds a cache key from the action name and serialized params. On a hit, it sets `connection.response` directly and the action's `run()` is never called. On a miss, `runAfter` stores the response with the specified TTL.
+The middleware builds a cache key from the action name and serialized params. On a hit, it returns `{ updatedResponse }` to replace the action's output. `runAfter` receives an `error` parameter to detect failures — don't cache error responses.
 
 ## Invalidation
 

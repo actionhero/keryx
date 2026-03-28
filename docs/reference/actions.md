@@ -31,6 +31,7 @@ abstract class Action {
   web?: {
     route: RegExp | string;
     method: HTTP_METHOD;
+    streaming?: boolean;
   };
 
   /** Per-action timeout in ms (overrides config.actions.timeout; 0 disables) */
@@ -207,6 +208,7 @@ type ActionMiddleware = {
   runAfter?: (
     params: ActionParams<Action>,
     connection: Connection,
+    error?: TypedError,
   ) => Promise<ActionMiddlewareResponse | void>;
 };
 
@@ -218,6 +220,6 @@ type ActionMiddlewareResponse = {
 };
 ```
 
-Throw from `runBefore` to halt execution — the action's `run()` method won't be called. Return `updatedParams` or `updatedResponse` to modify the data flowing through the pipeline.
+Throw from `runBefore` to halt execution — the action's `run()` method won't be called. `runAfter` always executes (even when the action throws) and receives the error as an optional third parameter — useful for cleanup like rolling back a transaction. Return `updatedParams` or `updatedResponse` to modify the data flowing through the pipeline.
 
 Middleware runs in the same order regardless of transport. HTTP, WebSocket, CLI, tasks — same middleware chain, same behavior.

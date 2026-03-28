@@ -208,10 +208,13 @@ This replaces the old pattern of casting through `unknown` to attach properties 
 
 ```ts
 export const TimingMiddleware: ActionMiddleware = {
+  runBefore: async (_params, connection) => {
+    connection.metadata._startTime = Date.now();
+  },
   runAfter: async (_params, connection) => {
     return {
       updatedResponse: {
-        requestDuration: Date.now() - connection.startTime,
+        requestDuration: Date.now() - (connection.metadata._startTime as number),
       },
     };
   },

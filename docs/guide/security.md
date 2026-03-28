@@ -108,7 +108,7 @@ Messages exceeding the payload size are rejected. Clients sending more than the 
 ### Channel Validation
 
 - **Channel names** must match the pattern `/^[a-zA-Z0-9:._-]{1,200}$/` — alphanumeric characters plus `:`, `.`, `_`, `-`, max 200 characters
-- **Undefined channels** are rejected — if no registered channel matches the requested name, the subscription is denied with a `CHANNEL_NOT_FOUND` error
+- **Undefined channels** are rejected — if no registered channel matches the requested name, the subscription is denied with a `CONNECTION_CHANNEL_AUTHORIZATION` error
 
 ## OAuth Security
 
