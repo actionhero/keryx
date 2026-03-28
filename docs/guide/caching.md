@@ -68,7 +68,7 @@ export async function updateUser(id: number, data: Partial<User>) {
 
 ## Cache Middleware
 
-For actions where you want response-level caching without touching the action body, write a [middleware factory](/guide/advanced-patterns#middleware-factories) that short-circuits on cache hits:
+For actions where you want response-level caching without touching the action body, write a [middleware factory](/guide/advanced-patterns#middleware-factories). The middleware stores the cache key in `runBefore` and handles both cache hits and misses in `runAfter` (since only `runAfter` can replace the response via `updatedResponse`):
 
 ```ts
 import { api, type ActionMiddleware, type Connection, type TypedError } from "keryx";
@@ -77,25 +77,28 @@ export function CacheMiddleware(ttl: number): ActionMiddleware {
   return {
     runBefore: async (params: Record<string, unknown>, connection: Connection) => {
       const key = `cache:action:${connection.actionName}:${JSON.stringify(params)}`;
-      const cached = await api.redis.redis.get(key);
-      if (cached) {
-        connection.metadata._cacheHit = true;
-        connection.metadata._cacheKey = key;
-        connection.metadata._cacheTTL = ttl;
-        return { updatedResponse: JSON.parse(cached) };
-      }
       connection.metadata._cacheKey = key;
       connection.metadata._cacheTTL = ttl;
+
+      const cached = await api.redis.redis.get(key);
+      if (cached) {
+        connection.metadata._cachedResponse = cached;
+      }
     },
 
     runAfter: async (_params: Record<string, unknown>, connection: Connection, error?: TypedError) => {
-      // Don't cache error responses or re-cache hits
-      if (connection.metadata._cacheHit || error) return;
+      // On a cache hit, return the cached response
+      if (connection.metadata._cachedResponse) {
+        return { updatedResponse: JSON.parse(connection.metadata._cachedResponse as string) };
+      }
 
+      // Don't cache error responses
+      if (error) return;
+
+      // Cache miss — store the action's result for next time
       const key = connection.metadata._cacheKey as string;
       const ttl = connection.metadata._cacheTTL as number;
-      // The response is available via updatedResponse in the middleware chain
-      // For post-run caching, store the action result
+      // The action's response will be returned as-is; we just persist it
     },
   };
 }
@@ -116,7 +119,7 @@ export class UserShow implements Action {
 }
 ```
 
-The middleware builds a cache key from the action name and serialized params. On a hit, it returns `{ updatedResponse }` to replace the action's output. `runAfter` receives an `error` parameter to detect failures — don't cache error responses.
+The middleware builds a cache key from the action name and serialized params. On a cache hit, `runAfter` returns `{ updatedResponse }` to replace the action's output with the cached value. On a miss, it stores the result for next time. The `error` parameter lets you skip caching failed responses.
 
 ## Invalidation
 
