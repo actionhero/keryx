@@ -136,10 +136,13 @@ export function createMcpServer(): McpServer {
 }
 
 function registerTools(mcpServer: McpServer) {
+  const registered = new Set<string>();
   for (const action of api.actions.actions) {
     if (action.mcp?.tool === false) continue;
 
     const toolName = formatToolName(action.name);
+    if (registered.has(toolName)) continue;
+    registered.add(toolName);
     const toolConfig: {
       description?: string;
       inputSchema?: any;
