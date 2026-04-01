@@ -43,6 +43,14 @@ class TestAction implements Action {
   };
 }
 
+afterEach(() => {
+  // Remove any test_action instances to avoid polluting other test suites
+  api.actions.actions = api.actions.actions.filter(
+    (a) => a.name !== "test_action",
+  );
+  delete api.resque.jobs["test_action"];
+});
+
 beforeEach(async () => {
   await api.redis.redis.flushdb();
   ran = null;
