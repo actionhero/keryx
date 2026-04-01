@@ -46,6 +46,10 @@ class TestAction implements Action {
 beforeEach(async () => {
   await api.redis.redis.flushdb();
   ran = null;
+  // Remove any previous test_action before adding a fresh one
+  api.actions.actions = api.actions.actions.filter(
+    (a) => a.name !== "test_action",
+  );
   const instance = new TestAction();
   api.actions.actions.push(instance);
   api.resque.jobs[instance.name] = api.resque.wrapActionAsJob(instance);
