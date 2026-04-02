@@ -61,10 +61,10 @@ await waitFor(
 
 ```bash
 # all backend tests
-cd backend && bun test
+cd example/backend && bun test
 
 # a single file
-cd backend && bun test __tests__/actions/user.test.ts
+cd example/backend && bun test __tests__/actions/user.test.ts
 
 # full CI — lint + test both frontend and backend
 bun run ci
@@ -122,7 +122,7 @@ Set `DATABASE_URL_TEST` in your environment (or `backend/.env`) to point at it.
 Most endpoints require a session. The pattern is: create a user, log in, then pass the session cookie on subsequent requests:
 
 ```ts
-import { config } from "../../config";
+import { config } from "keryx";
 
 test("authenticated request", async () => {
   // Create a user

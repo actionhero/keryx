@@ -22,7 +22,8 @@ bunx keryx new my-app
 
 Options:
 
-- `--no-interactive` / `-y` — skip prompts, use defaults
+- `-y` / `--yes` — skip prompts, use defaults
+- `--no-interactive` — skip prompts, use defaults (same effect as `-y`)
 - `--no-db` — skip database setup files
 - `--no-example` — skip the example action
 
@@ -114,7 +115,8 @@ bunx keryx upgrade
 Options:
 
 - `--dry-run` — show what would change without writing
-- `--force` / `-y` — overwrite all framework files without confirmation
+- `--force` — overwrite all framework files without confirmation
+- `-y` / `--yes` — overwrite all framework files without confirmation (same effect as `--force`)
 
 ### `keryx start`
 
