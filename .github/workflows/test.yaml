@@ -161,10 +161,41 @@ jobs:
       - run: bun install
       - run: bun test-docs
 
+  benchmark:
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis
+        ports:
+          - 6379:6379
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: keryx-test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: cp example/backend/.env.example example/backend/.env
+      - name: Run transport benchmarks
+        run: bun benchmark
+        env:
+          DATABASE_URL_TEST: postgres://postgres:postgres@localhost:5432/keryx-test
+
   complete:
     runs-on: ubuntu-latest
     if: always()
-    needs: [compile, lint, test-package, test-resque-admin, test-example-backend, test-example-frontend, test-docs]
+    needs: [compile, lint, test-package, test-resque-admin, test-example-backend, test-example-frontend, test-docs, benchmark]
     steps:
       - run: |
           if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
