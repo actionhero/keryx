@@ -63,6 +63,15 @@ beforeEach(async () => {
   api.resque.jobs[instance.name] = api.resque.wrapActionAsJob(instance);
 });
 
+afterEach(() => {
+  // Remove test actions so they don't leak into subsequent test files
+  api.actions.actions = api.actions.actions.filter(
+    (a) => a.name !== "test_action" && a.name !== "recurring_test_action",
+  );
+  delete api.resque.jobs.test_action;
+  delete api.resque.jobs.recurring_test_action;
+});
+
 test("actions can be enqueued", async () => {
   const enqueued = await api.actions.enqueue("test_action");
   expect(enqueued).toBe(true);
