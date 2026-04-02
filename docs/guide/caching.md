@@ -73,10 +73,10 @@ For actions where you want response-level caching without touching the action bo
 ```ts
 import { api, type ActionMiddleware, type Connection, type TypedError } from "keryx";
 
-export function CacheMiddleware(ttl: number): ActionMiddleware {
+export function CacheMiddleware(keyPrefix: string, ttl: number): ActionMiddleware {
   return {
     runBefore: async (params: Record<string, unknown>, connection: Connection) => {
-      const key = `cache:action:${connection.actionName}:${JSON.stringify(params)}`;
+      const key = `cache:action:${keyPrefix}:${JSON.stringify(params)}`;
       connection.metadata._cacheKey = key;
       connection.metadata._cacheTTL = ttl;
 
@@ -109,7 +109,7 @@ Use it on read-heavy actions:
 ```ts
 export class UserShow implements Action {
   name = "user:show";
-  middleware = [CacheMiddleware(60)]; // cache for 60 seconds
+  middleware = [CacheMiddleware("user:show", 60)]; // cache for 60 seconds
   web = { route: "/user/{userId}", method: HTTP_METHOD.GET };
   inputs = z.object({ userId: z.coerce.number() });
 
