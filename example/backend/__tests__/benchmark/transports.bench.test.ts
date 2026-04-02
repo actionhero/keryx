@@ -7,14 +7,15 @@ import { HOOK_TIMEOUT, serverUrl } from "../setup";
 
 // ---------------------------------------------------------------------------
 // Thresholds — generous enough for slow GitHub Actions runners.
-// These are "something is very wrong" guards, not tight regression detectors.
-// Review the printed stats table for actual performance numbers.
+// Tuned from CI observations (~10-28x above measured p95 to absorb GitHub
+// Actions runner variance). Tight enough to catch a meaningful regression,
+// loose enough to avoid flakes.
 // ---------------------------------------------------------------------------
 const THRESHOLDS = {
-  http: { iterations: 200, warmup: 5, p95ms: 500 },
-  websocket: { iterations: 200, warmup: 5, p95ms: 500 },
-  mcp: { iterations: 50, warmup: 2, p95ms: 2000 },
-  cli: { iterations: 10, warmup: 1, p95ms: 10_000 },
+  http: { iterations: 200, warmup: 5, p95ms: 50 },
+  websocket: { iterations: 200, warmup: 5, p95ms: 25 },
+  mcp: { iterations: 50, warmup: 2, p95ms: 100 },
+  cli: { iterations: 10, warmup: 1, p95ms: 3_000 },
 };
 
 // ---------------------------------------------------------------------------
