@@ -35,6 +35,7 @@
     "format-docs": "cd docs && bun format",
     "format": "bun format-package && bun format-plugin-observability && bun format-example-backend && bun format-example-frontend && bun format-docs",
     "test-docs": "cd docs && bun run test",
+    "benchmark": "cd example/backend && bun benchmark",
     "ci": "bun lint && bun tests && bun test-docs",
     "docs:dev": "cd docs && bun run dev",
     "docs:build": "cd docs && bun run build"
