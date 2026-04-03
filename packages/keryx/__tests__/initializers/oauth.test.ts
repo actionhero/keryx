@@ -63,6 +63,7 @@ describe("oauth initializer", () => {
       const body = (await res!.json()) as {
         resource: string;
         authorization_servers: string[];
+        scopes_supported: string[];
       };
       expect(body.resource).toBeDefined();
       expect(body.authorization_servers).toBeArray();
