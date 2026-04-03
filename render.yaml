@@ -14,11 +14,8 @@ services:
       - key: WEB_SERVER_PORT
         value: 8080
       - key: WEB_SERVER_ALLOWED_ORIGINS
-        fromService:
-          name: keryx-frontend
-          type: web
-          property: host
-        # Render prepends https:// at runtime
+        value: "https://keryx-frontend.onrender.com"
+        # Update this after deploy if Render assigns a different hostname
       - key: DATABASE_URL
         fromDatabase:
           name: keryx-db
@@ -50,11 +47,8 @@ services:
     plan: free
     envVars:
       - key: VITE_API_URL
-        fromService:
-          name: keryx-backend
-          type: web
-          property: hostport
-        # Injected at build time via Docker ARG
+        value: "https://keryx-backend.onrender.com"
+        # Update this after deploy if Render assigns a different hostname
 
   # Redis (Key Value)
   - type: keyvalue
