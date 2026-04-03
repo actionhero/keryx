@@ -15,9 +15,6 @@ hero:
     - theme: alt
       text: API Reference
       link: /reference/actions
-    - theme: alt
-      text: View on GitHub
-      link: https://github.com/actionhero/keryx
     - theme: sponsor
       text: LLMs.txt
       link: /llms.txt

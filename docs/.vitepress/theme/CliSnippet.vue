@@ -26,7 +26,6 @@ function copyCommand() {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  margin-top: 20px;
   padding: 10px 18px;
   border-radius: 8px;
   border: 1px solid rgba(207, 129, 40, 0.25);
