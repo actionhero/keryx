@@ -96,6 +96,33 @@ export async function buildProgram(opts: {
     });
 
   program
+    .command("build")
+    .summary("Pre-generate swagger schemas for production")
+    .description(
+      "Run build-time code generation. Analyzes Action return types via ts-morph\n" +
+        "and writes .cache/swagger-schemas.json so the server can skip this step at\n" +
+        "startup. Recommended for memory-constrained environments (e.g., Docker).\n\n" +
+        "Example Dockerfile usage:\n" +
+        "  COPY . .\n" +
+        "  RUN bun keryx.ts build\n" +
+        '  CMD ["bun", "keryx.ts", "start"]',
+    )
+    .action(async () => {
+      const { generateSwaggerSchemas, writeSchemasCache } = await import(
+        "./swaggerSchemaGenerator"
+      );
+      const result = await generateSwaggerSchemas({
+        rootDir: api.rootDir,
+        packageDir: api.packageDir,
+      });
+      await writeSchemasCache(api.rootDir, result);
+      console.log(
+        `Generated ${Object.keys(result.responseSchemas).length} swagger response schemas`,
+      );
+      process.exit(0);
+    });
+
+  program
     .command("generate <type> <name>")
     .alias("g")
     .summary("Generate a new component")

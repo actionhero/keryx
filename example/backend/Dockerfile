@@ -14,5 +14,6 @@ COPY packages/keryx/ packages/keryx/
 COPY example/backend/ example/backend/
 
 WORKDIR /app/example/backend
+RUN bun keryx.ts build
 EXPOSE 8080
 CMD ["bun", "keryx.ts", "start"]
