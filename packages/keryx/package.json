@@ -55,8 +55,7 @@
     "keryx.ts",
     "migrations.ts",
     "tsconfig.json",
-    "LICENSE",
-    "server.json"
+    "LICENSE"
   ],
   "bin": {
     "keryx": "keryx.ts"
