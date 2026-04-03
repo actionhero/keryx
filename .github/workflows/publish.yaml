@@ -39,6 +39,13 @@ jobs:
         run: npm publish --access public --provenance
         working-directory: packages/keryx
 
+      - name: Publish to MCP Registry
+        if: steps.version.outputs.changed == 'true'
+        working-directory: packages/keryx
+        run: |
+          npx -y mcp-publisher@latest login github-oidc
+          npx -y mcp-publisher@latest publish
+
       - name: Create GitHub Release
         if: steps.version.outputs.changed == 'true'
         env:
