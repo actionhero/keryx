@@ -6,12 +6,12 @@
     "url": "https://github.com/actionhero/keryx",
     "source": "github"
   },
-  "version": "0.20.5",
+  "version": "0.20.6",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "keryx",
-      "version": "0.20.5",
+      "version": "0.20.6",
       "transport": { "type": "http" }
     }
   ]
