@@ -37,6 +37,8 @@ services:
         value: "true"
       - key: TASKS_ENABLED
         value: "true"
+      - key: APPLICATION_URL
+        value: "https://api.demo.keryxjs.com"
       - key: MCP_SERVER_ENABLED
         value: "true"
 
