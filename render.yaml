@@ -8,6 +8,9 @@ services:
     repo: https://github.com/evantahler/keryx
     branch: main
     plan: free
+    healthCheckPath: /api/status
+    domains:
+      - api.demo.keryxjs.com
     envVars:
       - key: WEB_SERVER_HOST
         value: 0.0.0.0
@@ -44,6 +47,9 @@ services:
     repo: https://github.com/evantahler/keryx
     branch: main
     plan: free
+    healthCheckPath: /
+    domains:
+      - www.demo.keryxjs.com
     envVars:
       - key: VITE_API_URL
         value: "https://api.demo.keryxjs.com"
