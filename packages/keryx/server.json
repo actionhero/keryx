@@ -1,0 +1,18 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.actionhero/keryx",
+  "description": "The fullstack TypeScript framework for MCP and APIs — write one action, serve HTTP, WebSocket, CLI, background tasks, and MCP tools.",
+  "repository": {
+    "url": "https://github.com/actionhero/keryx",
+    "source": "github"
+  },
+  "version": "0.20.5",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "keryx",
+      "version": "0.20.5",
+      "transport": { "type": "http" }
+    }
+  ]
+}
