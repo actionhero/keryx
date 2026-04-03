@@ -1,7 +1,6 @@
 {
   "name": "keryx",
-  "version": "0.20.8",
-  "mcpName": "io.github.actionhero/keryx",
+  "version": "0.20.9",
   "module": "index.ts",
   "type": "module",
   "license": "MIT",
@@ -56,8 +55,7 @@
     "keryx.ts",
     "migrations.ts",
     "tsconfig.json",
-    "LICENSE",
-    "server.json"
+    "LICENSE"
   ],
   "bin": {
     "keryx": "keryx.ts"

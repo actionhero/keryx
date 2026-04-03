@@ -39,14 +39,6 @@ jobs:
         run: npm publish --access public --provenance
         working-directory: packages/keryx
 
-      - name: Publish to MCP Registry
-        if: steps.version.outputs.changed == 'true'
-        working-directory: packages/keryx
-        run: |
-          curl -sL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
-          ./mcp-publisher login github-oidc
-          ./mcp-publisher publish
-
       - name: Create GitHub Release
         if: steps.version.outputs.changed == 'true'
         env:
