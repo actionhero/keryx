@@ -36,8 +36,15 @@ const { frontmatter } = useData();
 .hero-ctas {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 20px;
+}
+
+@media (max-width: 639px) {
+  .hero-ctas {
+    justify-content: center;
+  }
 }
 
 .footer-lion {
