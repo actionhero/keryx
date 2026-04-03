@@ -2,7 +2,7 @@ FROM oven/bun:1 AS base
 WORKDIR /app
 
 # Install dependencies first (cache layer)
-COPY package.json bun.lock ./
+COPY package.json bun.lock* ./
 COPY packages/keryx/package.json packages/keryx/
 COPY example/backend/package.json example/backend/
 COPY example/frontend/package.json example/frontend/
