@@ -1,0 +1,68 @@
+services:
+  # Backend API server
+  - type: web
+    name: keryx-backend
+    runtime: docker
+    dockerfilePath: ./example/backend/Dockerfile
+    dockerContext: .
+    repo: https://github.com/evantahler/keryx
+    branch: main
+    plan: free
+    envVars:
+      - key: WEB_SERVER_HOST
+        value: 0.0.0.0
+      - key: WEB_SERVER_PORT
+        value: 8080
+      - key: WEB_SERVER_ALLOWED_ORIGINS
+        fromService:
+          name: keryx-frontend
+          type: web
+          property: host
+        # Render prepends https:// at runtime
+      - key: DATABASE_URL
+        fromDatabase:
+          name: keryx-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: keryx-redis
+          type: redis
+          property: connectionString
+      - key: DATABASE_AUTO_MIGRATE
+        value: "true"
+      - key: LOG_LEVEL
+        value: info
+      - key: LOG_INCLUDE_TIMESTAMPS
+        value: "true"
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+      - key: TASKS_ENABLED
+        value: "true"
+
+  # Frontend static site
+  - type: web
+    name: keryx-frontend
+    runtime: docker
+    dockerfilePath: ./example/frontend/Dockerfile
+    dockerContext: .
+    repo: https://github.com/evantahler/keryx
+    branch: main
+    plan: free
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          name: keryx-backend
+          type: web
+          property: hostport
+        # Injected at build time via Docker ARG
+
+databases:
+  - name: keryx-db
+    plan: free
+    databaseName: keryx
+    user: keryx
+
+  - name: keryx-redis
+    plan: free
+    maxmemoryPolicy: allkeys-lru
+    ipAllowList: []
