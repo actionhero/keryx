@@ -67,6 +67,7 @@ describe("oauth initializer", () => {
       expect(body.resource).toBeDefined();
       expect(body.authorization_servers).toBeArray();
       expect(body.authorization_servers.length).toBeGreaterThan(0);
+      expect(body.scopes_supported).toEqual(["mcp"]);
     });
 
     test("authorization server metadata returns correct structure", async () => {
@@ -85,6 +86,7 @@ describe("oauth initializer", () => {
       expect(body.response_types_supported).toEqual(["code"]);
       expect(body.grant_types_supported).toEqual(["authorization_code"]);
       expect(body.code_challenge_methods_supported).toEqual(["S256"]);
+      expect(body.client_id_metadata_document_supported).toBe(false);
     });
   });
 
