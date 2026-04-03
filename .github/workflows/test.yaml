@@ -160,10 +160,24 @@ jobs:
         env:
           DATABASE_URL_TEST: postgres://postgres:postgres@localhost:5432/keryx-test
 
+  docker-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build backend Docker image
+        run: docker build -f example/backend/Dockerfile .
+
+  docker-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build frontend Docker image
+        run: docker build -f example/frontend/Dockerfile --build-arg VITE_API_URL=http://localhost:8080 .
+
   complete:
     runs-on: ubuntu-latest
     if: always()
-    needs: [compile, lint, test-package, test-example-backend, test-example-frontend, test-docs, benchmark]
+    needs: [compile, lint, test-package, test-example-backend, test-example-frontend, test-docs, benchmark, docker-backend, docker-frontend]
     steps:
       - run: |
           if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
