@@ -64,5 +64,4 @@ databases:
 
   - name: keryx-redis
     plan: free
-    maxmemoryPolicy: allkeys-lru
     ipAllowList: []
