@@ -26,7 +26,7 @@ services:
       - key: REDIS_URL
         fromService:
           name: keryx-redis
-          type: redis
+          type: keyvalue
           property: connectionString
       - key: DATABASE_AUTO_MIGRATE
         value: "true"
@@ -56,13 +56,15 @@ services:
           property: hostport
         # Injected at build time via Docker ARG
 
+  # Redis (Key Value)
+  - type: keyvalue
+    name: keryx-redis
+    plan: free
+    maxmemoryPolicy: allkeys-lru
+    ipAllowList: []
+
 databases:
   - name: keryx-db
     plan: free
     databaseName: keryx
     user: keryx
-
-  - name: keryx-redis
-    plan: free
-    maxmemoryPolicy: allkeys-lru
-    ipAllowList: []
