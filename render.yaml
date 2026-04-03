@@ -37,6 +37,8 @@ services:
         value: "true"
       - key: TASKS_ENABLED
         value: "true"
+      - key: MCP_SERVER_ENABLED
+        value: "true"
 
   # Frontend static site
   - type: web
