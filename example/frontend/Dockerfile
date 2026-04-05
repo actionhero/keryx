@@ -4,6 +4,7 @@ WORKDIR /app
 # Install dependencies (cache layer)
 COPY package.json bun.lock* ./
 COPY packages/keryx/package.json packages/keryx/
+COPY packages/plugins/observability/package.json packages/plugins/observability/
 COPY example/backend/package.json example/backend/
 COPY example/frontend/package.json example/frontend/
 COPY docs/package.json docs/
