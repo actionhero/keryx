@@ -1,12 +1,10 @@
-import fs from "node:fs";
 import { unlink } from "node:fs/promises";
-import { $ } from "bun";
+import { $, SQL } from "bun";
 import { type Config as DrizzleMigrateConfig } from "drizzle-kit";
 import { DefaultLogger, type LogWriter, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { drizzle } from "drizzle-orm/bun-sql";
+import { migrate } from "drizzle-orm/bun-sql/migrator";
 import path from "path";
-import { Pool } from "pg";
 import { api, logger } from "../api";
 import { Initializer } from "../classes/Initializer";
 import { ErrorType, TypedError } from "../classes/TypedError";
@@ -21,6 +19,14 @@ declare module "../classes/API" {
   }
 }
 
+/**
+ * Cached Bun.sql client instance. Reused across start/stop cycles to avoid
+ * a Bun.sql issue where rapidly creating many SQL instances can exhaust
+ * internal resources.
+ */
+let cachedClient: InstanceType<typeof SQL> | undefined;
+let cachedConnectionString: string | undefined;
+
 export class DB extends Initializer {
   constructor() {
     super(namespace);
@@ -32,7 +38,7 @@ export class DB extends Initializer {
   async initialize() {
     const dbContainer = {} as {
       db: ReturnType<typeof drizzle>;
-      pool: InstanceType<typeof Pool>;
+      client: InstanceType<typeof SQL>;
     };
     return Object.assign(
       {
@@ -44,10 +50,36 @@ export class DB extends Initializer {
   }
 
   async start() {
-    api.db.pool = new Pool({
-      connectionString: config.database.connectionString,
-      ...config.database.pool,
-    });
+    // Reuse the cached client if the connection string hasn't changed,
+    // otherwise close the old one and create a new one.
+    if (
+      cachedClient &&
+      cachedConnectionString === config.database.connectionString
+    ) {
+      api.db.client = cachedClient;
+    } else {
+      if (cachedClient) {
+        try {
+          await cachedClient.close();
+        } catch {
+          // ignore close errors on stale clients
+        }
+      }
+      api.db.client = new SQL({
+        url: config.database.connectionString,
+        max: config.database.pool.max,
+        idleTimeout: Math.floor(config.database.pool.idleTimeoutMillis / 1000),
+        ...(config.database.pool.connectionTimeoutMillis > 0
+          ? {
+              connectionTimeout: Math.floor(
+                config.database.pool.connectionTimeoutMillis / 1000,
+              ),
+            }
+          : {}),
+      });
+      cachedClient = api.db.client;
+      cachedConnectionString = config.database.connectionString;
+    }
 
     class DrizzleLogger implements LogWriter {
       write(message: string) {
@@ -55,7 +87,8 @@ export class DB extends Initializer {
       }
     }
 
-    api.db.db = drizzle(api.db.pool, {
+    api.db.db = drizzle({
+      client: api.db.client,
       logger: new DefaultLogger({ writer: new DrizzleLogger() }),
     });
 
@@ -71,16 +104,6 @@ export class DB extends Initializer {
     if (config.database.autoMigrate) {
       try {
         const migrationsFolder = path.join(api.rootDir, "drizzle");
-        const journalPath = path.join(
-          migrationsFolder,
-          "meta",
-          "_journal.json",
-        );
-        if (!fs.existsSync(journalPath)) {
-          fs.mkdirSync(path.dirname(journalPath), { recursive: true });
-          fs.writeFileSync(journalPath, JSON.stringify({ entries: [] }));
-          logger.info("created empty drizzle migrations journal");
-        }
         await migrate(api.db.db, { migrationsFolder });
         logger.info("database migrated successfully");
       } catch (e) {
@@ -97,14 +120,11 @@ export class DB extends Initializer {
   }
 
   async stop() {
-    if (api.db.db && api.db.pool) {
-      try {
-        await api.db.pool.end();
-        logger.info("database connection closed");
-      } catch (e) {
-        logger.error("error closing database connection", e);
-      }
-    }
+    // Don't close the Bun.sql client here — it's cached for reuse across
+    // start/stop cycles to work around a Bun.sql issue with rapid
+    // connection churn. The client is closed when the connection
+    // string changes or the process exits.
+    logger.info("database connection released");
   }
 
   /**
@@ -154,15 +174,15 @@ export class DB extends Initializer {
       });
     }
 
-    const { rows } = await api.db.db.execute(
+    const rows = await api.db.db.execute(
       sql`SELECT tablename FROM pg_tables WHERE schemaname = CURRENT_SCHEMA`,
     );
 
     for (const row of rows) {
-      logger.debug(`truncating table ${row.tablename}`);
+      logger.debug(`truncating table ${(row as any).tablename}`);
       await api.db.db.execute(
         sql.raw(
-          `TRUNCATE TABLE "${row.tablename}" ${restartIdentity ? "RESTART IDENTITY" : ""} ${cascade ? "CASCADE" : ""} `,
+          `TRUNCATE TABLE "${(row as any).tablename}" ${restartIdentity ? "RESTART IDENTITY" : ""} ${cascade ? "CASCADE" : ""} `,
         ),
       );
     }

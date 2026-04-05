@@ -1,15 +1,14 @@
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { drizzle } from "drizzle-orm/bun-sql";
 import { api, logger } from "../api";
 import { ErrorType, TypedError } from "../classes/TypedError";
 
 /**
- * A Drizzle database instance scoped to a single PostgreSQL connection.
+ * A Drizzle database instance scoped to a single PostgreSQL transaction.
  * Returned by {@link withTransaction} and stored on `connection.metadata.transaction`
  * by `TransactionMiddleware`. Shares the same query-builder interface as `api.db.db`,
  * so ops functions can accept either without changing their query code.
  */
-export type Transaction = NodePgDatabase<Record<string, never>>;
+export type Transaction = ReturnType<typeof drizzle>;
 
 /**
  * Union of the top-level Drizzle database and a transaction-scoped instance.
@@ -26,15 +25,15 @@ export type Transaction = NodePgDatabase<Record<string, never>>;
  * }
  * ```
  */
-export type DbOrTransaction = NodePgDatabase<Record<string, never>>;
+export type DbOrTransaction = ReturnType<typeof drizzle>;
 
 /**
  * Run a callback inside a database transaction with automatic commit/rollback.
  *
- * Acquires a dedicated `PoolClient` from `api.db.pool`, issues `BEGIN`, and
- * creates a Drizzle instance scoped to that client. If `fn` resolves, the
+ * Uses Drizzle's built-in `.transaction()` method which manages BEGIN/COMMIT/ROLLBACK
+ * automatically via Bun.sql's connection reservation. If `fn` resolves, the
  * transaction is committed; if it throws, the transaction is rolled back and
- * the error is re-thrown. The pool client is always released.
+ * the error is re-thrown.
  *
  * For request-scoped transactions that span middleware + action execution,
  * use `TransactionMiddleware` instead — it manages the same lifecycle
@@ -58,16 +57,17 @@ export type DbOrTransaction = NodePgDatabase<Record<string, never>>;
 export async function withTransaction<T>(
   fn: (tx: Transaction) => Promise<T>,
 ): Promise<T> {
-  const client = await api.db.pool.connect();
   try {
-    await client.query("BEGIN");
-    const tx = drizzle(client) as Transaction;
-    const result = await fn(tx);
-    await client.query("COMMIT");
+    const db = api.db.db;
+    const result = await db.transaction(
+      // @ts-ignore transaction callback parameter type varies across drizzle contexts
+      async (tx: Transaction) => {
+        return await fn(tx);
+      },
+    );
     logger.debug("transaction committed");
     return result;
   } catch (e) {
-    await client.query("ROLLBACK");
     logger.debug("transaction rolled back");
     if (e instanceof TypedError) throw e;
     throw new TypedError({
@@ -75,7 +75,5 @@ export async function withTransaction<T>(
       type: ErrorType.CONNECTION_ACTION_RUN,
       originalError: e,
     });
-  } finally {
-    client.release();
   }
 }

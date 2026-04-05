@@ -1,5 +1,5 @@
-import { drizzle } from "drizzle-orm/node-postgres";
-import type { PoolClient } from "pg";
+import type { ReservedSQL } from "bun";
+import { drizzle } from "drizzle-orm/bun-sql";
 import { api, logger } from "../api";
 import type { ActionMiddleware } from "../classes/Action";
 import type { Connection } from "../classes/Connection";
@@ -9,13 +9,13 @@ import type { Transaction } from "../util/transaction";
 /**
  * Action middleware that wraps the entire action execution in a database transaction.
  *
- * In `runBefore`, a dedicated `PoolClient` is acquired from `api.db.pool`, a `BEGIN`
- * is issued, and a transaction-scoped Drizzle instance is stored on
- * `connection.metadata.transaction`. Actions and ops functions should use this
- * instance (instead of `api.db.db`) for all queries that must be atomic.
+ * In `runBefore`, a dedicated connection is reserved from `api.db.client` via
+ * `sql.reserve()`, a `BEGIN` is issued, and a transaction-scoped Drizzle instance
+ * is stored on `connection.metadata.transaction`. Actions and ops functions should
+ * use this instance (instead of `api.db.db`) for all queries that must be atomic.
  *
  * In `runAfter`, the transaction is committed on success or rolled back if the
- * action threw an error. The pool client is always released.
+ * action threw an error. The reserved connection is always released.
  *
  * **Re-entrant**: When a parent action already opened a transaction (e.g., via
  * `connection.act()` chaining), the middleware reuses the existing transaction
@@ -57,11 +57,11 @@ export const TransactionMiddleware: ActionMiddleware = {
 
     if (depth > 0) return; // already inside a transaction — nothing to do
 
-    const client: PoolClient = await api.db.pool.connect();
-    await client.query("BEGIN");
-    const tx = drizzle(client) as Transaction;
+    const reserved: ReservedSQL = await api.db.client.reserve();
+    await reserved`BEGIN`;
+    const tx = drizzle({ client: reserved }) as unknown as Transaction;
     connection.metadata.transaction = tx;
-    connection.metadata._txClient = client;
+    connection.metadata._txReserved = reserved;
   },
 
   runAfter: async (
@@ -75,21 +75,21 @@ export const TransactionMiddleware: ActionMiddleware = {
     // Only the outermost middleware manages the transaction lifecycle
     if (depth > 1) return;
 
-    const client = connection.metadata._txClient as PoolClient | undefined;
-    if (!client) return;
+    const reserved = connection.metadata._txReserved as ReservedSQL | undefined;
+    if (!reserved) return;
 
     try {
       if (error) {
-        await client.query("ROLLBACK");
+        await reserved`ROLLBACK`;
         logger.debug("transaction rolled back");
       } else {
-        await client.query("COMMIT");
+        await reserved`COMMIT`;
         logger.debug("transaction committed");
       }
     } finally {
-      client.release();
+      reserved.release();
       connection.metadata.transaction = undefined;
-      connection.metadata._txClient = undefined;
+      connection.metadata._txReserved = undefined;
     }
   },
 };

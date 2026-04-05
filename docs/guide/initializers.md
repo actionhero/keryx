@@ -73,7 +73,7 @@ export class DB extends Initializer {
   async initialize() {
     const dbContainer = {} as {
       db: ReturnType<typeof drizzle>;
-      pool: Pool;
+      client: InstanceType<typeof SQL>;
     };
     return Object.assign(
       {
@@ -85,15 +85,15 @@ export class DB extends Initializer {
   }
 
   async start() {
-    api.db.pool = new Pool({
-      connectionString: config.database.connectionString,
+    api.db.client = new SQL({
+      url: config.database.connectionString,
     });
-    api.db.db = drizzle(api.db.pool);
+    api.db.db = drizzle({ client: api.db.client });
     // migrations run here if configured...
   }
 
   async stop() {
-    await api.db.pool.end();
+    await api.db.client.close();
   }
 }
 ```

@@ -3,6 +3,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
+const SCAFFOLD_TIMEOUT = 60_000;
 const keryxTs = path.join(import.meta.dir, "..", "keryx.ts");
 let tmpDir: string;
 let projectDir: string;
@@ -36,7 +37,7 @@ beforeAll(async () => {
   }
 
   projectDir = path.join(tmpDir, "upgrade-test-app");
-});
+}, SCAFFOLD_TIMEOUT);
 
 afterAll(() => {
   if (tmpDir) {
