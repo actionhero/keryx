@@ -1,5 +1,5 @@
 ---
-description: Use the built-in Redis connection for caching — cache-aside, response middleware, and invalidation patterns.
+description: Use the built-in Redis connection for caching — cache-aside, helpers, and invalidation patterns.
 ---
 
 # Caching
@@ -66,58 +66,47 @@ export async function updateUser(id: number, data: Partial<User>) {
 }
 ```
 
-## Cache Middleware
+## Cache Helper
 
-For actions where you want response-level caching without touching the action body, write a [middleware factory](/guide/advanced-patterns#middleware-factories) that short-circuits on cache hits:
+Wrap the cache-aside pattern into a reusable helper so your actions stay concise:
 
 ```ts
-import { api, type ActionMiddleware, type Connection } from "keryx";
+import { api } from "keryx";
 
-export function CacheMiddleware(ttl: number): ActionMiddleware {
-  return {
-    runBefore: async (params: Record<string, unknown>, connection: Connection) => {
-      const key = `cache:action:${connection.actionName}:${JSON.stringify(params)}`;
-      const cached = await api.redis.redis.get(key);
-      if (cached) {
-        connection.response = JSON.parse(cached);
-        connection.metadata._cacheHit = true;
-      }
-      connection.metadata._cacheKey = key;
-      connection.metadata._cacheTTL = ttl;
-    },
+export async function cached<T>(
+  key: string,
+  ttl: number,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const hit = await api.redis.redis.get(key);
+  if (hit) return JSON.parse(hit) as T;
 
-    runAfter: async (_params: Record<string, unknown>, connection: Connection) => {
-      // Don't cache error responses or re-cache hits
-      if (connection.metadata._cacheHit || connection.error) return;
-
-      const key = connection.metadata._cacheKey as string;
-      const ttl = connection.metadata._cacheTTL as number;
-      await api.redis.redis.set(key, JSON.stringify(connection.response), "EX", ttl);
-    },
-  };
+  const result = await fn();
+  await api.redis.redis.set(key, JSON.stringify(result), "EX", ttl);
+  return result;
 }
 ```
 
-Use it on read-heavy actions:
+Use it in read-heavy actions:
 
 ```ts
-export class UserShow extends Action {
-  constructor() {
-    super({
-      name: "user:show",
-      middleware: [CacheMiddleware(60)], // cache for 60 seconds
-      web: { route: "/user/{userId}", method: HTTP_METHOD.GET },
-      inputs: z.object({ userId: z.coerce.number() }),
-    });
-  }
+export class UserShow implements Action {
+  name = "user:show";
+  web = { route: "/user/:userId", method: HTTP_METHOD.GET };
+  inputs = z.object({ userId: z.coerce.number() });
 
   async run(params: ActionParams<UserShow>) {
-    return { user: await UserOps.findById(params.userId) };
+    const user = await cached(
+      `cache:user:${params.userId}`,
+      60,
+      () => UserOps.findById(params.userId),
+    );
+    return { user };
   }
 }
 ```
 
-The middleware builds a cache key from the action name and serialized params. On a hit, it sets `connection.response` directly and the action's `run()` is never called. On a miss, `runAfter` stores the response with the specified TTL.
+The helper checks Redis first, calls your function on a miss, and stores the result with a TTL — all in one call. Because the caching happens inside `run()`, the action controls exactly what gets cached and how the key is built.
 
 ## Invalidation
 

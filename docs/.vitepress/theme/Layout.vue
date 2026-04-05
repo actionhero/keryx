@@ -2,6 +2,7 @@
 import { useData } from "vitepress";
 import DefaultTheme from "vitepress/theme";
 import CliSnippet from "./CliSnippet.vue";
+import GitHubStars from "./GitHubStars.vue";
 import HomeContent from "./HomeContent.vue";
 import MarkdownLink from "./MarkdownLink.vue";
 
@@ -12,7 +13,10 @@ const { frontmatter } = useData();
 <template>
   <Layout>
     <template #home-hero-info-after>
-      <CliSnippet />
+      <div class="hero-ctas">
+        <CliSnippet />
+        <GitHubStars />
+      </div>
     </template>
     <template #home-features-after>
       <HomeContent />
@@ -29,6 +33,20 @@ const { frontmatter } = useData();
 </template>
 
 <style scoped>
+.hero-ctas {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+@media (max-width: 639px) {
+  .hero-ctas {
+    justify-content: center;
+  }
+}
+
 .footer-lion {
   display: flex;
   justify-content: center;

@@ -38,7 +38,7 @@ For each action:
 
 ```ts
 // This action...
-export class UserView extends Action {
+export class UserView implements Action {
   name = "user:view";
   description = "View a user's profile";
   inputs = z.object({ userId: z.string() });
@@ -55,7 +55,7 @@ export class UserView extends Action {
 By default, all actions are exposed as MCP tools. To exclude an action from tool registration:
 
 ```ts
-export class InternalAction extends Action {
+export class InternalAction implements Action {
   name = "internal:cleanup";
   mcp = { tool: false };
   // ...
@@ -84,7 +84,7 @@ Set `mcp.responseFormat` on an action to change its format:
 ```ts
 import { Action, MCP_RESPONSE_FORMAT } from "keryx";
 
-export class StatusAction extends Action {
+export class StatusAction implements Action {
   name = "status";
   mcp = { responseFormat: MCP_RESPONSE_FORMAT.MARKDOWN };
   // ...

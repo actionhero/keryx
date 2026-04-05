@@ -17,7 +17,7 @@ NODE_ENV=production bun start
 
 ## Docker
 
-There's a `docker-compose.yml` to run the backend with PostgreSQL and Redis:
+There's a `docker-compose.yaml` to run the backend with PostgreSQL and Redis:
 
 ```bash
 docker compose up

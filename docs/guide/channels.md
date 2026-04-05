@@ -154,7 +154,7 @@ Channel names must match `/^[a-zA-Z0-9:._-]{1,200}$/` — alphanumeric character
 
 ### Undefined Channels
 
-If a client tries to subscribe to a channel name that doesn't match any registered channel, the subscription is denied with a `CHANNEL_NOT_FOUND` error. You must define a channel (exact or pattern) for every topic clients can subscribe to.
+If a client tries to subscribe to a channel name that doesn't match any registered channel, the subscription is denied with a `CONNECTION_CHANNEL_AUTHORIZATION` error. You must define a channel (exact or pattern) for every topic clients can subscribe to.
 
 ### Origin Validation
 

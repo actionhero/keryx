@@ -37,6 +37,13 @@ export { deepMerge, deepMergeDefaults, loadFromEnvIfSet } from "./util/config";
 export { getValidTypes } from "./util/generate";
 export { globLoader } from "./util/glob";
 export { type PaginatedResult, paginate } from "./util/pagination";
+export type { JSONSchema } from "./util/swaggerSchemaGenerator";
+export {
+  computeActionsHash,
+  generateSwaggerSchemas,
+  loadCachedSchemas,
+  writeSchemasCache,
+} from "./util/swaggerSchemaGenerator";
 export { toMarkdown } from "./util/toMarkdown";
 export type { DbOrTransaction, Transaction } from "./util/transaction";
 export { withTransaction } from "./util/transaction";
