@@ -1,0 +1,72 @@
+services:
+  # Backend API server
+  - type: web
+    name: keryx-backend
+    runtime: docker
+    dockerfilePath: ./example/backend/Dockerfile
+    dockerContext: .
+    repo: https://github.com/evantahler/keryx
+    branch: main
+    plan: free
+    healthCheckPath: /api/status
+    domains:
+      - api.demo.keryxjs.com
+    envVars:
+      - key: WEB_SERVER_HOST
+        value: 0.0.0.0
+      - key: WEB_SERVER_PORT
+        value: 8080
+      - key: WEB_SERVER_ALLOWED_ORIGINS
+        value: "https://www.demo.keryxjs.com"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: keryx-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: keryx-redis
+          type: keyvalue
+          property: connectionString
+      - key: DATABASE_AUTO_MIGRATE
+        value: "true"
+      - key: LOG_LEVEL
+        value: info
+      - key: LOG_INCLUDE_TIMESTAMPS
+        value: "true"
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+      - key: TASKS_ENABLED
+        value: "true"
+      - key: APPLICATION_URL
+        value: "https://api.demo.keryxjs.com"
+      - key: MCP_SERVER_ENABLED
+        value: "true"
+
+  # Frontend static site
+  - type: web
+    name: keryx-frontend
+    runtime: docker
+    dockerfilePath: ./example/frontend/Dockerfile
+    dockerContext: .
+    repo: https://github.com/evantahler/keryx
+    branch: main
+    plan: free
+    healthCheckPath: /
+    domains:
+      - www.demo.keryxjs.com
+    envVars:
+      - key: VITE_API_URL
+        value: "https://api.demo.keryxjs.com"
+
+  # Redis (Key Value)
+  - type: keyvalue
+    name: keryx-redis
+    plan: free
+    maxmemoryPolicy: allkeys-lru
+    ipAllowList: []
+
+databases:
+  - name: keryx-db
+    plan: free
+    databaseName: keryx
+    user: keryx

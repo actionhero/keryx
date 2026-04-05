@@ -174,7 +174,7 @@ export class McpInitializer extends Initializer {
           401,
           corsHeaders,
           {
-            "WWW-Authenticate": `Bearer resource_metadata="${resourceMetadataUrl}"`,
+            "WWW-Authenticate": `Bearer resource_metadata="${resourceMetadataUrl}", scope="mcp"`,
           },
         );
       }

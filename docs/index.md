@@ -15,9 +15,6 @@ hero:
     - theme: alt
       text: API Reference
       link: /reference/actions
-    - theme: alt
-      text: View on GitHub
-      link: https://github.com/actionhero/keryx
     - theme: sponsor
       text: LLMs.txt
       link: /llms.txt
@@ -157,6 +154,7 @@ Keryx is the only TypeScript framework where your API is automatically an MCP se
 - **Per-session MCP servers** — each agent connection gets isolated state. No cross-session leaks.
 - **Typed errors** — agents get structured `ErrorType` values, not generic failure messages. They can distinguish validation errors from auth failures.
 - **Real-time notifications** — PubSub events are forwarded to connected agents as MCP logging messages.
+- **`llms.txt` included** — AI agents and LLMs can discover optimized Markdown documentation at [`/llms.txt`](/llms.txt), no scraping needed.
 
 Claude Desktop, VS Code Copilot, Cursor, Windsurf, and any other MCP client can discover and call your actions out of the box.
 

@@ -85,7 +85,7 @@ export type ActionConstructorInputs = {
     streaming?: boolean;
   };
 
-  /** Per-action timeout in ms (overrides global `config.server.web.actionTimeout`; 0 disables) */
+  /** Per-action timeout in ms (overrides global `config.actions.timeout`; 0 disables) */
   timeout?: number;
 
   /** Configure this action as a background task/job */
