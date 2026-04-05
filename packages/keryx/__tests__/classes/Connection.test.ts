@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { Connection, api, logger } from "../../api";
+import { api, Connection, logger } from "../../api";
 import { Action, type ActionMiddleware } from "../../classes/Action";
 import { LogFormat, LogLevel } from "../../classes/Logger";
 import { ErrorType, TypedError } from "../../classes/TypedError";

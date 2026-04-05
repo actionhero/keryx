@@ -1,18 +1,19 @@
 import {
+  type ErrorPayload,
+  type Job,
+  type ParsedJob,
   Queue,
   Scheduler,
   Worker,
-  type Job,
-  type ParsedJob,
 } from "node-resque";
 import {
   Action,
+  type ActionParams,
   api,
-  config,
   Connection,
+  config,
   logger,
   RUN_MODE,
-  type ActionParams,
 } from "../api";
 import { Initializer } from "../classes/Initializer";
 import { LogFormat } from "../classes/Logger";
@@ -61,7 +62,7 @@ export class Resque extends Initializer {
       api.resque.jobs,
     );
 
-    api.resque.queue.on("error", (error) => {
+    api.resque.queue.on("error", (error: Error) => {
       logger.error(`[resque:queue] ${error}`);
     });
 
@@ -85,7 +86,7 @@ export class Resque extends Initializer {
         retryStuckJobs: config.tasks.retryStuckJobs,
       });
 
-      api.resque.scheduler.on("error", (error) => {
+      api.resque.scheduler.on("error", (error: Error) => {
         logger.error(`[resque:scheduler] ${error}`);
       });
 
@@ -105,7 +106,7 @@ export class Resque extends Initializer {
       });
       api.resque.scheduler.on(
         "cleanStuckWorker",
-        (workerName, errorPayload, delta) => {
+        (workerName: string, errorPayload: ErrorPayload, delta: number) => {
           logger.warn(
             `[resque:scheduler] cleaning stuck worker: ${workerName}, ${errorPayload}, ${delta}`,
           );

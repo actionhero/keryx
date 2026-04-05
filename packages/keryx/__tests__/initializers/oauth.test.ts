@@ -63,10 +63,12 @@ describe("oauth initializer", () => {
       const body = (await res!.json()) as {
         resource: string;
         authorization_servers: string[];
+        scopes_supported: string[];
       };
       expect(body.resource).toBeDefined();
       expect(body.authorization_servers).toBeArray();
       expect(body.authorization_servers.length).toBeGreaterThan(0);
+      expect(body.scopes_supported).toEqual(["mcp"]);
     });
 
     test("authorization server metadata returns correct structure", async () => {
@@ -85,6 +87,7 @@ describe("oauth initializer", () => {
       expect(body.response_types_supported).toEqual(["code"]);
       expect(body.grant_types_supported).toEqual(["authorization_code"]);
       expect(body.code_challenge_methods_supported).toEqual(["S256"]);
+      expect(body.client_id_metadata_document_supported).toBe(false);
     });
   });
 
@@ -288,6 +291,36 @@ describe("oauth initializer", () => {
           code: "test-code-client-mismatch",
           code_verifier: "test-verifier",
           client_id: "different-client",
+        }).toString(),
+      });
+      expect(res).not.toBeNull();
+      expect(res!.status).toBe(400);
+
+      const body = (await res!.json()) as { error_description: string };
+      expect(body.error_description).toContain("client_id mismatch");
+    });
+
+    test("rejects missing client_id", async () => {
+      const codeData = {
+        clientId: "original-client",
+        userId: 1,
+        codeChallenge: "test-challenge",
+        redirectUri: "http://localhost:9999/callback",
+      };
+      await api.redis.redis.set(
+        "oauth:code:test-code-client-missing",
+        JSON.stringify(codeData),
+        "EX",
+        300,
+      );
+
+      const res = await oauthRequest("/oauth/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code: "test-code-client-missing",
+          code_verifier: "test-verifier",
         }).toString(),
       });
       expect(res).not.toBeNull();

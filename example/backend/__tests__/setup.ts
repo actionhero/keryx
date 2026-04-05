@@ -18,9 +18,9 @@ export const HOOK_TIMEOUT = 15_000;
  * Call after api.start() so the server has bound its port.
  */
 export function serverUrl(): string {
-  const web = api.servers.servers.find((s) => s.name === "web") as
-    | WebServer
-    | undefined;
+  const web = api.servers.servers.find(
+    (s: { name: string }) => s.name === "web",
+  ) as WebServer | undefined;
   return web?.url || "";
 }
 

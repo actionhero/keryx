@@ -88,6 +88,10 @@ That's it. The agent can now discover all your actions as tools, authenticate vi
 - **Strongly-typed frontend integration** — `ActionResponse<MyAction>` gives the frontend type-safe API responses, no code generation needed
 - **Drizzle ORM** with auto-migrations (replacing the old `ah-sequelize-plugin`)
 - **Companion Vite + React frontend** as a separate application (replacing `ah-next-plugin`)
+- **Streaming responses** — SSE and chunked binary streaming via `StreamingResponse`, with per-transport behavior (HTTP, WebSocket, MCP)
+- **Pagination helpers** — `paginationInputs()` Zod mixin + `paginate()` utility for standardized paginated responses
+- **Database transactions** — `withTransaction()` and `TransactionMiddleware` for automatic commit/rollback across action execution
+- **Redis caching patterns** — cache-aside and response-level cache middleware using the built-in ioredis connection
 
 ### Why Bun?
 
@@ -213,6 +217,31 @@ OAuth 2.1 with PKCE is used for authentication — MCP clients go through a brow
 
 A parent task can distribute work across many child jobs using `api.actions.fanOut()` for parallel processing. Results are collected automatically in Redis. See the [Tasks guide](https://keryxjs.com/guide/tasks) for full API and examples.
 
+### Streaming Responses
+
+Actions can stream data by returning a `StreamingResponse`. The framework handles SSE, chunked binary, and cross-transport behavior automatically:
+
+```ts
+async run(params: { prompt: string }) {
+  const sse = StreamingResponse.sse();
+
+  (async () => {
+    try {
+      for await (const token of callLLM(params.prompt)) {
+        sse.send(token, { event: "token" });
+      }
+      sse.close();
+    } catch (e) {
+      sse.sendError(String(e));
+    }
+  })();
+
+  return sse;
+}
+```
+
+Over HTTP this is native SSE; over WebSocket each chunk becomes an incremental message; over MCP chunks are forwarded as logging messages. See the [Streaming guide](https://keryxjs.com/guide/streaming) for full details.
+
 ## Coming from ActionHero?
 
 Keryx keeps the core ideas but rewrites everything on Bun with first-class MCP support. The biggest changes: unified controllers (actions = tasks = CLI commands = MCP tools), separate frontend/backend applications, Drizzle ORM, and MCP as a first-class transport.
@@ -228,6 +257,8 @@ Each application has its own `Dockerfile`, and a `docker-compose.yml` runs them 
 Full docs at [keryxjs.com](https://keryxjs.com), including:
 - [Getting Started](https://keryxjs.com/guide/)
 - [Actions Guide](https://keryxjs.com/guide/actions)
+- [Streaming](https://keryxjs.com/guide/streaming)
+- [Caching](https://keryxjs.com/guide/caching)
 - [API Reference](https://keryxjs.com/reference/actions)
 
 <p align="center">

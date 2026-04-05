@@ -1,24 +1,21 @@
-import {
-  McpServer,
-  ResourceTemplate,
-} from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import colors from "colors";
 import { randomUUID } from "crypto";
-import * as z4mini from "zod/v4-mini";
 import { api, logger } from "../api";
-import { MCP_RESPONSE_FORMAT } from "../classes/Action";
-import { Connection } from "../classes/Connection";
 import { Initializer } from "../classes/Initializer";
 import { ErrorType, TypedError } from "../classes/TypedError";
 import { config } from "../config";
-import pkg from "../package.json";
+import { buildCorsHeaders, getExternalOrigin } from "../util/http";
 import {
-  appendHeaders,
-  buildCorsHeaders,
-  getExternalOrigin,
-} from "../util/http";
-import { toMarkdown } from "../util/toMarkdown";
+  createMcpServer,
+  formatToolName,
+  handleTransportRequest,
+  type McpAuthInfo,
+  mcpJsonResponse,
+  parseToolName,
+  sanitizeSchemaForMcp,
+} from "../util/mcpServer";
 import type { PubSubMessage } from "./pubsub";
 
 type McpHandleRequest = (req: Request, ip: string) => Promise<Response>;
@@ -29,25 +26,6 @@ declare module "../classes/API" {
   export interface API {
     [namespace]: Awaited<ReturnType<McpInitializer["initialize"]>>;
   }
-}
-
-/**
- * Convert a Keryx action name to a valid MCP tool name.
- * MCP tool names only allow: A-Z, a-z, 0-9, underscore (_), dash (-), and dot (.)
- */
-function formatToolName(actionName: string): string {
-  return actionName.replace(/:/g, "-");
-}
-
-/**
- * Convert an MCP tool name back to the original Keryx action name.
- */
-function parseToolName(toolName: string): string {
-  // Reverse lookup against registered actions
-  const action = api.actions.actions.find(
-    (a) => formatToolName(a.name) === toolName,
-  );
-  return action ? action.name : toolName;
 }
 
 export class McpInitializer extends Initializer {
@@ -102,7 +80,7 @@ export class McpInitializer extends Initializer {
 
     const mcpRoute = config.server.mcp.route;
 
-    // 1. Route validation
+    // Route validation
     if (!mcpRoute.startsWith("/")) {
       throw new TypedError({
         message: `MCP route must start with "/", got: ${mcpRoute}`,
@@ -130,7 +108,7 @@ export class McpInitializer extends Initializer {
       }
     }
 
-    // 2. Build handleRequest — each new session creates a fresh McpServer
+    // Build handleRequest — each new session creates a fresh McpServer
     const transports = api.mcp.transports;
     const mcpServers = api.mcp.mcpServers;
 
@@ -153,15 +131,10 @@ export class McpInitializer extends Initializer {
         if (appUrl && !appUrl.startsWith("http://localhost")) {
           const allowedOrigin = new URL(appUrl).origin;
           if (requestOrigin !== allowedOrigin) {
-            return new Response(
-              JSON.stringify({ error: "Origin not allowed" }),
-              {
-                status: 403,
-                headers: {
-                  "Content-Type": "application/json",
-                  ...corsHeaders,
-                },
-              },
+            return mcpJsonResponse(
+              { error: "Origin not allowed" },
+              403,
+              corsHeaders,
             );
           }
         }
@@ -173,21 +146,11 @@ export class McpInitializer extends Initializer {
       }
 
       if (method !== "GET" && method !== "POST" && method !== "DELETE") {
-        return new Response(null, {
-          status: 405,
-          headers: corsHeaders,
-        });
+        return new Response(null, { status: 405, headers: corsHeaders });
       }
 
       // Extract and verify Bearer token for auth
-      let authInfo:
-        | {
-            token: string;
-            clientId: string;
-            scopes: string[];
-            extra?: Record<string, unknown>;
-          }
-        | undefined;
+      let authInfo: McpAuthInfo | undefined;
       const authHeader = req.headers.get("authorization");
       if (authHeader?.startsWith("Bearer ")) {
         const token = authHeader.slice(7);
@@ -206,15 +169,12 @@ export class McpInitializer extends Initializer {
       if (!authInfo) {
         const origin = getExternalOrigin(req, new URL(req.url));
         const resourceMetadataUrl = `${origin}/.well-known/oauth-protected-resource${config.server.mcp.route}`;
-        return new Response(
-          JSON.stringify({ error: "Authentication required" }),
+        return mcpJsonResponse(
+          { error: "Authentication required" },
+          401,
+          corsHeaders,
           {
-            status: 401,
-            headers: {
-              "Content-Type": "application/json",
-              "WWW-Authenticate": `Bearer resource_metadata="${resourceMetadataUrl}"`,
-              ...corsHeaders,
-            },
+            "WWW-Authenticate": `Bearer resource_metadata="${resourceMetadataUrl}", scope="mcp"`,
           },
         );
       }
@@ -250,72 +210,27 @@ export class McpInitializer extends Initializer {
 
         await mcpServer.connect(transport);
 
-        try {
-          const response = await transport.handleRequest(req, { authInfo });
-          return appendHeaders(response, corsHeaders);
-        } catch (e) {
-          logger.error(`MCP transport error: ${e}`);
-          return new Response(
-            JSON.stringify({
-              jsonrpc: "2.0",
-              error: { code: -32603, message: "Internal server error" },
-              id: null,
-            }),
-            {
-              status: 500,
-              headers: {
-                "Content-Type": "application/json",
-                ...corsHeaders,
-              },
-            },
-          );
-        }
+        return handleTransportRequest(transport, req, authInfo, corsHeaders);
       }
 
       if (sessionId) {
         const transport = transports.get(sessionId);
         if (!transport) {
-          return new Response(JSON.stringify({ error: "Session not found" }), {
-            status: 404,
-            headers: {
-              "Content-Type": "application/json",
-              ...corsHeaders,
-            },
-          });
-        }
-
-        try {
-          const response = await transport.handleRequest(req, { authInfo });
-          return appendHeaders(response, corsHeaders);
-        } catch (e) {
-          logger.error(`MCP transport error: ${e}`);
-          return new Response(
-            JSON.stringify({
-              jsonrpc: "2.0",
-              error: { code: -32603, message: "Internal server error" },
-              id: null,
-            }),
-            {
-              status: 500,
-              headers: {
-                "Content-Type": "application/json",
-                ...corsHeaders,
-              },
-            },
+          return mcpJsonResponse(
+            { error: "Session not found" },
+            404,
+            corsHeaders,
           );
         }
+
+        return handleTransportRequest(transport, req, authInfo, corsHeaders);
       }
 
       // GET/DELETE without session ID
-      return new Response(
-        JSON.stringify({ error: "Mcp-Session-Id header required" }),
-        {
-          status: 400,
-          headers: {
-            "Content-Type": "application/json",
-            ...corsHeaders,
-          },
-        },
+      return mcpJsonResponse(
+        { error: "Mcp-Session-Id header required" },
+        400,
+        corsHeaders,
       );
     };
 
@@ -349,290 +264,4 @@ export class McpInitializer extends Initializer {
 
     api.mcp.handleRequest = null;
   }
-}
-
-/**
- * Create a new McpServer instance with all actions registered as tools, resources, and prompts.
- * Each MCP session gets its own McpServer (the SDK requires 1:1 mapping).
- * Actions with `mcp.tool === false` are excluded from tool registration.
- */
-function createMcpServer(): McpServer {
-  const mcpServer = new McpServer(
-    { name: pkg.name, version: pkg.version },
-    { instructions: config.server.mcp.instructions },
-  );
-
-  for (const action of api.actions.actions) {
-    if (action.mcp?.tool === false) continue;
-
-    const toolName = formatToolName(action.name);
-    const toolConfig: {
-      description?: string;
-      inputSchema?: any;
-    } = {};
-
-    if (action.description) {
-      toolConfig.description = action.description;
-    }
-
-    toolConfig.inputSchema = action.inputs
-      ? sanitizeSchemaForMcp(action.inputs)
-      : z4mini.strictObject({});
-
-    mcpServer.registerTool(
-      toolName,
-      toolConfig,
-      async (args: any, extra: any) => {
-        const authInfo = extra.authInfo;
-
-        const clientIp = (authInfo?.extra?.ip as string) || "unknown";
-        const mcpSessionId = extra.sessionId || "";
-        const connection = new Connection(
-          "mcp",
-          clientIp,
-          randomUUID(),
-          undefined,
-          authInfo?.token,
-        );
-
-        try {
-          // If Bearer token was verified, set up authenticated session
-          if (authInfo?.extra?.userId) {
-            await connection.loadSession();
-            await connection.updateSession({ userId: authInfo.extra.userId });
-          }
-
-          const params =
-            args && typeof args === "object"
-              ? (args as Record<string, unknown>)
-              : {};
-
-          const { response, error } = await connection.act(
-            action.name,
-            params,
-            "",
-            mcpSessionId,
-          );
-
-          // Errors always use JSON for programmatic handling
-          if (error) {
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: JSON.stringify({
-                    error: error.message,
-                    type: error.type,
-                  }),
-                },
-              ],
-              isError: true,
-            };
-          }
-
-          const format = action.mcp?.responseFormat ?? MCP_RESPONSE_FORMAT.JSON;
-          const text =
-            format === MCP_RESPONSE_FORMAT.MARKDOWN
-              ? toMarkdown(response, {
-                  maxDepth: config.server.mcp.markdownDepthLimit,
-                })
-              : JSON.stringify(response);
-
-          return {
-            content: [{ type: "text" as const, text }],
-          };
-        } finally {
-          connection.destroy();
-        }
-      },
-    );
-  }
-
-  // Register actions as MCP resources
-  for (const action of api.actions.actions) {
-    if (!action.mcp?.resource) continue;
-    const { uri, uriTemplate, mimeType } = action.mcp.resource;
-
-    const readCb = async (
-      mcpUri: URL,
-      variables: Record<string, string | string[]>,
-      extra: any,
-    ) => {
-      const authInfo = extra.authInfo;
-      const clientIp = (authInfo?.extra?.ip as string) || "unknown";
-      const mcpSessionId = extra.sessionId || "";
-      const connection = new Connection(
-        "mcp",
-        clientIp,
-        randomUUID(),
-        undefined,
-        authInfo?.token,
-      );
-
-      try {
-        if (authInfo?.extra?.userId) {
-          await connection.loadSession();
-          await connection.updateSession({ userId: authInfo.extra.userId });
-        }
-
-        const params: Record<string, unknown> = { ...variables };
-        const { response, error } = await connection.act(
-          action.name,
-          params,
-          "",
-          mcpSessionId,
-        );
-
-        if (error) {
-          throw new TypedError({
-            message: error.message,
-            type: error.type ?? ErrorType.CONNECTION_ACTION_RUN,
-          });
-        }
-
-        const content = response as {
-          text?: string;
-          blob?: string;
-          mimeType?: string;
-        };
-        const resolvedMimeType =
-          content.mimeType ?? mimeType ?? "application/json";
-
-        return {
-          contents: [
-            {
-              uri: mcpUri.toString(),
-              mimeType: resolvedMimeType,
-              ...(content.blob
-                ? { blob: content.blob }
-                : {
-                    text:
-                      typeof content.text === "string"
-                        ? content.text
-                        : JSON.stringify(response),
-                  }),
-            },
-          ],
-        };
-      } finally {
-        connection.destroy();
-      }
-    };
-
-    if (uriTemplate) {
-      mcpServer.registerResource(
-        formatToolName(action.name),
-        new ResourceTemplate(uriTemplate, { list: undefined }),
-        { description: action.description, mimeType },
-        readCb,
-      );
-    } else if (uri) {
-      mcpServer.registerResource(
-        formatToolName(action.name),
-        uri,
-        { description: action.description, mimeType },
-        (mcpUri: URL, extra: any) => readCb(mcpUri, {}, extra),
-      );
-    }
-  }
-
-  // Register actions as MCP prompts
-  for (const action of api.actions.actions) {
-    if (!action.mcp?.prompt) continue;
-    const { title } = action.mcp.prompt;
-
-    mcpServer.registerPrompt(
-      formatToolName(action.name),
-      {
-        title: title ?? action.name,
-        description: action.description,
-        // argsSchema expects a Record<string, ZodType> (the shape), not a z.object()
-        argsSchema: action.inputs
-          ? sanitizeSchemaForMcp(action.inputs)?.shape
-          : undefined,
-      },
-      async (args: any, extra: any) => {
-        const authInfo = extra.authInfo;
-        const clientIp = (authInfo?.extra?.ip as string) || "unknown";
-        const mcpSessionId = extra.sessionId || "";
-        const connection = new Connection(
-          "mcp",
-          clientIp,
-          randomUUID(),
-          undefined,
-          authInfo?.token,
-        );
-
-        try {
-          if (authInfo?.extra?.userId) {
-            await connection.loadSession();
-            await connection.updateSession({ userId: authInfo.extra.userId });
-          }
-
-          const params =
-            args && typeof args === "object"
-              ? (args as Record<string, unknown>)
-              : {};
-
-          const { response, error } = await connection.act(
-            action.name,
-            params,
-            "",
-            mcpSessionId,
-          );
-
-          if (error) {
-            throw new TypedError({
-              message: error.message,
-              type: error.type ?? ErrorType.CONNECTION_ACTION_RUN,
-            });
-          }
-
-          return response as any;
-        } finally {
-          connection.destroy();
-        }
-      },
-    );
-  }
-
-  return mcpServer;
-}
-
-/**
- * Sanitize a Zod object schema for MCP tool registration.
- * The MCP SDK's internal JSON Schema converter (zod/v4-mini toJSONSchema)
- * cannot handle certain Zod types like z.date(). This function tests each
- * field individually and replaces incompatible fields with z.string().
- */
-function sanitizeSchemaForMcp(schema: any): any {
-  if (!schema || typeof schema !== "object" || !("shape" in schema)) {
-    return schema;
-  }
-
-  // Empty object schemas should use strictObject to produce
-  // { type: "object", additionalProperties: false } per MCP spec
-  if (Object.entries(schema.shape as Record<string, any>).length === 0) {
-    return z4mini.strictObject({});
-  }
-
-  const newShape: Record<string, any> = {};
-  let needsSanitization = false;
-
-  for (const [key, fieldSchema] of Object.entries(
-    schema.shape as Record<string, any>,
-  )) {
-    try {
-      z4mini.toJSONSchema(z4mini.object({ [key]: fieldSchema }), {
-        target: "draft-7",
-        io: "input",
-      });
-      newShape[key] = fieldSchema;
-    } catch {
-      needsSanitization = true;
-      newShape[key] = z4mini.string();
-    }
-  }
-
-  return needsSanitization ? z4mini.object(newShape) : schema;
 }

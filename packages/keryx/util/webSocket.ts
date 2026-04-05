@@ -3,6 +3,7 @@ import { api, logger } from "../api";
 import type { ActionParams } from "../classes/Action";
 import { CHANNEL_NAME_PATTERN } from "../classes/Channel";
 import type { Connection } from "../classes/Connection";
+import { StreamingResponse } from "../classes/StreamingResponse";
 import { ErrorType, TypedError } from "../classes/TypedError";
 import { config } from "../config";
 import type {
@@ -40,6 +41,34 @@ export async function handleWebsocketAction(
         error: { ...buildErrorPayload(error) },
       }),
     );
+  } else if (response instanceof StreamingResponse) {
+    const reader = response.stream.getReader();
+    const decoder = new TextDecoder();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        ws.send(
+          JSON.stringify({
+            messageId: formattedMessage.messageId,
+            streaming: true,
+            chunk: decoder.decode(value),
+          }),
+        );
+      }
+    } finally {
+      try {
+        ws.send(
+          JSON.stringify({
+            messageId: formattedMessage.messageId,
+            streaming: false,
+          }),
+        );
+      } catch (_e) {
+        // Connection may already be closed (e.g., client disconnected mid-stream)
+      }
+      response.onClose?.();
+    }
   } else {
     ws.send(
       JSON.stringify({

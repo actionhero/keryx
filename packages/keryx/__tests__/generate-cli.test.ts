@@ -147,6 +147,29 @@ describe("keryx generate ops", () => {
   });
 });
 
+describe("keryx generate plugin", () => {
+  test("generates a plugin manifest", async () => {
+    const proc = runGenerate("plugin", "analytics");
+    expect(await proc.exited).toBe(0);
+    expect(fs.existsSync(path.join(projectDir, "plugins/analytics.ts"))).toBe(
+      true,
+    );
+    expect(
+      fs.existsSync(
+        path.join(projectDir, "__tests__/plugins/analytics.test.ts"),
+      ),
+    ).toBe(true);
+
+    const content = fs.readFileSync(
+      path.join(projectDir, "plugins/analytics.ts"),
+      "utf-8",
+    );
+    expect(content).toContain("export const AnalyticsPlugin: KeryxPlugin");
+    expect(content).toContain('name: "analytics"');
+    expect(content).toContain('version: "0.1.0"');
+  });
+});
+
 describe("keryx generate options", () => {
   test("--dry-run does not create files", async () => {
     const proc = runGenerate("action", "dry-run-test", "--dry-run");

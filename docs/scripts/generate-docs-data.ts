@@ -7,7 +7,7 @@
 
 import { mkdir } from "fs/promises";
 import path from "path";
-import { Project, ts, type Type } from "ts-morph";
+import { Project, type Type, ts } from "ts-morph";
 
 const rootDir = path.resolve(import.meta.dir, "../../backend");
 const outDir = path.resolve(import.meta.dir, "../.vitepress/data");

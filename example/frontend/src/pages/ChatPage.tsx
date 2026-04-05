@@ -1,9 +1,8 @@
+import type { ChannelMembers } from "@backend/actions/channel";
+import type { MessagesList } from "@backend/actions/message";
 import type { ActionResponse } from "keryx";
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, Card, Col, Form, Row, Table } from "react-bootstrap";
-
-import type { ChannelMembers } from "@backend/actions/channel";
-import type { MessagesList } from "@backend/actions/message";
 
 import { useAuth } from "../hooks/useAuth";
 import { API_URL, apiFetch } from "../utils/client";

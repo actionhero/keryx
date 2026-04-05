@@ -1,5 +1,5 @@
-import { $ } from "bun";
 import { beforeAll, describe, expect, test } from "bun:test";
+import { $ } from "bun";
 import { api } from "keryx";
 import pkg from "./../../package.json";
 import { HOOK_TIMEOUT } from "./../setup";

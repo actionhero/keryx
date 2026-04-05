@@ -1,6 +1,8 @@
 import fs from "fs";
 import Mustache from "mustache";
 import path from "path";
+import type { PluginGenerator } from "../classes/Plugin";
+import { config } from "../config";
 
 const VALID_TYPES = [
   "action",
@@ -8,8 +10,38 @@ const VALID_TYPES = [
   "middleware",
   "channel",
   "ops",
+  "plugin",
 ] as const;
 type GeneratorType = (typeof VALID_TYPES)[number];
+
+/**
+ * Returns all valid generator types, including built-in types and
+ * any custom types registered by plugins.
+ */
+export function getValidTypes(): string[] {
+  const types = [...VALID_TYPES] as string[];
+  for (const plugin of config.plugins) {
+    if (plugin.generators) {
+      for (const gen of plugin.generators) {
+        if (!types.includes(gen.type)) types.push(gen.type);
+      }
+    }
+  }
+  return types;
+}
+
+/**
+ * Find a plugin generator definition for a given type.
+ */
+function findPluginGenerator(type: string): PluginGenerator | undefined {
+  for (const plugin of config.plugins) {
+    if (plugin.generators) {
+      const gen = plugin.generators.find((g) => g.type === type);
+      if (gen) return gen;
+    }
+  }
+  return undefined;
+}
 
 export interface GenerateOptions {
   dryRun?: boolean;
@@ -46,6 +78,7 @@ function resolveFilePath(type: GeneratorType, name: string): string {
     middleware: "middleware",
     channel: "channels",
     ops: "ops",
+    plugin: "plugins",
   };
 
   const baseDir = dirMap[type];
@@ -58,6 +91,27 @@ function resolveFilePath(type: GeneratorType, name: string): string {
   }
 
   return path.join(baseDir, `${name}.ts`);
+}
+
+/**
+ * Determine the directory and filename for a plugin generator type + name.
+ */
+function resolvePluginFilePath(gen: PluginGenerator, name: string): string {
+  const segments = name.split(":");
+  if (segments.length > 1) {
+    const fileName = segments.pop()!;
+    return path.join(gen.directory, ...segments, `${fileName}.ts`);
+  }
+  return path.join(gen.directory, `${name}.ts`);
+}
+
+/**
+ * Determine the test file path for a plugin generator component.
+ */
+function resolvePluginTestPath(gen: PluginGenerator, name: string): string {
+  const componentPath = resolvePluginFilePath(gen, name);
+  const parsed = path.parse(componentPath);
+  return path.join("__tests__", parsed.dir, `${parsed.name}.test.ts`);
 }
 
 /**
@@ -92,14 +146,21 @@ export async function generateComponent(
   rootDir: string,
   options: GenerateOptions = {},
 ): Promise<string[]> {
-  if (!VALID_TYPES.includes(type as GeneratorType)) {
+  const allValidTypes = getValidTypes();
+  if (!allValidTypes.includes(type)) {
     throw new Error(
-      `Unknown generator type "${type}". Valid types: ${VALID_TYPES.join(", ")}`,
+      `Unknown generator type "${type}". Valid types: ${allValidTypes.join(", ")}`,
     );
   }
 
-  const generatorType = type as GeneratorType;
-  const filePath = resolveFilePath(generatorType, name);
+  // Check if this is a plugin-provided generator type
+  const pluginGen = VALID_TYPES.includes(type as GeneratorType)
+    ? undefined
+    : findPluginGenerator(type);
+
+  const filePath = pluginGen
+    ? resolvePluginFilePath(pluginGen, name)
+    : resolveFilePath(type as GeneratorType, name);
   const fullPath = path.join(rootDir, filePath);
   const createdFiles: string[] = [];
 
@@ -112,25 +173,32 @@ export async function generateComponent(
 
   // Build template view
   let className = toClassName(name);
-  if (generatorType === "middleware") className += "Middleware";
-  if (generatorType === "channel") className += "Channel";
+  if (type === "middleware") className += "Middleware";
+  if (type === "channel") className += "Channel";
+  if (type === "plugin") className += "Plugin";
 
   const view: Record<string, string> = { name, className };
-  if (generatorType === "action") {
+  if (type === "action") {
     view.route = toRoute(name);
   }
 
-  // Determine template
-  const templateMap: Record<GeneratorType, string> = {
-    action: "action.ts.mustache",
-    initializer: "initializer.ts.mustache",
-    middleware: "action-middleware.ts.mustache",
-    channel: "channel.ts.mustache",
-    ops: "ops.ts.mustache",
-  };
-
-  const template = await loadTemplate(templateMap[generatorType]);
-  const content = Mustache.render(template, view);
+  // Load and render template
+  let content: string;
+  if (pluginGen) {
+    const templateStr = await Bun.file(pluginGen.templatePath).text();
+    content = Mustache.render(templateStr, view);
+  } else {
+    const templateMap: Record<GeneratorType, string> = {
+      action: "action.ts.mustache",
+      initializer: "initializer.ts.mustache",
+      middleware: "action-middleware.ts.mustache",
+      channel: "channel.ts.mustache",
+      ops: "ops.ts.mustache",
+      plugin: "plugin.ts.mustache",
+    };
+    const template = await loadTemplate(templateMap[type as GeneratorType]);
+    content = Mustache.render(template, view);
+  }
 
   if (options.dryRun) {
     console.log(`Would create: ${filePath}`);
@@ -145,14 +213,24 @@ export async function generateComponent(
 
   // Generate test file
   if (!options.noTest) {
-    const testPath = resolveTestPath(generatorType, name);
+    const testPath = pluginGen
+      ? resolvePluginTestPath(pluginGen, name)
+      : resolveTestPath(type as GeneratorType, name);
     const testFullPath = path.join(rootDir, testPath);
 
     if (!options.force && fs.existsSync(testFullPath)) {
       // Silently skip test file if it already exists
     } else {
-      const testTemplate = await loadTemplate("test.ts.mustache");
-      const testContent = Mustache.render(testTemplate, view);
+      let testContent: string;
+      if (pluginGen?.testTemplatePath) {
+        const testTemplateStr = await Bun.file(
+          pluginGen.testTemplatePath,
+        ).text();
+        testContent = Mustache.render(testTemplateStr, view);
+      } else {
+        const testTemplate = await loadTemplate("test.ts.mustache");
+        testContent = Mustache.render(testTemplate, view);
+      }
 
       if (options.dryRun) {
         console.log(`Would create: ${testPath}`);

@@ -1,4 +1,4 @@
-import { Connection, api } from "../api";
+import { api, Connection } from "../api";
 import { Initializer } from "../classes/Initializer";
 
 const namespace = "connections";

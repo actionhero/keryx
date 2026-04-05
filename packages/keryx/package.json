@@ -1,6 +1,6 @@
 {
   "name": "keryx",
-  "version": "0.17.0",
+  "version": "0.22.0",
   "module": "index.ts",
   "type": "module",
   "license": "MIT",
@@ -28,10 +28,15 @@
     "ai",
     "ai-agents",
     "mcp-server",
+    "mcp-framework",
     "oauth2",
+    "oauth",
     "tool-calling",
     "llm",
+    "claude",
     "fullstack",
+    "background-tasks",
+    "zod",
     "transport-agnostic",
     "actionhero"
   ],
@@ -72,8 +77,8 @@
     "migrations": "bun run migrations.ts",
     "test": "tsc && bun test",
     "compile": "bun build keryx.ts --compile --outfile keryx",
-    "lint": "tsc && prettier --check .",
-    "format": "tsc && prettier --write .",
+    "lint": "tsc && biome check .",
+    "format": "tsc && biome check --write .",
     "prepublishOnly": "cp ../../README.md ."
   },
   "dependencies": {
@@ -96,11 +101,8 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@trivago/prettier-plugin-sort-imports": "^5.2.2",
-    "@types/bun": "latest",
+    "@types/bun": "^1.1.8",
     "@types/formidable": "^3.4.6",
-    "drizzle-kit": "^1.0.0-beta.20",
-    "prettier": "^3.8.1",
-    "prettier-plugin-organize-imports": "^4.3.0"
+    "drizzle-kit": "^1.0.0-beta.20"
   }
 }

@@ -1,5 +1,5 @@
-import type { Subprocess } from "bun";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import type { Subprocess } from "bun";
 import fs from "fs";
 import os from "os";
 import path from "path";

@@ -2,7 +2,8 @@ import crypto from "crypto";
 import { eq } from "drizzle-orm";
 import { api, Initializer, logger } from "keryx";
 import { hashPassword } from "../ops/UserOps";
-import { users, type User } from "../schema/users";
+import { type User, users } from "../schema/users";
+
 const namespace = "application";
 
 const defaultUserEmail = "admin@keryxjs.com";

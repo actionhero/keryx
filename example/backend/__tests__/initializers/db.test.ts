@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
-import { api } from "keryx";
+import { api, type Transaction } from "keryx";
 import { users } from "../../schema/users";
 import { HOOK_TIMEOUT } from "./../setup";
 
@@ -127,7 +127,7 @@ describe("db initializer", () => {
   test("transactions work", async () => {
     await api.db.clearDatabase();
 
-    await api.db.db.transaction(async (tx) => {
+    await api.db.db.transaction(async (tx: Transaction) => {
       await tx.insert(users).values({
         name: "Transaction User",
         email: "transaction@example.com",

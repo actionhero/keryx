@@ -1,7 +1,7 @@
-import { defineConfig } from "vitepress";
 import { readFileSync } from "fs";
-import { resolve, dirname } from "path";
+import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
+import { defineConfig } from "vitepress";
 import llmstxt from "vitepress-plugin-llms";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -37,9 +37,12 @@ For example: \`/guide/actions.md\`, \`/reference/config.md\`
 - Middleware: /guide/middleware.md
 - MCP: /guide/mcp.md
 - Configuration: /guide/config.md
+- Plugins: /guide/plugins.md
 - CLI: /guide/cli.md
 - Authentication: /guide/authentication.md
+- Typed Clients: /guide/typed-clients.md
 - Building for AI Agents: /guide/agents.md
+- Caching: /guide/caching.md
 - Advanced Patterns: /guide/advanced-patterns.md
 - Deployment: /guide/deployment.md
 `;
@@ -81,8 +84,31 @@ export default defineConfig({
   title: "Keryx",
   description:
     "The fullstack TypeScript framework for MCP and APIs — transport-agnostic actions for HTTP, WebSocket, CLI, background tasks, and MCP, built on Bun.",
+  transformHead({ pageData }) {
+    const mdUrl = "/" + pageData.relativePath;
+    return [["link", { rel: "alternate", type: "text/markdown", href: mdUrl }]];
+  },
+
   head: [
     ["link", { rel: "icon", href: "/images/horn.svg" }],
+    [
+      "link",
+      {
+        rel: "alternate",
+        type: "text/plain",
+        href: "/llms.txt",
+        title: "LLM documentation index",
+      },
+    ],
+    [
+      "link",
+      {
+        rel: "alternate",
+        type: "text/plain",
+        href: "/llms-full.txt",
+        title: "Full LLM documentation",
+      },
+    ],
     [
       "script",
       {
@@ -128,12 +154,14 @@ export default defineConfig({
           text: "Core Concepts",
           items: [
             { text: "Actions", link: "/guide/actions" },
+            { text: "Streaming", link: "/guide/streaming" },
             { text: "Initializers", link: "/guide/initializers" },
             { text: "Channels", link: "/guide/channels" },
             { text: "Tasks", link: "/guide/tasks" },
             { text: "Middleware", link: "/guide/middleware" },
             { text: "MCP", link: "/guide/mcp" },
             { text: "Configuration", link: "/guide/config" },
+            { text: "Plugins", link: "/guide/plugins" },
           ],
         },
         {
@@ -141,10 +169,12 @@ export default defineConfig({
           items: [
             { text: "CLI", link: "/guide/cli" },
             { text: "Authentication", link: "/guide/authentication" },
+            { text: "Typed Clients", link: "/guide/typed-clients" },
             {
               text: "Building for AI Agents",
               link: "/guide/agents",
             },
+            { text: "Caching", link: "/guide/caching" },
             { text: "Security", link: "/guide/security" },
             { text: "Advanced Patterns", link: "/guide/advanced-patterns" },
             { text: "Observability", link: "/guide/observability" },

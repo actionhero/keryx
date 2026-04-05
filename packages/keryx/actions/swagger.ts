@@ -182,18 +182,31 @@ export class Swagger implements Action {
 
       // Build responses - use generated schema if available
       const responses = JSON.parse(JSON.stringify(swaggerResponses));
-      const responseSchema = api.swagger?.responseSchemas[action.name];
-      if (responseSchema) {
-        const schemaName = `${action.name.replace(/:/g, "_")}_Response`;
-        components.schemas[schemaName] = responseSchema;
+
+      if (action.web?.streaming) {
+        // Streaming endpoints return SSE
         responses["200"] = {
-          description: "successful operation",
+          description: "Server-Sent Events stream",
           content: {
-            "application/json": {
-              schema: { $ref: `#/components/schemas/${schemaName}` },
+            "text/event-stream": {
+              schema: { type: "string" },
             },
           },
         };
+      } else {
+        const responseSchema = api.swagger?.responseSchemas[action.name];
+        if (responseSchema) {
+          const schemaName = `${action.name.replace(/:/g, "_")}_Response`;
+          components.schemas[schemaName] = responseSchema;
+          responses["200"] = {
+            description: "successful operation",
+            content: {
+              "application/json": {
+                schema: { $ref: `#/components/schemas/${schemaName}` },
+              },
+            },
+          };
+        }
       }
 
       // Add path/method

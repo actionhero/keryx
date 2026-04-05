@@ -3,8 +3,8 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import type { Status } from "../../actions/status";
-import { api, config, type ActionResponse } from "../../api";
-import { HTTP_METHOD, type Action } from "../../classes/Action";
+import { type ActionResponse, api, config } from "../../api";
+import { type Action, HTTP_METHOD } from "../../classes/Action";
 import { HOOK_TIMEOUT, serverUrl } from "./../setup";
 
 let url: string;

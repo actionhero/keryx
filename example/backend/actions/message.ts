@@ -1,16 +1,18 @@
-import { desc, eq, lt } from "drizzle-orm";
+import { count, desc, eq, lt } from "drizzle-orm";
 import {
+  type Action,
+  type ActionParams,
   api,
   Connection,
   HTTP_METHOD,
+  paginate,
+  paginationInputs,
   RateLimitMiddleware,
-  type Action,
-  type ActionParams,
 } from "keryx";
 import { z } from "zod";
 import { SessionMiddleware } from "../middleware/session";
 import { serializeMessage } from "../ops/MessageOps";
-import { messages } from "../schema/messages";
+import { type Message, messages } from "../schema/messages";
 import { users } from "../schema/users";
 import { zMessageIdOrModel } from "../util/zodMixins";
 import type { SessionImpl } from "./session";
@@ -59,37 +61,37 @@ export class MessageCrete implements Action {
 export class MessagesList implements Action {
   name = "messages:list";
   description =
-    "List chat messages in reverse chronological order (newest first) with pagination. Each message includes the author's name, message body, and timestamps. Requires an active session. Use 'limit' (1-100, default 10) and 'offset' (default 0) to paginate through results.";
+    "List chat messages in reverse chronological order (newest first) with pagination. Each message includes the author's name, message body, and timestamps. Requires an active session. Use 'limit' (1-100, default 10) and 'page' (default 1) to paginate through results.";
   middleware = [RateLimitMiddleware, SessionMiddleware];
   web = { route: "/messages/list", method: HTTP_METHOD.GET };
-  inputs = z.object({
-    limit: z.coerce.number().int().min(1).max(100).default(10),
-    offset: z.coerce.number().int().min(0).default(0),
-  });
+  inputs = paginationInputs({ defaultLimit: 10 });
 
   async run(
     params: ActionParams<MessagesList>,
     _connection: Connection<SessionImpl>,
   ) {
-    const _messages = await api.db.db
-      .select({
-        id: messages.id,
-        body: messages.body,
-        createdAt: messages.createdAt,
-        updatedAt: messages.updatedAt,
-        user_id: messages.user_id,
-        user_name: users.name,
-      })
-      .from(messages)
-      .orderBy(desc(messages.id))
-      .limit(params.limit)
-      .offset(params.offset)
-      .leftJoin(users, eq(users.id, messages.user_id));
+    const result = await paginate(
+      api.db.db
+        .select({
+          id: messages.id,
+          body: messages.body,
+          createdAt: messages.createdAt,
+          updatedAt: messages.updatedAt,
+          user_id: messages.user_id,
+          user_name: users.name,
+        })
+        .from(messages)
+        .orderBy(desc(messages.id))
+        .leftJoin(users, eq(users.id, messages.user_id)),
+      api.db.db.select({ count: count() }).from(messages),
+      params,
+    );
 
     return {
-      messages: _messages.map((m) =>
-        serializeMessage(m, m.user_name ? m.user_name : undefined),
+      messages: (result.data as (Message & { user_name: string | null })[]).map(
+        (m) => serializeMessage(m, m.user_name ? m.user_name : undefined),
       ),
+      pagination: result.pagination,
     };
   }
 }

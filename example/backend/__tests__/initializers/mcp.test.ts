@@ -1,7 +1,7 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { api, config } from "keryx";
+import { type Action, api, config } from "keryx";
 import { z } from "zod";
 import * as z4mini from "zod/v4-mini";
 import { HOOK_TIMEOUT, serverUrl } from "../setup";
@@ -707,7 +707,9 @@ describe("mcp initializer (enabled)", () => {
     });
 
     test("OAuth authorize page form fields match login action inputs", async () => {
-      const loginAction = api.actions.actions.find((a) => a.mcp?.isLoginAction);
+      const loginAction = api.actions.actions.find(
+        (a: Action) => a.mcp?.isLoginAction,
+      );
       expect(loginAction).toBeTruthy();
       const expectedFields = Object.keys(
         (loginAction!.inputs as z.ZodObject<any>).shape,
@@ -741,7 +743,7 @@ describe("mcp initializer (enabled)", () => {
 
     test("OAuth authorize page form fields match signup action inputs", async () => {
       const signupAction = api.actions.actions.find(
-        (a) => a.mcp?.isSignupAction,
+        (a: Action) => a.mcp?.isSignupAction,
       );
       expect(signupAction).toBeTruthy();
       const expectedFields = Object.keys(

@@ -1,12 +1,13 @@
+import { parse } from "node:url";
 import type { ServerWebSocket } from "bun";
 import colors from "colors";
 import cookie from "cookie";
 import { randomUUID } from "crypto";
-import { parse } from "node:url";
 import { api, logger } from "../api";
 import { type HTTP_METHOD } from "../classes/Action";
 import { Connection } from "../classes/Connection";
 import { Server } from "../classes/Server";
+import { StreamingResponse } from "../classes/StreamingResponse";
 import { ErrorStatusCodes, ErrorType, TypedError } from "../classes/TypedError";
 import { config } from "../config";
 import type { PubSubMessage } from "../initializers/pubsub";
@@ -170,6 +171,13 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
       return; // upgrade the request to a WebSocket
 
     const response = await this.handleHttpRequest(req, server, ip, id);
+
+    // SSE and other streaming responses: disable idle timeout and skip compression
+    if (response.headers.get("Content-Type")?.includes("text/event-stream")) {
+      server.timeout(req, 0);
+      return response;
+    }
+
     return compressResponse(response, req);
   }
 
@@ -407,6 +415,22 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
       httpMethod,
       req.url,
     );
+
+    // For streaming responses, defer connection cleanup until the stream closes
+    if (response instanceof StreamingResponse) {
+      response.onClose = () => {
+        connection.destroy();
+        api.observability.http.activeConnections.add(-1);
+      };
+
+      api.observability.http.requestsTotal.add(1, {
+        method: httpMethod,
+        route: actionName ?? "unknown",
+        status: "200",
+      });
+
+      return buildResponse(connection, response, 200, requestOrigin);
+    }
 
     connection.destroy();
     api.observability.http.activeConnections.add(-1);

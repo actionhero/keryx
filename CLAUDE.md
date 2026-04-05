@@ -85,8 +85,8 @@ bun run start                      # Start server
 bun run migrations                 # Generate DB migrations from schema changes
 
 # Formatting (from root)
-bun lint                           # Check formatting (prettier)
-bun format                         # Fix formatting (prettier)
+bun lint                           # Check formatting (biome)
+bun format                         # Fix formatting (biome)
 ```
 
 ## Architecture
@@ -126,6 +126,7 @@ import { SessionMiddleware } from "../middleware/session";
 - **No `as any`** — Never use `as any` type assertions. Use `@ts-expect-error` with an explanatory comment when the type system can't express something, or add a proper type/interface.
 - **Always `bunx`, never `npx`** — This is a Bun project. Use `bunx` for all package runner commands.
 - **JSDoc annotations on public APIs** — All public classes, methods, and types in `packages/keryx/` must have JSDoc annotations. Use `@param` for every parameter (with detailed prose explaining edge cases), `@returns` when non-obvious, and `@throws {TypedError}` where applicable. See `Action.run()` in `packages/keryx/classes/Action.ts` as the reference pattern. Keep simpler methods concise — don't over-document the obvious.
+- **Always use the plugin generator** — When creating a new plugin, always use `keryx generate plugin <name>` (or `keryx g plugin <name>`). This scaffolds the correct `KeryxPlugin` manifest in `plugins/` with the right structure and a matching test file. Never hand-write a plugin manifest from scratch.
 
 ## Testing
 

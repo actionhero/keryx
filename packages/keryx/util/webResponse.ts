@@ -1,4 +1,5 @@
 import type { Connection } from "../classes/Connection";
+import { StreamingResponse } from "../classes/StreamingResponse";
 import { TypedError } from "../classes/TypedError";
 import { config } from "../config";
 import { buildCorsHeaders } from "../util/http";
@@ -77,6 +78,10 @@ export function buildResponse(
   status = 200,
   requestOrigin?: string,
 ) {
+  if (response instanceof StreamingResponse) {
+    return response.toResponse(buildHeaders(connection, requestOrigin));
+  }
+
   if (response instanceof Response) {
     return response;
   }

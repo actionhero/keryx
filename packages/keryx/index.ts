@@ -18,23 +18,38 @@ import "./initializers/signals";
 import "./initializers/swagger";
 
 export * from "./api";
-export { HTTP_METHOD, MCP_RESPONSE_FORMAT } from "./classes/Action";
 export type { ActionMiddleware } from "./classes/Action";
-export { CHANNEL_NAME_PATTERN } from "./classes/Channel";
+export { HTTP_METHOD, MCP_RESPONSE_FORMAT } from "./classes/Action";
 export type { ChannelMiddleware } from "./classes/Channel";
+export { CHANNEL_NAME_PATTERN } from "./classes/Channel";
 export { Connection } from "./classes/Connection";
 export { LogLevel } from "./classes/Logger";
+export type { KeryxPlugin, PluginGenerator } from "./classes/Plugin";
+export { SSEResponse, StreamingResponse } from "./classes/StreamingResponse";
 export { ErrorStatusCodes, ErrorType, TypedError } from "./classes/TypedError";
 export type { KeryxConfig } from "./config";
 export type { SessionData } from "./initializers/session";
-export { RateLimitMiddleware, checkRateLimit } from "./middleware/rateLimit";
+export { checkRateLimit, RateLimitMiddleware } from "./middleware/rateLimit";
+export { TransactionMiddleware } from "./middleware/transaction";
 export type { WebServer } from "./servers/web";
 export { buildProgram } from "./util/cli";
-export { deepMerge, loadFromEnvIfSet } from "./util/config";
+export { deepMerge, deepMergeDefaults, loadFromEnvIfSet } from "./util/config";
+export { getValidTypes } from "./util/generate";
 export { globLoader } from "./util/glob";
+export { type PaginatedResult, paginate } from "./util/pagination";
+export type { JSONSchema } from "./util/swaggerSchemaGenerator";
+export {
+  computeActionsHash,
+  generateSwaggerSchemas,
+  loadCachedSchemas,
+  writeSchemasCache,
+} from "./util/swaggerSchemaGenerator";
 export { toMarkdown } from "./util/toMarkdown";
+export type { DbOrTransaction, Transaction } from "./util/transaction";
+export { withTransaction } from "./util/transaction";
 export {
   isSecret,
+  paginationInputs,
   secret,
   zBooleanFromString,
   zIdOrModel,

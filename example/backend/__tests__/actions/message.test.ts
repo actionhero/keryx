@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { api, type ActionResponse } from "keryx";
+import { type ActionResponse, api } from "keryx";
 import type {
   MessageCrete,
   MessagesList,
@@ -127,8 +127,26 @@ describe("message:create", () => {
       expect(response.messages[4].body).toEqual("message 1");
     });
 
-    test("limit and offset can be used", async () => {
-      const res = await fetch(url + "/api/messages/list?limit=2&offset=2", {
+    test("returns pagination metadata", async () => {
+      const res = await fetch(url + "/api/messages/list", {
+        method: "GET",
+        headers: {
+          Cookie: `${session.cookieName}=${session.id}`,
+          "Content-Type": "application/json",
+        },
+      });
+      expect(res.status).toBe(200);
+
+      const response = (await res.json()) as ActionResponse<MessagesList>;
+      expect(response.pagination).toBeDefined();
+      expect(response.pagination.page).toEqual(1);
+      expect(response.pagination.limit).toEqual(10);
+      expect(response.pagination.total).toEqual(5);
+      expect(response.pagination.pages).toEqual(1);
+    });
+
+    test("limit and page can be used", async () => {
+      const res = await fetch(url + "/api/messages/list?limit=2&page=2", {
         method: "GET",
         headers: {
           Cookie: `${session.cookieName}=${session.id}`,
@@ -141,6 +159,9 @@ describe("message:create", () => {
       expect(response.messages.length).toEqual(2);
       expect(response.messages[0].body).toEqual("message 3");
       expect(response.messages[1].body).toEqual("message 2");
+      expect(response.pagination.page).toEqual(2);
+      expect(response.pagination.pages).toEqual(3);
+      expect(response.pagination.total).toEqual(5);
     });
   });
 

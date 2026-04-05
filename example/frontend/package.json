@@ -9,8 +9,8 @@
     "dev": "source .env 2>/dev/null; vite --port ${PORT:-3000}",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "prettier --check .",
-    "format": "prettier --write .",
+    "lint": "biome check .",
+    "format": "biome check --write .",
     "test": "bun test"
   },
   "dependencies": {
@@ -22,14 +22,11 @@
     "react-router-dom": "^7.0.0"
   },
   "devDependencies": {
-    "@trivago/prettier-plugin-sort-imports": "^5.2.2",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",
     "bootstrap": "^5.3.3",
     "bootswatch": "^5.3.3",
-    "prettier": "^3.3.3",
-    "prettier-plugin-organize-imports": "^4.2.0",
     "sass": "^1.80.0",
     "typescript": "^5.4.3",
     "vite": "^6.0.0"

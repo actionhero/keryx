@@ -1,8 +1,8 @@
 import {
-  ErrorType,
-  TypedError,
   type ChannelMiddleware,
   type Connection,
+  ErrorType,
+  TypedError,
 } from "keryx";
 import type { SessionImpl } from "../actions/session";
 

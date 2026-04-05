@@ -1,18 +1,28 @@
 <script setup>
+import { useData } from "vitepress";
 import DefaultTheme from "vitepress/theme";
-import HomeContent from "./HomeContent.vue";
 import CliSnippet from "./CliSnippet.vue";
+import GitHubStars from "./GitHubStars.vue";
+import HomeContent from "./HomeContent.vue";
+import MarkdownLink from "./MarkdownLink.vue";
 
 const { Layout } = DefaultTheme;
+const { frontmatter } = useData();
 </script>
 
 <template>
   <Layout>
     <template #home-hero-info-after>
-      <CliSnippet />
+      <div class="hero-ctas">
+        <CliSnippet />
+        <GitHubStars />
+      </div>
     </template>
     <template #home-features-after>
       <HomeContent />
+    </template>
+    <template v-if="frontmatter.layout !== 'home'" #doc-footer-before>
+      <MarkdownLink />
     </template>
     <template #layout-bottom>
       <div class="footer-lion">
@@ -23,6 +33,20 @@ const { Layout } = DefaultTheme;
 </template>
 
 <style scoped>
+.hero-ctas {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+@media (max-width: 639px) {
+  .hero-ctas {
+    justify-content: center;
+  }
+}
+
 .footer-lion {
   display: flex;
   justify-content: center;

@@ -3,17 +3,17 @@ import type { Connection } from "./Connection";
 import type { TypedError } from "./TypedError";
 
 export enum MCP_RESPONSE_FORMAT {
-  "JSON" = "json",
-  "MARKDOWN" = "markdown",
+  JSON = "json",
+  MARKDOWN = "markdown",
 }
 
 export enum HTTP_METHOD {
-  "GET" = "GET",
-  "POST" = "POST",
-  "PUT" = "PUT",
-  "DELETE" = "DELETE",
-  "PATCH" = "PATCH",
-  "OPTIONS" = "OPTIONS",
+  GET = "GET",
+  POST = "POST",
+  PUT = "PUT",
+  DELETE = "DELETE",
+  PATCH = "PATCH",
+  OPTIONS = "OPTIONS",
 }
 
 export const DEFAULT_QUEUE = "default";
@@ -81,9 +81,11 @@ export type ActionConstructorInputs = {
     route?: RegExp | string;
     /** HTTP method to bind the route to */
     method?: HTTP_METHOD;
+    /** When true, Swagger documents this endpoint as returning `text/event-stream` instead of JSON */
+    streaming?: boolean;
   };
 
-  /** Per-action timeout in ms (overrides global `config.server.web.actionTimeout`; 0 disables) */
+  /** Per-action timeout in ms (overrides global `config.actions.timeout`; 0 disables) */
   timeout?: number;
 
   /** Configure this action as a background task/job */
@@ -114,11 +116,19 @@ export type ActionMiddleware = {
     connection: Connection,
   ) => Promise<ActionMiddlewareResponse | void>;
   /**
-   * Runs after the action's `run()` method. Can replace the response by returning `{ updatedResponse }`.
+   * Runs after the action's `run()` method (in a `finally` block, so it always runs).
+   * Can replace the response by returning `{ updatedResponse }`.
+   *
+   * @param params - The validated action inputs (same object passed to `run()`).
+   * @param connection - The connection that initiated this action.
+   * @param error - The `TypedError` from the action's `run()`, or `undefined` on success.
+   *   Useful for middleware that needs to react to success/failure (e.g., committing or
+   *   rolling back a database transaction).
    */
   runAfter?: (
     params: ActionParams<Action>,
     connection: Connection,
+    error?: TypedError,
   ) => Promise<ActionMiddlewareResponse | void>;
 };
 
@@ -136,6 +146,7 @@ export abstract class Action {
   web?: {
     route: RegExp | string;
     method: HTTP_METHOD;
+    streaming?: boolean;
   };
   timeout?: number;
   task?: {
@@ -152,6 +163,7 @@ export abstract class Action {
     this.web = {
       route: args.web?.route ?? `/${this.name}`,
       method: args.web?.method ?? HTTP_METHOD.GET,
+      streaming: args.web?.streaming ?? false,
     };
     this.task = {
       frequency: args.task?.frequency,

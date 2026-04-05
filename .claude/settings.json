@@ -26,13 +26,13 @@
         ]
       }
     ],
-    "PreCommit": [
+    "TaskCompleted": [
       {
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "bunx prettier --write .",
+            "command": "bunx biome check --write .",
             "timeout": 30000
           }
         ]

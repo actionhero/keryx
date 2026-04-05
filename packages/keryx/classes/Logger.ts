@@ -3,17 +3,17 @@ import colors from "colors";
 import type { configLogger } from "../config/logger";
 
 export enum LogLevel {
-  "trace" = "trace",
-  "debug" = "debug",
-  "info" = "info",
-  "warn" = "warn",
-  "error" = "error",
-  "fatal" = "fatal",
+  trace = "trace",
+  debug = "debug",
+  info = "info",
+  warn = "warn",
+  error = "error",
+  fatal = "fatal",
 }
 
 export enum LogFormat {
-  "text" = "text",
-  "json" = "json",
+  text = "text",
+  json = "json",
 }
 
 /**

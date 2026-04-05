@@ -5,6 +5,7 @@ import type { Connection } from "../classes/Connection";
 import { Initializer } from "../classes/Initializer";
 import { ErrorType, TypedError } from "../classes/TypedError";
 import { config } from "../config";
+import { formatLoadedMessage } from "../util/config";
 import { globLoader } from "../util/glob";
 
 const namespace = "channels";
@@ -35,7 +36,7 @@ export class Channels extends Initializer {
    * Returns undefined if no matching channel is found.
    */
   findChannel = (channelName: string): Channel | undefined => {
-    return api.channels.channels.find((c) => c.matches(channelName));
+    return api.channels.channels.find((c: Channel) => c.matches(channelName));
   };
 
   /**
@@ -229,11 +230,22 @@ export class Channels extends Initializer {
       join(LUA_DIR, "refresh-presence.lua"),
     ).text();
 
-    let channels: Channel[] = [];
+    // Load plugin channels
+    const pluginChannels: Channel[] = [];
+    for (const plugin of config.plugins) {
+      if (plugin.channels) {
+        for (const ChannelClass of plugin.channels) {
+          pluginChannels.push(new ChannelClass());
+        }
+      }
+    }
 
-    // Channels are always user-defined, load from rootDir only
+    // Load user channels
+    let userChannels: Channel[] = [];
     try {
-      channels = await globLoader<Channel>(path.join(api.rootDir, "channels"));
+      userChannels = await globLoader<Channel>(
+        path.join(api.rootDir, "channels"),
+      );
     } catch (e) {
       // channels directory may not exist, which is fine
       logger.debug(
@@ -241,11 +253,18 @@ export class Channels extends Initializer {
       );
     }
 
+    const channels = [...pluginChannels, ...userChannels];
+
     for (const c of channels) {
       if (!c.description) c.description = `A Channel: ${c.name}`;
     }
 
-    logger.info(`loaded ${channels.length} channels`);
+    logger.info(
+      formatLoadedMessage("channels", {
+        plugin: pluginChannels.length,
+        user: userChannels.length,
+      }),
+    );
 
     return {
       channels,

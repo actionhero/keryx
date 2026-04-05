@@ -125,6 +125,59 @@ Your action still benefits from Keryx's routing, [middleware](/guide/middleware)
 
 This only applies to HTTP. WebSocket, CLI, and background task transports still expect JSON-serializable return values from `run()`.
 
+## Streaming Responses
+
+For Server-Sent Events (SSE), LLM streaming, or chunked binary transfers, return a `StreamingResponse` from `run()`. Unlike raw `Response` passthrough, streaming responses still get Keryx's standard headers (CORS, security, session cookie).
+
+```ts
+import { Action, HTTP_METHOD, StreamingResponse } from "keryx";
+
+export class ChatStream implements Action {
+  name = "chat:stream";
+  description = "Stream an LLM response via SSE";
+  web = { route: "/chat/stream", method: HTTP_METHOD.POST, streaming: true };
+  timeout = 0; // disable timeout for long-running streams
+
+  async run(params: { prompt: string }) {
+    const sse = StreamingResponse.sse();
+
+    (async () => {
+      try {
+        for await (const token of callLLM(params.prompt)) {
+          sse.send(token, { event: "token" });
+        }
+        sse.send({ done: true }, { event: "done" });
+      } catch (e) {
+        sse.sendError(String(e));
+      } finally {
+        sse.close();
+      }
+    })();
+
+    return sse;
+  }
+}
+```
+
+Key points:
+
+- **`StreamingResponse.sse()`** — SSE with `Content-Type: text/event-stream`, `Cache-Control: no-cache`. Use `send(data, { event?, id? })` to emit events and `close()` to end the stream.
+- **`StreamingResponse.stream(readableStream, { contentType? })`** — raw binary/chunked streaming for file downloads or proxied responses.
+- **`timeout = 0`** — streaming actions should disable the action timeout.
+- **`web.streaming = true`** — tells Swagger to document the endpoint as `text/event-stream` instead of JSON.
+- **Compression is skipped** for SSE responses automatically.
+- **Connection cleanup is deferred** until the stream closes, so sessions and middleware state remain valid during streaming.
+
+### Transport Behavior
+
+| Transport | Behavior                                                                            |
+| --------- | ----------------------------------------------------------------------------------- |
+| HTTP      | Native SSE / chunked streaming                                                      |
+| WebSocket | Incremental messages with `{ streaming: true, chunk }`, then `{ streaming: false }` |
+| MCP       | Chunks sent as logging messages; accumulated text returned as tool result           |
+
+See the dedicated [Streaming guide](/guide/streaming) for detailed examples and patterns.
+
 ## CLI Commands
 
 Every action is automatically available as a CLI command. No extra configuration needed:

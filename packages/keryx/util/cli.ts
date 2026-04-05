@@ -1,16 +1,16 @@
-import { Command } from "commander";
 import os from "node:os";
+import { Command } from "commander";
 import path from "path";
 import { Action, api, Connection, RUN_MODE } from "../api";
-import { config } from "../config";
 import { ExitCode } from "./../classes/ExitCode";
 import { TypedError } from "./../classes/TypedError";
-import { generateComponent } from "./generate";
+import { config } from "../config";
+import { generateComponent, getValidTypes } from "./generate";
 import { globLoader } from "./glob";
 import {
   interactiveScaffold,
-  scaffoldProject,
   type ScaffoldOptions,
+  scaffoldProject,
 } from "./scaffold";
 import { upgradeProject } from "./upgrade";
 
@@ -96,17 +96,45 @@ export async function buildProgram(opts: {
     });
 
   program
+    .command("build")
+    .summary("Pre-generate swagger schemas for production")
+    .description(
+      "Run build-time code generation. Analyzes Action return types via ts-morph\n" +
+        "and writes .cache/swagger-schemas.json so the server can skip this step at\n" +
+        "startup. Recommended for memory-constrained environments (e.g., Docker).\n\n" +
+        "Example Dockerfile usage:\n" +
+        "  COPY . .\n" +
+        "  RUN bun keryx.ts build\n" +
+        '  CMD ["bun", "keryx.ts", "start"]',
+    )
+    .action(async () => {
+      const { generateSwaggerSchemas, writeSchemasCache } = await import(
+        "./swaggerSchemaGenerator"
+      );
+      const result = await generateSwaggerSchemas({
+        rootDir: api.rootDir,
+        packageDir: api.packageDir,
+      });
+      await writeSchemasCache(api.rootDir, result);
+      console.log(
+        `Generated ${Object.keys(result.responseSchemas).length} swagger response schemas`,
+      );
+      process.exit(0);
+    });
+
+  program
     .command("generate <type> <name>")
     .alias("g")
     .summary("Generate a new component")
     .description(
-      "Scaffold a new action, initializer, middleware, channel, or ops file.\n\n" +
+      `Scaffold a new component file.\n\nValid types: ${getValidTypes().join(", ")}\n\n` +
         "Examples:\n" +
         "  keryx generate action user:delete\n" +
         "  keryx generate initializer cache\n" +
         "  keryx generate middleware auth\n" +
         "  keryx generate channel notifications\n" +
         "  keryx generate ops UserOps\n" +
+        "  keryx generate plugin analytics\n" +
         "  keryx g action hello",
     )
     .option("--dry-run", "Show what would be generated without writing files")
@@ -232,7 +260,7 @@ async function runActionViaCLI(options: Record<string, string>, command: any) {
 
   await api.initialize();
 
-  const action = api.actions.actions.find((a) => a.name === actionName);
+  const action = api.actions.actions.find((a: Action) => a.name === actionName);
   if (!action) {
     exitWithError(`Action "${actionName}" not found`);
   }

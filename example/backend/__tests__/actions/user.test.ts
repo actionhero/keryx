@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { api, config, logger, type ActionResponse } from "keryx";
+import { type ActionResponse, api, config, logger } from "keryx";
 import type { SessionCreate } from "../../actions/session";
 import type { UserCreate, UserEdit, UserView } from "../../actions/user";
 import { HOOK_TIMEOUT, serverUrl } from "./../setup";

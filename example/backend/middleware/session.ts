@@ -1,8 +1,8 @@
 import {
+  type ActionMiddleware,
   Connection,
   ErrorType,
   TypedError,
-  type ActionMiddleware,
 } from "keryx";
 import type { SessionImpl } from "../actions/session";
 

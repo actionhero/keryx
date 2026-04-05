@@ -6,7 +6,7 @@ import {
   expect,
   test,
 } from "bun:test";
-import { Connection, api } from "../../api";
+import { api, Connection } from "../../api";
 import type { PubSubMessage } from "../../initializers/pubsub";
 import { HOOK_TIMEOUT, waitFor } from "./../setup";
 

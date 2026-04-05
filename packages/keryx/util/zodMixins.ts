@@ -46,6 +46,39 @@ export function zBooleanFromString() {
   });
 }
 
+/**
+ * Creates a Zod schema for pagination inputs with sensible defaults.
+ * Returns `{ page, limit }` where `page` is 1-indexed.
+ *
+ * @param options - Optional overrides for default values and bounds.
+ * @param options.defaultLimit - Default number of items per page (default: 25).
+ * @param options.maxLimit - Maximum allowed items per page (default: 100).
+ * @returns A Zod object schema with `page` and `limit` fields.
+ */
+export function paginationInputs(options?: {
+  defaultLimit?: number;
+  maxLimit?: number;
+}) {
+  const defaultLimit = options?.defaultLimit ?? 25;
+  const maxLimit = options?.maxLimit ?? 100;
+
+  return z.object({
+    page: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .default(1)
+      .describe("Page number (1-indexed)"),
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(maxLimit)
+      .default(defaultLimit)
+      .describe("Number of items per page"),
+  });
+}
+
 // Type for Drizzle tables with an id column
 type TableWithId = { id: any; $inferSelect: any };
 

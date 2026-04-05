@@ -1,7 +1,7 @@
-import { describe, expect, test, beforeAll, afterAll } from "bun:test";
-import { resolve, relative, dirname } from "path";
-import { existsSync, readFileSync, readdirSync } from "fs";
-import { toMarkdownUrl, LLM_LANDING_PAGE } from "../.vitepress/config.mts";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { existsSync, readdirSync, readFileSync } from "fs";
+import { dirname, relative, resolve } from "path";
+import { LLM_LANDING_PAGE, toMarkdownUrl } from "../.vitepress/config.mts";
 
 const docsDir = resolve(import.meta.dir, "..");
 const publicDir = resolve(docsDir, "public");

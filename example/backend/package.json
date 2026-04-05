@@ -13,8 +13,9 @@
     "start": "bun keryx.ts start",
     "dev": "bun --watch keryx.ts start",
     "migrations": "bun run migrations.ts",
-    "lint": "tsc && prettier --check .",
-    "format": "tsc && prettier --write ."
+    "benchmark": "bun test __tests__/benchmark/",
+    "lint": "tsc && biome check .",
+    "format": "tsc && biome check --write ."
   },
   "dependencies": {
     "commander": "^12.1.0",
@@ -23,10 +24,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@trivago/prettier-plugin-sort-imports": "^5.2.2",
-    "@types/bun": "latest",
-    "drizzle-kit": "^1.0.0-beta.20",
-    "prettier": "^3.8.1",
-    "prettier-plugin-organize-imports": "^4.3.0"
+"@types/bun": "^1.1.8",
+    "drizzle-kit": "^1.0.0-beta.20"
   }
 }

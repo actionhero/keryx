@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { api } from "../api";
-import type { OAuthActionResponse } from "../classes/Action";
+import type { Action, OAuthActionResponse } from "../classes/Action";
 import { Connection } from "../classes/Connection";
 import { config } from "../config";
 import {
@@ -61,6 +61,7 @@ export function handleProtectedResourceMetadata(
     JSON.stringify({
       resource,
       authorization_servers: [origin],
+      scopes_supported: ["mcp"],
     }),
     {
       status: 200,
@@ -82,6 +83,7 @@ export function handleMetadata(origin: string): Response {
       grant_types_supported: ["authorization_code"],
       code_challenge_methods_supported: ["S256"],
       token_endpoint_auth_methods_supported: ["none"],
+      client_id_metadata_document_supported: false,
     }),
     {
       status: 200,
@@ -180,8 +182,10 @@ export function handleAuthorizeGet(
   };
 
   return renderAuthPage(params, templates, {
-    loginAction: api.actions.actions.find((a) => a.mcp?.isLoginAction),
-    signupAction: api.actions.actions.find((a) => a.mcp?.isSignupAction),
+    loginAction: api.actions.actions.find((a: Action) => a.mcp?.isLoginAction),
+    signupAction: api.actions.actions.find(
+      (a: Action) => a.mcp?.isSignupAction,
+    ),
   });
 }
 
@@ -227,8 +231,10 @@ export async function handleAuthorizePost(
   };
 
   const authActions = {
-    loginAction: api.actions.actions.find((a) => a.mcp?.isLoginAction),
-    signupAction: api.actions.actions.find((a) => a.mcp?.isSignupAction),
+    loginAction: api.actions.actions.find((a: Action) => a.mcp?.isLoginAction),
+    signupAction: api.actions.actions.find(
+      (a: Action) => a.mcp?.isSignupAction,
+    ),
   };
 
   // Validate client
@@ -263,7 +269,9 @@ export async function handleAuthorizePost(
   let userId: number;
 
   if (mode === "signup") {
-    const signupAction = api.actions.actions.find((a) => a.mcp?.isSignupAction);
+    const signupAction = api.actions.actions.find(
+      (a: Action) => a.mcp?.isSignupAction,
+    );
     if (!signupAction) {
       oauthParams.error = "No signup action configured";
       return renderAuthPage(oauthParams, templates, authActions);
@@ -283,7 +291,9 @@ export async function handleAuthorizePost(
       connection.destroy();
     }
   } else {
-    const loginAction = api.actions.actions.find((a) => a.mcp?.isLoginAction);
+    const loginAction = api.actions.actions.find(
+      (a: Action) => a.mcp?.isLoginAction,
+    );
     if (!loginAction) {
       oauthParams.error = "No login action configured";
       return renderAuthPage(oauthParams, templates, authActions);
@@ -385,7 +395,7 @@ export async function handleToken(req: Request): Promise<Response> {
   await api.redis.redis.del(`oauth:code:${code}`);
 
   // Validate client_id matches
-  if (clientId && clientId !== codeData.clientId) {
+  if (clientId !== codeData.clientId) {
     return new Response(
       JSON.stringify({
         error: "invalid_grant",

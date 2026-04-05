@@ -1,5 +1,5 @@
 ---
-description: Zod helper utilities for secret fields, ID-or-model resolution, and form data parsing.
+description: Zod helper utilities for secret fields, ID-or-model resolution, pagination, and form data parsing.
 ---
 
 # Utilities
@@ -47,6 +47,105 @@ inputs = z.object({
 // Accepts: true, false, "true", "false"
 // Returns: boolean
 ```
+
+## `paginationInputs()`
+
+Creates a Zod schema for pagination inputs with sensible defaults. Returns `{ page, limit }` where `page` is 1-indexed. Accepts an optional configuration object for custom defaults and bounds.
+
+```ts
+import { paginationInputs } from "keryx";
+
+// Use defaults: page=1, limit=25, maxLimit=100
+inputs = paginationInputs();
+
+// Custom defaults
+inputs = paginationInputs({ defaultLimit: 10, maxLimit: 50 });
+```
+
+Both `page` and `limit` use `z.coerce.number()` so they work with query string parameters out of the box.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `defaultLimit` | `25` | Default items per page when `limit` is not provided |
+| `maxLimit` | `100` | Maximum allowed value for `limit` |
+
+## `paginate()`
+
+Applies pagination to a Drizzle select query and returns a standardized envelope. Runs the data query and a count query in parallel via `Promise.all`.
+
+```ts
+import { paginate, type PaginatedResult } from "keryx";
+```
+
+```ts
+function paginate<T>(
+  query,      // Drizzle select query (before .limit()/.offset())
+  countQuery, // Promise resolving to [{ count: number }]
+  params,     // { page, limit } from paginationInputs()
+): Promise<PaginatedResult<T>>
+```
+
+The response envelope:
+
+```ts
+interface PaginatedResult<T> {
+  data: T[];
+  pagination: {
+    page: number;   // Current page (1-indexed)
+    limit: number;  // Items per page
+    total: number;  // Total matching records
+    pages: number;  // Total pages (ceil(total / limit))
+  };
+}
+```
+
+### Full example
+
+```ts
+import {
+  type Action,
+  type ActionParams,
+  api,
+  HTTP_METHOD,
+  paginate,
+  paginationInputs,
+} from "keryx";
+import { count, desc, eq } from "drizzle-orm";
+import { messages } from "../schema/messages";
+import { users } from "../schema/users";
+
+export class MessagesList implements Action {
+  name = "messages:list";
+  description = "List messages with pagination.";
+  web = { route: "/messages/list", method: HTTP_METHOD.GET };
+  inputs = paginationInputs({ defaultLimit: 10 });
+
+  async run(params: ActionParams<MessagesList>) {
+    const result = await paginate(
+      api.db.db
+        .select({ id: messages.id, body: messages.body, user_name: users.name })
+        .from(messages)
+        .orderBy(desc(messages.id))
+        .leftJoin(users, eq(users.id, messages.user_id)),
+      api.db.db.select({ count: count() }).from(messages),
+      params,
+    );
+
+    return { messages: result.data, pagination: result.pagination };
+  }
+}
+```
+
+`GET /api/messages/list?page=2&limit=5` returns:
+
+```json
+{
+  "messages": [ ... ],
+  "pagination": { "page": 2, "limit": 5, "total": 23, "pages": 5 }
+}
+```
+
+The count query is a separate argument so you have full control — use different JOINs, add WHERE clauses, or skip joins that don't affect the total count.
 
 ## `zIdOrModel()` Factory
 

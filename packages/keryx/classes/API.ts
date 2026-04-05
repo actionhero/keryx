@@ -2,7 +2,11 @@ import { Glob } from "bun";
 import fs from "fs";
 import path from "path";
 import { config } from "../config";
-import { deepMerge } from "../util/config";
+import {
+  deepMerge,
+  deepMergeDefaults,
+  formatLoadedMessage,
+} from "../util/config";
 import { globLoader } from "../util/glob";
 import type { Initializer, InitializerSortKeys } from "./Initializer";
 import { Logger } from "./Logger";
@@ -69,6 +73,7 @@ export class API {
     this.initialized = false;
 
     await this.loadLocalConfig();
+    this.loadPluginConfig();
     await this.findInitializers();
     this.sortInitializers("loadPriority");
 
@@ -205,6 +210,19 @@ export class API {
     }
   }
 
+  /**
+   * Apply plugin config defaults using deepMergeDefaults so that
+   * user-set config values are never overwritten by plugin defaults.
+   */
+  private loadPluginConfig() {
+    for (const plugin of config.plugins) {
+      if (plugin.configDefaults) {
+        deepMergeDefaults(config, plugin.configDefaults);
+        this.logger.debug(`Merged config defaults from plugin ${plugin.name}`);
+      }
+    }
+  }
+
   private async findInitializers() {
     // Load framework initializers from the package directory
     const frameworkInitializers = await globLoader<Initializer>(
@@ -212,6 +230,17 @@ export class API {
     );
     for (const i of frameworkInitializers) {
       this.initializers.push(i);
+    }
+
+    // Load plugin initializers
+    let pluginInitializerCount = 0;
+    for (const plugin of config.plugins) {
+      if (plugin.initializers) {
+        for (const InitializerClass of plugin.initializers) {
+          this.initializers.push(new InitializerClass());
+          pluginInitializerCount++;
+        }
+      }
     }
 
     // Load user project initializers (if rootDir differs from packageDir)
@@ -227,6 +256,17 @@ export class API {
         // user project may not have initializers, that's fine
       }
     }
+
+    this.logger.info(
+      formatLoadedMessage("initializers", {
+        core: frameworkInitializers.length,
+        plugin: pluginInitializerCount,
+        user:
+          this.initializers.length -
+          frameworkInitializers.length -
+          pluginInitializerCount,
+      }),
+    );
   }
 
   private sortInitializers(key: InitializerSortKeys) {

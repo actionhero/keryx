@@ -1,4 +1,4 @@
-import { Action, api, HTTP_METHOD, type ActionParams } from "keryx";
+import { Action, type ActionParams, api, HTTP_METHOD } from "keryx";
 import { z } from "zod";
 import pkg from "../package.json";
 

@@ -1,6 +1,3 @@
-import { Action, api } from "../../api";
-import { HOOK_TIMEOUT, waitFor } from "./../setup";
-
 import {
   afterAll,
   afterEach,
@@ -11,6 +8,8 @@ import {
   test,
 } from "bun:test";
 import { z } from "zod";
+import { Action, api } from "../../api";
+import { HOOK_TIMEOUT, waitFor } from "./../setup";
 
 beforeAll(async () => {
   await api.initialize();

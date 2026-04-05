@@ -2,10 +2,11 @@ import { randomUUID } from "crypto";
 import type { ErrorPayload } from "node-resque";
 import path from "path";
 import { api, logger } from "../api";
-import { DEFAULT_QUEUE, type Action } from "../classes/Action";
+import { type Action, DEFAULT_QUEUE } from "../classes/Action";
 import { Initializer } from "../classes/Initializer";
 import { ErrorType, TypedError } from "../classes/TypedError";
 import { config } from "../config";
+import { formatLoadedMessage } from "../util/config";
 import { globLoader } from "../util/glob";
 
 const namespace = "actions";
@@ -85,7 +86,9 @@ export class Actions extends Initializer {
     inputs: TaskInputs = {},
     queue?: string,
   ) => {
-    const action = api.actions.actions.find((a) => a.name === actionName);
+    const action = api.actions.actions.find(
+      (a: Action) => a.name === actionName,
+    );
     if (!action) {
       throw new TypedError({
         message: `action ${actionName} not found`,
@@ -140,7 +143,9 @@ export class Actions extends Initializer {
     // Validate all action names up front
     const actionNames = new Set<string>();
     for (const job of jobs) {
-      const action = api.actions.actions.find((a) => a.name === job.action);
+      const action = api.actions.actions.find(
+        (a: Action) => a.name === job.action,
+      );
       if (!action) {
         throw new TypedError({
           message: `action ${job.action} not found`,
@@ -152,7 +157,9 @@ export class Actions extends Initializer {
 
     // Resolve queue per job: explicit job.queue > action's task.queue > DEFAULT_QUEUE
     const resolvedJobs = jobs.map((job) => {
-      const action = api.actions.actions.find((a) => a.name === job.action)!;
+      const action = api.actions.actions.find(
+        (a: Action) => a.name === job.action,
+      )!;
       const resolvedQueue = job.queue ?? action?.task?.queue ?? DEFAULT_QUEUE;
       return { ...job, queue: resolvedQueue, inputs: job.inputs ?? {} };
     });
@@ -250,8 +257,8 @@ export class Actions extends Initializer {
       total: parseInt(meta.total, 10) || 0,
       completed: parseInt(meta.completed, 10) || 0,
       failed: parseInt(meta.failed, 10) || 0,
-      results: rawResults.map((r) => JSON.parse(r)),
-      errors: rawErrors.map((e) => JSON.parse(e)),
+      results: rawResults.map((r: string) => JSON.parse(r)),
+      errors: rawErrors.map((e: string) => JSON.parse(e)),
     };
   };
 
@@ -565,7 +572,9 @@ export class Actions extends Initializer {
    * Will throw an error if redis cannot be reached.
    */
   stopRecurrentAction = async (actionName: string): Promise<number> => {
-    const action = api.actions.actions.find((a) => a.name === actionName);
+    const action = api.actions.actions.find(
+      (a: Action) => a.name === actionName,
+    );
     if (!action) {
       throw new TypedError({
         message: `action ${actionName} not found`,
@@ -634,14 +643,34 @@ export class Actions extends Initializer {
   };
 
   async initialize() {
-    const actions = await globLoader<Action>(path.join(api.rootDir, "actions"));
+    // Load plugin actions
+    const pluginActions: Action[] = [];
+    for (const plugin of config.plugins) {
+      if (plugin.actions) {
+        for (const ActionClass of plugin.actions) {
+          pluginActions.push(new ActionClass());
+        }
+      }
+    }
+
+    // Load user actions
+    const userActions = await globLoader<Action>(
+      path.join(api.rootDir, "actions"),
+    );
+
+    const actions = [...pluginActions, ...userActions];
 
     for (const a of actions) {
       if (!a.description) a.description = `An Action: ${a.name}`;
       a.mcp = { tool: true, ...a.mcp };
     }
 
-    logger.info(`loaded ${Object.keys(actions).length} actions`);
+    logger.info(
+      formatLoadedMessage("actions", {
+        plugin: pluginActions.length,
+        user: userActions.length,
+      }),
+    );
 
     return {
       actions,

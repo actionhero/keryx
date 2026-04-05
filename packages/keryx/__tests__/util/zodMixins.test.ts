@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { isSecret, secret, zBooleanFromString } from "../../util/zodMixins";
+import {
+  isSecret,
+  paginationInputs,
+  secret,
+  zBooleanFromString,
+} from "../../util/zodMixins";
 
 describe("secret", () => {
   test("marks a schema as secret via meta", () => {
@@ -66,5 +71,45 @@ describe("zBooleanFromString", () => {
   test("returns false for unrecognized string", () => {
     const schema = zBooleanFromString();
     expect(schema.parse("yes")).toBe(false);
+  });
+});
+
+describe("paginationInputs", () => {
+  test("provides default page=1 and limit=25", () => {
+    const schema = paginationInputs();
+    const result = schema.parse({});
+    expect(result).toEqual({ page: 1, limit: 25 });
+  });
+
+  test("coerces string inputs", () => {
+    const schema = paginationInputs();
+    const result = schema.parse({ page: "3", limit: "50" });
+    expect(result).toEqual({ page: 3, limit: 50 });
+  });
+
+  test("rejects page < 1", () => {
+    const schema = paginationInputs();
+    expect(() => schema.parse({ page: 0 })).toThrow();
+  });
+
+  test("rejects limit > maxLimit", () => {
+    const schema = paginationInputs();
+    expect(() => schema.parse({ limit: 101 })).toThrow();
+  });
+
+  test("rejects limit < 1", () => {
+    const schema = paginationInputs();
+    expect(() => schema.parse({ limit: 0 })).toThrow();
+  });
+
+  test("accepts custom defaults", () => {
+    const schema = paginationInputs({ defaultLimit: 10, maxLimit: 50 });
+    const result = schema.parse({});
+    expect(result).toEqual({ page: 1, limit: 10 });
+  });
+
+  test("enforces custom maxLimit", () => {
+    const schema = paginationInputs({ maxLimit: 50 });
+    expect(() => schema.parse({ limit: 51 })).toThrow();
   });
 });

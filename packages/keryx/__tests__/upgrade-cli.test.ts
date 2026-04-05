@@ -191,6 +191,6 @@ describe("keryx upgrade (CLI integration)", () => {
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Updated 2 file(s)");
-    expect(stdout).toContain("20 already up to date");
+    expect(stdout).toContain("21 already up to date");
   });
 });

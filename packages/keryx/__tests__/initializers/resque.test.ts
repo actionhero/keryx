@@ -1,6 +1,3 @@
-import { Action, api } from "../../api";
-import { HOOK_TIMEOUT, waitFor } from "./../setup";
-
 import {
   afterAll,
   afterEach,
@@ -11,7 +8,9 @@ import {
   test,
 } from "bun:test";
 import { z } from "zod";
+import { Action, api } from "../../api";
 import { DEFAULT_QUEUE } from "../../classes/Action";
+import { HOOK_TIMEOUT, waitFor } from "./../setup";
 
 beforeAll(async () => {
   await api.initialize();
@@ -44,12 +43,33 @@ class TestAction implements Action {
   };
 }
 
+afterEach(() => {
+  // Remove any test_action instances to avoid polluting other test suites
+  api.actions.actions = api.actions.actions.filter(
+    (a) => a.name !== "test_action",
+  );
+  delete api.resque.jobs["test_action"];
+});
+
 beforeEach(async () => {
   await api.redis.redis.flushdb();
   ran = null;
+  // Remove any previous test_action before adding a fresh one
+  api.actions.actions = api.actions.actions.filter(
+    (a) => a.name !== "test_action",
+  );
   const instance = new TestAction();
   api.actions.actions.push(instance);
   api.resque.jobs[instance.name] = api.resque.wrapActionAsJob(instance);
+});
+
+afterEach(() => {
+  // Remove test actions so they don't leak into subsequent test files
+  api.actions.actions = api.actions.actions.filter(
+    (a) => a.name !== "test_action" && a.name !== "recurring_test_action",
+  );
+  delete api.resque.jobs.test_action;
+  delete api.resque.jobs.recurring_test_action;
 });
 
 test("actions can be enqueued", async () => {

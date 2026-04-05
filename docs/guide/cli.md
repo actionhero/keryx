@@ -22,7 +22,8 @@ bunx keryx new my-app
 
 Options:
 
-- `--no-interactive` / `-y` — skip prompts, use defaults
+- `-y` / `--yes` — skip prompts, use defaults
+- `--no-interactive` — skip prompts, use defaults (same effect as `-y`)
 - `--no-db` — skip database setup files
 - `--no-example` — skip the example action
 
@@ -45,6 +46,7 @@ bunx keryx generate <type> <name>
 | `middleware`  | `middleware/`   | `keryx g middleware auth`       |
 | `channel`     | `channels/`     | `keryx g channel notifications` |
 | `ops`         | `ops/`          | `keryx g ops UserOps`           |
+| `plugin`      | `plugins/`      | `keryx g plugin analytics`      |
 
 #### Naming Conventions
 
@@ -113,7 +115,28 @@ bunx keryx upgrade
 Options:
 
 - `--dry-run` — show what would change without writing
-- `--force` / `-y` — overwrite all framework files without confirmation
+- `--force` — overwrite all framework files without confirmation
+- `-y` / `--yes` — overwrite all framework files without confirmation (same effect as `--force`)
+
+### `keryx build`
+
+Pre-generate swagger response schemas so the server can skip the expensive and slow ts-morph analysis at startup. This is recommended for production deploys.
+
+```bash
+bunx keryx build
+```
+
+The command writes `.cache/swagger-schemas.json`. When the server starts and finds a valid cache, it skips ts-morph entirely.
+
+**Recommended Dockerfile pattern:**
+
+```dockerfile
+COPY . .
+RUN bun keryx.ts build
+CMD ["bun", "keryx.ts", "start"]
+```
+
+If you skip this step, the server will attempt to generate schemas on the fly at startup. On machines with limited memory this may cause an out-of-memory crash. If ts-morph fails without crashing the process, the server will start with empty swagger response schemas.
 
 ### `keryx start`
 

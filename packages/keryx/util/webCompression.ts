@@ -74,6 +74,10 @@ export async function compressResponse(
   // No body to compress
   if (!response.body) return response;
 
+  // Never compress SSE streams
+  if (response.headers.get("Content-Type")?.includes("text/event-stream"))
+    return response;
+
   // Already compressed
   if (response.headers.get("Content-Encoding")) return response;
 

@@ -6,7 +6,7 @@ import {
   expect,
   test,
 } from "bun:test";
-import { api, Channel, type ActionResponse } from "keryx";
+import { type ActionResponse, api, Channel } from "keryx";
 import type { ChannelMembers } from "../../actions/channel";
 import type { SessionCreate } from "../../actions/session";
 import {

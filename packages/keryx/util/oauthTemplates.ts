@@ -126,7 +126,7 @@ export function zodToFormFields(action: Action | undefined): FormField[] {
 
 /**
  * Pre-render an array of form fields into HTML strings.
- * This avoids Mustache conditionals inside HTML tags (which breaks Prettier).
+ * This avoids Mustache conditionals inside HTML tags (which breaks formatters).
  * @param fields - Array of {@link FormField} objects.
  * @param prefix - ID prefix for field elements (e.g., "signin" or "signup").
  * @returns HTML string with label + input pairs.

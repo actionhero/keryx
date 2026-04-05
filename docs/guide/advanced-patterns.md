@@ -1,5 +1,5 @@
 ---
-description: Production patterns for RBAC, audit logging, and middleware composition in Keryx apps.
+description: Production patterns for database transactions, RBAC, audit logging, and middleware composition in Keryx apps.
 ---
 
 # Advanced Patterns
@@ -157,94 +157,247 @@ export function RbacMiddleware(requiredRole: Role): ActionMiddleware {
 
 An endpoint can then iterate over an action's `middleware` array, check for the Symbol, and expose the role requirements to the frontend or to AI agents.
 
+## Database Transactions
+
+Keryx provides two tools for wrapping database operations in transactions: `TransactionMiddleware` for action-scoped transactions and `withTransaction()` for standalone use.
+
+### TransactionMiddleware
+
+Add `TransactionMiddleware` to an action's middleware array. It opens a `BEGIN` in `runBefore`, stores the transaction-scoped Drizzle instance on `connection.metadata.transaction`, and commits or rolls back in `runAfter` based on whether the action succeeded:
+
+```ts
+import {
+  Action,
+  HTTP_METHOD,
+  TransactionMiddleware,
+  type ActionParams,
+  type Connection,
+  type Transaction,
+} from "keryx";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+import { accounts } from "../schema";
+
+export class TransferFunds extends Action {
+  constructor() {
+    super({
+      name: "transfer:funds",
+      middleware: [SessionMiddleware, TransactionMiddleware],
+      web: { route: "/transfer", method: HTTP_METHOD.POST },
+      inputs: z.object({
+        fromId: z.number(),
+        toId: z.number(),
+        amount: z.number().positive(),
+      }),
+    });
+  }
+
+  async run(params: ActionParams<TransferFunds>, connection?: Connection) {
+    const tx = connection!.metadata.transaction as Transaction;
+
+    // Both updates happen atomically — if either fails, both roll back
+    const [from] = await tx
+      .update(accounts)
+      .set({ balance: sql`balance - ${params.amount}` })
+      .where(eq(accounts.id, params.fromId))
+      .returning();
+    const [to] = await tx
+      .update(accounts)
+      .set({ balance: sql`balance + ${params.amount}` })
+      .where(eq(accounts.id, params.toId))
+      .returning();
+
+    return { from, to };
+  }
+}
+```
+
+If the action throws at any point, the transaction is rolled back automatically — no partial writes.
+
+### withTransaction()
+
+For one-off transactions outside the action lifecycle (ops functions, scripts, tests), use `withTransaction()`:
+
+```ts
+import { withTransaction } from "keryx";
+import { users, auditLogs } from "../schema";
+
+const user = await withTransaction(async (tx) => {
+  const [created] = await tx
+    .insert(users)
+    .values({ name: "Alice", email: "alice@example.com", password_hash: hash })
+    .returning();
+  await tx.insert(auditLogs).values({ action: "user:create", userId: created.id });
+  return created;
+});
+```
+
+It acquires a dedicated connection from the pool, runs `BEGIN`, calls your callback, then `COMMIT` on success or `ROLLBACK` on error. `TypedError` is re-thrown directly; other errors are wrapped.
+
+### Passing Transactions to Ops Functions
+
+Use the `DbOrTransaction` type so helper functions accept either `api.db.db` (no transaction) or a `Transaction`:
+
+```ts
+import { api, type DbOrTransaction } from "keryx";
+import { eq } from "drizzle-orm";
+import { users } from "../schema";
+
+export async function findUserByEmail(
+  email: string,
+  db: DbOrTransaction = api.db.db,
+) {
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1);
+  return user;
+}
+```
+
+Now callers can use it with or without a transaction:
+
+```ts
+// Without transaction — uses api.db.db
+const user = await findUserByEmail("alice@example.com");
+
+// Inside TransactionMiddleware action
+const user = await findUserByEmail(
+  "alice@example.com",
+  connection.metadata.transaction as Transaction,
+);
+```
+
+### Chaining Actions in a Transaction
+
+When an action calls a sub-action via `connection.act()`, the transaction propagates automatically. `TransactionMiddleware` is **re-entrant** — if a transaction already exists on `connection.metadata`, the child action reuses it instead of opening a new one. Only the outermost middleware commits or rolls back.
+
+```ts
+export class CreateUserWithWelcome extends Action {
+  constructor() {
+    super({
+      name: "user:create-with-welcome",
+      middleware: [TransactionMiddleware],
+      web: { route: "/user/create-with-welcome", method: HTTP_METHOD.PUT },
+      inputs: z.object({ name: z.string(), email: z.string() }),
+    });
+  }
+
+  async run(params: ActionParams<CreateUserWithWelcome>, connection?: Connection) {
+    const tx = connection!.metadata.transaction as Transaction;
+
+    const [user] = await tx
+      .insert(users)
+      .values({ name: params.name, email: params.email, password_hash: hash })
+      .returning();
+
+    // Sub-action runs inside the same transaction — if it fails,
+    // both the user creation and the welcome message roll back.
+    const { error } = await connection!.act("message:create-welcome", {
+      userId: user.id,
+    });
+    if (error) throw error;
+
+    return { user };
+  }
+}
+```
+
+`connection.metadata` is preserved across nested `act()` calls (it resets only on the outermost call), so the child action sees the parent's `transaction`, `_txClient`, and any other metadata set by earlier middleware.
+
 ## Audit Logging with Base Action Classes
 
-When many actions share the same cross-cutting concern — wrapping database writes in a transaction and inserting an audit log — you can extract that into an abstract base class.
+When many actions share the same cross-cutting concern — wrapping database writes in a transaction and inserting an audit log — you can extract that into an abstract base class. This pattern uses `TransactionMiddleware` to manage the transaction lifecycle and a `runAfter` hook to insert audit entries.
 
 ### The Base Class
 
 ```ts
 // audited-action.ts
 import {
-  api,
-  ErrorType,
-  TypedError,
-  type Action,
+  Action,
+  TransactionMiddleware,
   type ActionMiddleware,
   type Connection,
+  type Transaction,
 } from "keryx";
 import { z } from "zod";
 import { auditLogs } from "./schema";
 import type { AppConnectionMeta } from "./types";
 
-export abstract class AuditedAction implements Action {
-  abstract name: string;
-  abstract description: string;
-  abstract inputs: z.ZodType<any>;
-  abstract middleware: ActionMiddleware[];
-  abstract web: { route: string; method: any };
-
-  /** Subclasses implement this instead of run(). Use tx for all DB queries. */
-  abstract runWithAudit(
-    tx: any,
+/** Middleware that inserts an audit log entry inside the active transaction. */
+const AuditLogMiddleware: ActionMiddleware = {
+  runAfter: async (
     params: Record<string, unknown>,
     connection: Connection<any, AppConnectionMeta>,
-  ): Promise<any>;
+    error,
+  ) => {
+    // Only audit successful operations
+    if (error) return;
 
-  async run(
-    params: Record<string, unknown>,
-    connection: Connection<any, AppConnectionMeta>,
-  ) {
-    try {
-      return await api.db.db.transaction(async (tx) => {
-        const result = await this.runWithAudit(tx, params, connection);
+    const tx = connection.metadata.transaction as Transaction;
+    if (!tx) return;
 
-        // Insert audit log in the same transaction — atomic with the data change
-        await tx.insert(auditLogs).values({
-          userId: connection.session?.data.userId ?? null,
-          action: this.name,
-          metadata: params,
-          before: connection.metadata.auditBefore ?? null,
-          after: connection.metadata.auditAfter ?? null,
-        });
+    await tx.insert(auditLogs).values({
+      userId: connection.session?.data.userId ?? null,
+      action: connection.metadata.auditAction ?? "unknown",
+      metadata: params,
+      before: connection.metadata.auditBefore ?? null,
+      after: connection.metadata.auditAfter ?? null,
+    });
+  },
+};
 
-        return result;
-      });
-    } catch (e) {
-      if (e instanceof TypedError) throw e;
-      throw new TypedError({
-        message: "An unexpected error occurred",
-        type: ErrorType.CONNECTION_ACTION_RUN,
-      });
-    }
+export abstract class AuditedAction extends Action {
+  constructor(args: ConstructorParameters<typeof Action>[0]) {
+    super({
+      ...args,
+      // TransactionMiddleware must come before AuditLogMiddleware so
+      // the transaction is open when the audit insert runs
+      middleware: [
+        ...(args.middleware ?? []),
+        TransactionMiddleware,
+        AuditLogMiddleware,
+      ],
+    });
   }
 }
 ```
 
-The key detail: the audit log insert runs _inside_ the same database transaction as the action's writes. If either the action or the audit insert fails, both roll back — you never get orphaned audit entries or missing logs for successful operations.
+The key detail: `AuditLogMiddleware.runAfter` runs _inside_ the same transaction that `TransactionMiddleware` manages. If the audit insert fails, the entire transaction rolls back.
 
 ### Using It
 
-Subclasses implement `runWithAudit()` and set before/after snapshots on `connection.metadata`:
+Subclasses set before/after snapshots on `connection.metadata` and use `connection.metadata.transaction` for all queries:
 
 ```ts
 export class TeamEdit extends AuditedAction {
-  name = "team:edit";
-  description = "Edit a team's settings";
-  inputs = z.object({
-    teamId: z.coerce.number(),
-    name: z.string().min(1).optional(),
-  });
-  middleware = [SessionMiddleware, RbacMiddleware("admin")];
-  web = { route: "/team", method: HTTP_METHOD.PUT };
+  constructor() {
+    super({
+      name: "team:edit",
+      description: "Edit a team's settings",
+      inputs: z.object({
+        teamId: z.coerce.number(),
+        name: z.string().min(1).optional(),
+      }),
+      middleware: [SessionMiddleware, RbacMiddleware("admin")],
+      web: { route: "/team", method: HTTP_METHOD.PUT },
+    });
+  }
 
-  async runWithAudit(tx, params: ActionParams<TeamEdit>, connection) {
+  async run(
+    params: ActionParams<TeamEdit>,
+    connection?: Connection<any, AppConnectionMeta>,
+  ) {
+    const tx = connection!.metadata.transaction as Transaction;
+    connection!.metadata.auditAction = this.name;
+
     // Capture the before state
     const [before] = await tx
       .select()
       .from(teams)
       .where(eq(teams.id, params.teamId));
-    connection.metadata.auditBefore = before;
+    connection!.metadata.auditBefore = before;
 
     // Make the change
     const [after] = await tx
@@ -252,14 +405,14 @@ export class TeamEdit extends AuditedAction {
       .set({ name: params.name })
       .where(eq(teams.id, params.teamId))
       .returning();
-    connection.metadata.auditAfter = after;
+    connection!.metadata.auditAfter = after;
 
     return { team: after };
   }
 }
 ```
 
-The action only thinks about business logic. The base class handles the transaction wrapper, audit logging, and error handling.
+The action only thinks about business logic. The base class composes `TransactionMiddleware` and `AuditLogMiddleware` to handle the transaction wrapper, audit logging, and error handling.
 
 ## Putting It Together
 
@@ -267,9 +420,9 @@ Here's the full request flow when these patterns are combined:
 
 1. **SessionMiddleware** — verifies the user is authenticated
 2. **RbacMiddleware("admin")** — looks up team membership, checks role, stores membership on `connection.metadata`
-3. **AuditedAction.run()** — opens a database transaction
-4. **runWithAudit()** — captures before state, makes the change, captures after state
-5. **Audit log insert** — writes the log entry in the same transaction
-6. **Transaction commits** — data change and audit log are atomically persisted
+3. **TransactionMiddleware.runBefore** — opens a database transaction, stores it on `connection.metadata.transaction`
+4. **Action.run()** — captures before state, makes the change, captures after state
+5. **AuditLogMiddleware.runAfter** — inserts the audit entry in the same transaction
+6. **TransactionMiddleware.runAfter** — commits the transaction (data change + audit log atomically)
 
 If any step throws, everything after it is skipped — middleware short-circuits the action, and the transaction rolls back both the data change and the audit entry.

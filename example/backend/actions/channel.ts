@@ -1,10 +1,10 @@
 import {
+  type Action,
+  type ActionParams,
   api,
   CHANNEL_NAME_PATTERN,
   HTTP_METHOD,
   RateLimitMiddleware,
-  type Action,
-  type ActionParams,
 } from "keryx";
 import { z } from "zod";
 import { SessionMiddleware } from "../middleware/session";

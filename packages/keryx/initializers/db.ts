@@ -1,9 +1,9 @@
+import { unlink } from "node:fs/promises";
 import { $, SQL } from "bun";
 import { type Config as DrizzleMigrateConfig } from "drizzle-kit";
 import { DefaultLogger, type LogWriter, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sql";
 import { migrate } from "drizzle-orm/bun-sql/migrator";
-import { unlink } from "node:fs/promises";
 import path from "path";
 import { api, logger } from "../api";
 import { Initializer } from "../classes/Initializer";

@@ -271,11 +271,16 @@ All HTTP responses include these headers. Each is configurable:
 
 ### Tasks
 
-| Key              | Env Var           | Default |
-| ---------------- | ----------------- | ------- |
-| `enabled`        | `TASKS_ENABLED`   | `true`  |
-| `timeout`        | `TASK_TIMEOUT`    | `5000`  |
-| `taskProcessors` | `TASK_PROCESSORS` | `1`     |
+| Key                  | Env Var           | Default                   |
+| -------------------- | ----------------- | ------------------------- |
+| `enabled`            | `TASKS_ENABLED`   | `true`                    |
+| `queues`             | —                 | `["*"]`                   |
+| `timeout`            | `TASK_TIMEOUT`    | `5000`                    |
+| `taskProcessors`     | `TASK_PROCESSORS` | `1` (`0` in test)         |
+| `checkTimeout`       | —                 | `500`                     |
+| `maxEventLoopDelay`  | —                 | `5`                       |
+| `stuckWorkerTimeout` | —                 | `3600000` (1 hour)        |
+| `retryStuckJobs`     | —                 | `false`                   |
 
 ### Rate Limiting
 
@@ -300,10 +305,11 @@ See the [Security guide](/guide/security) for details on how rate limiting works
 
 ### MCP Server
 
-| Key                  | Env Var                    | Default   |
-| -------------------- | -------------------------- | --------- |
-| `enabled`            | `MCP_SERVER_ENABLED`       | `false`   |
-| `route`              | `MCP_SERVER_ROUTE`         | `"/mcp"`  |
-| `oauthClientTtl`     | `MCP_OAUTH_CLIENT_TTL`     | `2592000` |
-| `oauthCodeTtl`       | `MCP_OAUTH_CODE_TTL`       | `300`     |
-| `markdownDepthLimit` | `MCP_MARKDOWN_DEPTH_LIMIT` | `5`       |
+| Key                  | Env Var                    | Default             |
+| -------------------- | -------------------------- | ------------------- |
+| `enabled`            | `MCP_SERVER_ENABLED`       | `false`             |
+| `route`              | `MCP_SERVER_ROUTE`         | `"/mcp"`            |
+| `instructions`       | `MCP_SERVER_INSTRUCTIONS`  | package description |
+| `oauthClientTtl`     | `MCP_OAUTH_CLIENT_TTL`     | `2592000`           |
+| `oauthCodeTtl`       | `MCP_OAUTH_CODE_TTL`       | `300`               |
+| `markdownDepthLimit` | `MCP_MARKDOWN_DEPTH_LIMIT` | `5`                 |

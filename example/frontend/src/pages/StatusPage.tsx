@@ -1,8 +1,7 @@
+import type { Status } from "@backend/actions/status";
 import type { ActionResponse } from "keryx";
 import { useEffect, useState } from "react";
 import { Badge, Button, Card, Col, Row, Spinner, Table } from "react-bootstrap";
-
-import type { Status } from "@backend/actions/status";
 
 import { apiFetch } from "../utils/client";
 
