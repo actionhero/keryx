@@ -1,10 +1,10 @@
-import { createSchemaFactory } from "drizzle-orm/zod";
+import { createSchemaFactory } from "drizzle-zod";
 import { zIdOrModel } from "keryx";
 import { z } from "zod";
 import { type Message, messages } from "../schema/messages";
 import { type User, users } from "../schema/users";
 
-// Create schema factory with Zod v4 instance for drizzle-orm/zod compatibility
+// Create schema factory with Zod v4 instance for drizzle-zod compatibility
 const { createSelectSchema } = createSchemaFactory({ zodInstance: z });
 
 /**

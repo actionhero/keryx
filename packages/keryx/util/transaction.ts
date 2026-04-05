@@ -58,9 +58,13 @@ export async function withTransaction<T>(
   fn: (tx: Transaction) => Promise<T>,
 ): Promise<T> {
   try {
-    const result = await api.db.db.transaction(async (tx) => {
-      return await fn(tx as unknown as Transaction);
-    });
+    const db = api.db.db;
+    const result = await db.transaction(
+      // @ts-ignore transaction callback parameter type varies across drizzle contexts
+      async (tx: Transaction) => {
+        return await fn(tx);
+      },
+    );
     logger.debug("transaction committed");
     return result;
   } catch (e) {
