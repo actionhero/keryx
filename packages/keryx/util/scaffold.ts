@@ -379,7 +379,9 @@ export async function scaffoldProject(
           `export default ${JSON.stringify(drizzleConfig, null, 2)}`,
         );
         const { exitCode, stderr } =
-          await $`bun drizzle-kit generate --config ${tmpConfigPath}`.quiet();
+          await $`bunx drizzle-kit generate --config ${tmpConfigPath}`
+            .cwd(targetDir)
+            .quiet();
         if (exitCode !== 0) {
           throw new Error(
             `Failed to generate migrations: ${stderr.toString()}`,
