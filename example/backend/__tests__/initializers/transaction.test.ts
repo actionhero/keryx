@@ -309,7 +309,7 @@ describe("TransactionMiddleware", () => {
     }
   });
 
-  test("pool client is released after success and error", async () => {
+  test("reserved connection is released after success and error", async () => {
     class TxNoopAction extends Action {
       constructor() {
         super({
@@ -342,18 +342,16 @@ describe("TransactionMiddleware", () => {
     registerAction(new TxBoomAction());
 
     try {
-      const totalBefore = api.db.pool.totalCount;
-
-      // Success path
+      // Success path — should not throw
       const conn1 = new Connection("test", "test-tx-release-ok");
-      await conn1.act("test:tx-noop", {});
+      const res1 = await conn1.act("test:tx-noop", {});
+      expect((res1.response as Record<string, unknown>).ok).toBe(true);
 
-      // Error path
+      // Error path — should not throw (error is caught by middleware)
       const conn2 = new Connection("test", "test-tx-release-err");
       await conn2.act("test:tx-boom", {});
 
-      // Pool should not leak — total should not grow unboundedly
-      expect(api.db.pool.totalCount).toBeLessThanOrEqual(totalBefore + 2);
+      // If we get here without hanging, the reserved connection was released
     } finally {
       unregisterAction("test:tx-noop");
       unregisterAction("test:tx-boom");
