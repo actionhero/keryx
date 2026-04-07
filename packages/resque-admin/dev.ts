@@ -25,3 +25,5 @@ const program = await buildProgram({
 });
 
 program.parse();
+
+export {};
