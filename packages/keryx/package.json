@@ -1,6 +1,6 @@
 {
   "name": "keryx",
-  "version": "0.21.5",
+  "version": "0.21.6",
   "module": "index.ts",
   "type": "module",
   "license": "MIT",
@@ -85,7 +85,6 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/sdk-metrics": "^2.6.1",
-    "colors": "^1.4.0",
     "ioredis": "^5.10.1",
     "mustache": "^4.2.0",
     "node-resque": "^9.5.0",
@@ -103,7 +102,6 @@
   },
   "devDependencies": {
     "@types/bun": "^1.3.11",
-    "@types/formidable": "^3.5.1",
     "drizzle-kit": "^0.31.10",
     "drizzle-zod": "^0.8.3"
   }
