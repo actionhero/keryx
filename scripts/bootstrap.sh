@@ -125,11 +125,17 @@ else
     createdb -U "$PG_USER" keryx 2>/dev/null && echo "  Created database 'keryx'" || echo "  Could not create database 'keryx' (may already exist)"
 fi
 
-# Create test database
+# Create test databases — one per workspace, matching CI where each job gets its own Postgres
 if psql -U "$PG_USER" -lqt 2>/dev/null | cut -d \| -f 1 | grep -qw keryx-test; then
     echo "  Database 'keryx-test' already exists"
 else
     createdb -U "$PG_USER" keryx-test 2>/dev/null && echo "  Created database 'keryx-test'" || echo "  Could not create database 'keryx-test' (may already exist)"
+fi
+
+if psql -U "$PG_USER" -lqt 2>/dev/null | cut -d \| -f 1 | grep -qw keryx-package-test; then
+    echo "  Database 'keryx-package-test' already exists"
+else
+    createdb -U "$PG_USER" keryx-package-test 2>/dev/null && echo "  Created database 'keryx-package-test'" || echo "  Could not create database 'keryx-package-test' (may already exist)"
 fi
 
 # -----------------------------------------------------------------------------
@@ -154,6 +160,7 @@ echo "[5/6] Setting up environment files..."
 # Cloud-appropriate connection strings
 CLOUD_DB_URL="postgres://postgres:postgres@localhost:5432/keryx"
 CLOUD_DB_URL_TEST="postgres://postgres:postgres@localhost:5432/keryx-test"
+CLOUD_PKG_DB_URL_TEST="postgres://postgres:postgres@localhost:5432/keryx-package-test"
 CLOUD_REDIS_URL="redis://localhost:6379/0"
 CLOUD_REDIS_URL_TEST="redis://localhost:6379/1"
 
@@ -191,10 +198,10 @@ setup_env() {
     done
 }
 
-# packages/keryx/.env
+# packages/keryx/.env — uses separate test DB to avoid migration conflicts with example/backend
 setup_env "packages/keryx" \
     "DATABASE_URL=\"$CLOUD_DB_URL\"" \
-    "DATABASE_URL_TEST=\"$CLOUD_DB_URL_TEST\"" \
+    "DATABASE_URL_TEST=\"$CLOUD_PKG_DB_URL_TEST\"" \
     "REDIS_URL=\"$CLOUD_REDIS_URL\"" \
     "REDIS_URL_TEST=\"$CLOUD_REDIS_URL_TEST\""
 
@@ -215,20 +222,17 @@ setup_env "example/frontend" \
 echo "[6/6] Configuring session environment..."
 
 if [ -n "$CLAUDE_ENV_FILE" ]; then
-    # Use connection strings matching .env.example format (with password)
+    # DATABASE_URL* intentionally omitted — each workspace .env provides its own
+    # value so packages/keryx and example/backend use isolated test databases
+    # (matching CI where each job gets its own Postgres instance).
     cat >> "$CLAUDE_ENV_FILE" << 'ENVEOF'
-export DATABASE_URL="postgres://postgres:postgres@localhost:5432/keryx"
-export DATABASE_URL_TEST="postgres://postgres:postgres@localhost:5432/keryx-test"
 export REDIS_URL="redis://localhost:6379/0"
 export REDIS_URL_TEST="redis://localhost:6379/1"
-export NODE_ENV="development"
 ENVEOF
     echo "  Session environment variables configured"
-    echo "  DATABASE_URL=postgres://postgres:postgres@localhost:5432/keryx"
-    echo "  DATABASE_URL_TEST=postgres://postgres:postgres@localhost:5432/keryx-test"
     echo "  REDIS_URL=redis://localhost:6379/0"
     echo "  REDIS_URL_TEST=redis://localhost:6379/1"
-    echo "  NODE_ENV=development"
+    echo "  (DATABASE_URL* provided per-workspace via .env files)"
 else
     echo "  CLAUDE_ENV_FILE not set (running outside Claude Code?)"
 fi
