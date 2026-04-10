@@ -1,5 +1,5 @@
 ---
-description: Zod helper utilities for secret fields, ID-or-model resolution, pagination, and form data parsing.
+description: Zod helper utilities — secret field redaction, boolean string parsing, pagination schema helpers, and Drizzle query pagination.
 ---
 
 # Utilities

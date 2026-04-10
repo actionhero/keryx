@@ -1,5 +1,5 @@
 ---
-description: The name, the brand, and the community behind Keryx.
+description: Etymology of the name, why Keryx treats MCP as a first-class transport, brand assets, and community links.
 ---
 
 # About Keryx
