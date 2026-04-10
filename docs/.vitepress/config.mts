@@ -2,7 +2,9 @@ import { readFileSync } from "fs";
 import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
 import { defineConfig } from "vitepress";
-import llmstxt from "vitepress-plugin-llms";
+import llmstxt, {
+  copyOrDownloadAsMarkdownButtons,
+} from "vitepress-plugin-llms";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(
@@ -138,6 +140,12 @@ export default defineConfig({
       "window.dataLayer = window.dataLayer || [];\nfunction gtag(){dataLayer.push(arguments);}\ngtag('js', new Date());\ngtag('config', 'G-G4F5PLL4QD');",
     ],
   ],
+
+  markdown: {
+    config: (md) => {
+      md.use(copyOrDownloadAsMarkdownButtons);
+    },
+  },
 
   themeConfig: {
     logo: "/images/horn.svg",
