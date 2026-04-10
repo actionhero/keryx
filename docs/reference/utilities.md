@@ -1,5 +1,5 @@
 ---
-description: Zod helper utilities — secret field redaction, boolean string parsing, pagination schema helpers, and Drizzle query pagination.
+description: Zod helper utilities — secret() field redaction, zBooleanFromString(), paginationInputs(), paginate() for Drizzle queries, and the zIdOrModel() factory for ID-or-object resolution.
 ---
 
 # Utilities
