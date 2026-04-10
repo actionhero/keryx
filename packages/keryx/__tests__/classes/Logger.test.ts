@@ -95,6 +95,15 @@ describe("Logger", () => {
       expect(parsed.status).toBe("OK");
     });
 
+    test("applies ANSI color codes when colorize is enabled", () => {
+      const logger = createLogger({ colorize: true });
+      const lines = capture(logger);
+
+      logger.info("colored");
+
+      expect(lines[0]).toContain("\x1b[");
+    });
+
     test("does not include ANSI color codes", () => {
       const logger = createLogger({
         format: LogFormat.json,
