@@ -1,5 +1,5 @@
 ---
-description: Action class definition, transport behavior across HTTP/WebSocket/CLI/tasks, type helpers, and middleware.
+description: Action class API reference — every property, per-transport behavior (HTTP, WebSocket, CLI, tasks, MCP), type helpers, and raw response passthrough.
 ---
 
 # Action

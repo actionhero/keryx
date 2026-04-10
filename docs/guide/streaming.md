@@ -1,5 +1,5 @@
 ---
-description: Stream data over HTTP with Server-Sent Events or chunked binary responses — same action, all transports.
+description: Return streaming responses from actions — Server-Sent Events for real-time data and chunked binary for file downloads over HTTP.
 ---
 
 # Streaming

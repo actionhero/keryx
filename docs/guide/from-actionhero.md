@@ -1,5 +1,5 @@
 ---
-description: Key differences between Keryx and ActionHero, and what to expect when migrating.
+description: Migration guide from ActionHero — unified action/task controllers, route-on-action, Drizzle ORM replacing Sequelize, MCP as a transport, and removed features.
 ---
 
 # Coming from ActionHero
