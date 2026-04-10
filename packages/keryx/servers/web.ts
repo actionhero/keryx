@@ -1,7 +1,6 @@
 import { parse } from "node:url";
 import type { ServerWebSocket } from "bun";
 import colors from "colors";
-import cookie from "cookie";
 import { randomUUID } from "crypto";
 import { api, logger } from "../api";
 import { type HTTP_METHOD } from "../classes/Action";
@@ -144,8 +143,8 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
   ) {
     const ip = server.requestIP(req)?.address || "unknown-IP";
     const headers = req.headers;
-    const cookies = cookie.parse(req.headers.get("cookie") ?? "");
-    const id = cookies[config.session.cookieName] || randomUUID();
+    const cookies = new Bun.CookieMap(req.headers.get("cookie") ?? "");
+    const id = cookies.get(config.session.cookieName) || randomUUID();
 
     // Reject new WebSocket upgrades during shutdown
     if (
