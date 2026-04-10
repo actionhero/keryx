@@ -4,7 +4,6 @@ import DefaultTheme from "vitepress/theme";
 import CliSnippet from "./CliSnippet.vue";
 import GitHubStars from "./GitHubStars.vue";
 import HomeContent from "./HomeContent.vue";
-import MarkdownLink from "./MarkdownLink.vue";
 
 const { Layout } = DefaultTheme;
 const { frontmatter } = useData();
@@ -20,9 +19,6 @@ const { frontmatter } = useData();
     </template>
     <template #home-features-after>
       <HomeContent />
-    </template>
-    <template v-if="frontmatter.layout !== 'home'" #doc-footer-before>
-      <MarkdownLink />
     </template>
     <template #layout-bottom>
       <div class="footer-lion">
