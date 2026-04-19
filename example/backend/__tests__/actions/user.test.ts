@@ -1,24 +1,14 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { type ActionResponse, api, config, logger } from "keryx";
+import { describe, expect, test } from "bun:test";
+import { type ActionResponse, config, logger } from "keryx";
 import type { SessionCreate } from "../../actions/session";
 import type { UserCreate, UserEdit, UserView } from "../../actions/user";
-import { HOOK_TIMEOUT, serverUrl } from "./../setup";
+import { useTestServer } from "./../setup";
 
-let url: string;
-
-beforeAll(async () => {
-  await api.start();
-  url = serverUrl();
-  await api.db.clearDatabase();
-}, HOOK_TIMEOUT);
-
-afterAll(async () => {
-  await api.stop();
-}, HOOK_TIMEOUT);
+const getUrl = useTestServer({ clearDatabase: true });
 
 describe("user:create", () => {
   test("user can be created", async () => {
-    const res = await fetch(url + "/api/user", {
+    const res = await fetch(getUrl() + "/api/user", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -35,7 +25,7 @@ describe("user:create", () => {
   });
 
   test("email must be unique", async () => {
-    const res = await fetch(url + "/api/user", {
+    const res = await fetch(getUrl() + "/api/user", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -52,7 +42,7 @@ describe("user:create", () => {
   });
 
   test("validation failures return the proper key", async () => {
-    const res = await fetch(url + "/api/user", {
+    const res = await fetch(getUrl() + "/api/user", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -84,7 +74,7 @@ describe("user:create", () => {
       formData.append("email", "test@example.com");
       formData.append("password", "secretpassword123");
 
-      await fetch(url + "/api/user", {
+      await fetch(getUrl() + "/api/user", {
         method: "PUT",
         body: formData,
       });
@@ -108,7 +98,7 @@ describe("user:create", () => {
 
 describe("user:edit", () => {
   test("it fails without a session", async () => {
-    const res = await fetch(url + "/api/user", {
+    const res = await fetch(getUrl() + "/api/user", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: "new name" }),
@@ -119,7 +109,7 @@ describe("user:edit", () => {
   });
 
   test("the user can be updated", async () => {
-    const sessionRes = await fetch(url + "/api/session", {
+    const sessionRes = await fetch(getUrl() + "/api/session", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -132,7 +122,7 @@ describe("user:edit", () => {
     expect(sessionRes.status).toBe(200);
     const sessionId = sessionResponse.session.id;
 
-    const res = await fetch(url + "/api/user", {
+    const res = await fetch(getUrl() + "/api/user", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -152,7 +142,7 @@ describe("user:edit", () => {
 
 describe("user:view", () => {
   test("it fails without a session", async () => {
-    const res = await fetch(url + "/api/user/1", {
+    const res = await fetch(getUrl() + "/api/user/1", {
       method: "GET",
       headers: { "Content-Type": "application/json" },
     });
@@ -163,7 +153,7 @@ describe("user:view", () => {
 
   test("user can view themselves", async () => {
     // Create a user first
-    await fetch(url + "/api/user", {
+    await fetch(getUrl() + "/api/user", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -174,7 +164,7 @@ describe("user:view", () => {
     });
 
     // Create a session
-    const sessionRes = await fetch(url + "/api/session", {
+    const sessionRes = await fetch(getUrl() + "/api/session", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -189,7 +179,7 @@ describe("user:view", () => {
     const userId = sessionResponse.user.id;
 
     // View the user
-    const res = await fetch(url + `/api/user/${userId}`, {
+    const res = await fetch(getUrl() + `/api/user/${userId}`, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
@@ -206,7 +196,7 @@ describe("user:view", () => {
 
   test("user can view another user (public information only)", async () => {
     // Create two users
-    await fetch(url + "/api/user", {
+    await fetch(getUrl() + "/api/user", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -217,7 +207,7 @@ describe("user:view", () => {
     });
 
     // Create a session for Peach
-    const sessionRes = await fetch(url + "/api/session", {
+    const sessionRes = await fetch(getUrl() + "/api/session", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -231,7 +221,7 @@ describe("user:view", () => {
     const sessionId = sessionResponse.session.id;
 
     // View a different user (id 1, which should exist from earlier tests)
-    const res = await fetch(url + "/api/user/1", {
+    const res = await fetch(getUrl() + "/api/user/1", {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
@@ -249,7 +239,7 @@ describe("user:view", () => {
 
   test("fails with invalid user id format", async () => {
     // Create a session
-    const sessionRes = await fetch(url + "/api/session", {
+    const sessionRes = await fetch(getUrl() + "/api/session", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -263,7 +253,7 @@ describe("user:view", () => {
     const sessionId = sessionResponse.session.id;
 
     // Try to view with invalid id
-    const res = await fetch(url + "/api/user/invalid", {
+    const res = await fetch(getUrl() + "/api/user/invalid", {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
@@ -277,7 +267,7 @@ describe("user:view", () => {
 
   test("fails when user not found", async () => {
     // Create a session
-    const sessionRes = await fetch(url + "/api/session", {
+    const sessionRes = await fetch(getUrl() + "/api/session", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -291,7 +281,7 @@ describe("user:view", () => {
     const sessionId = sessionResponse.session.id;
 
     // Try to view non-existent user
-    const res = await fetch(url + "/api/user/99999", {
+    const res = await fetch(getUrl() + "/api/user/99999", {
       method: "GET",
       headers: {
         "Content-Type": "application/json",

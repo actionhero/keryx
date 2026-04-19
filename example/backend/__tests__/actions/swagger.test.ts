@@ -1,22 +1,13 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { type Action, type ActionResponse, api } from "keryx";
 import type { Swagger } from "../../actions/swagger";
-import { HOOK_TIMEOUT, serverUrl } from "./../setup";
+import { useTestServer } from "./../setup";
 
-let url: string;
-
-beforeAll(async () => {
-  await api.start();
-  url = serverUrl();
-}, HOOK_TIMEOUT);
-
-afterAll(async () => {
-  await api.stop();
-}, HOOK_TIMEOUT);
+const getUrl = useTestServer();
 
 describe("swagger", () => {
   test("the swagger endpoint returns valid OpenAPI 3.0 metadata", async () => {
-    const res = await fetch(url + "/api/swagger");
+    const res = await fetch(getUrl() + "/api/swagger");
     expect(res.status).toBe(200);
     const response = (await res.json()) as ActionResponse<Swagger>;
 
@@ -41,7 +32,7 @@ describe("swagger", () => {
   };
 
   test("swagger documents all web actions", async () => {
-    const res = await fetch(url + "/api/swagger");
+    const res = await fetch(getUrl() + "/api/swagger");
     const response = (await res.json()) as ActionResponse<Swagger>;
 
     // Count web actions (actions with both route and method)
@@ -75,7 +66,7 @@ describe("swagger", () => {
   });
 
   test("swagger documents request bodies for actions with inputs", async () => {
-    const res = await fetch(url + "/api/swagger");
+    const res = await fetch(getUrl() + "/api/swagger");
     const response = (await res.json()) as ActionResponse<Swagger>;
 
     // Find actions with Zod inputs
@@ -108,7 +99,7 @@ describe("swagger", () => {
   });
 
   test("swagger documents standard response codes", async () => {
-    const res = await fetch(url + "/api/swagger");
+    const res = await fetch(getUrl() + "/api/swagger");
     const response = (await res.json()) as ActionResponse<Swagger>;
 
     // Check a specific endpoint (swagger itself)
@@ -130,7 +121,7 @@ describe("swagger", () => {
   });
 
   test("swagger groups actions by tags", async () => {
-    const res = await fetch(url + "/api/swagger");
+    const res = await fetch(getUrl() + "/api/swagger");
     const response = (await res.json()) as ActionResponse<Swagger>;
 
     // Check that actions are tagged by their namespace
@@ -150,7 +141,7 @@ describe("swagger", () => {
   });
 
   test("swagger documents query parameters for GET actions", async () => {
-    const res = await fetch(url + "/api/swagger");
+    const res = await fetch(getUrl() + "/api/swagger");
     const response = (await res.json()) as ActionResponse<Swagger>;
 
     // messages:list is GET /messages/list with page and limit inputs
@@ -174,7 +165,7 @@ describe("swagger", () => {
   });
 
   test("swagger does not duplicate path params as query params", async () => {
-    const res = await fetch(url + "/api/swagger");
+    const res = await fetch(getUrl() + "/api/swagger");
     const response = (await res.json()) as ActionResponse<Swagger>;
 
     // user:view is GET /user/:user — "user" is a path param and a Zod input
@@ -190,7 +181,7 @@ describe("swagger", () => {
   });
 
   test("swagger includes securitySchemes for session cookie", async () => {
-    const res = await fetch(url + "/api/swagger");
+    const res = await fetch(getUrl() + "/api/swagger");
     const response = (await res.json()) as ActionResponse<Swagger>;
 
     expect(response.components.securitySchemes).toBeDefined();
@@ -202,7 +193,7 @@ describe("swagger", () => {
   });
 
   test("swagger includes document-level security requirement", async () => {
-    const res = await fetch(url + "/api/swagger");
+    const res = await fetch(getUrl() + "/api/swagger");
     const response = (await res.json()) as ActionResponse<Swagger>;
 
     expect(response.security).toBeDefined();
@@ -210,7 +201,7 @@ describe("swagger", () => {
   });
 
   test("swagger endpoint itself is documented", async () => {
-    const res = await fetch(url + "/api/swagger");
+    const res = await fetch(getUrl() + "/api/swagger");
     const response = (await res.json()) as ActionResponse<Swagger>;
 
     expect(response.paths["/swagger"]).toBeDefined();
@@ -221,7 +212,7 @@ describe("swagger", () => {
   });
 
   test("swagger properly enumerates UserCreate action parameters", async () => {
-    const res = await fetch(url + "/api/swagger");
+    const res = await fetch(getUrl() + "/api/swagger");
     const response = (await res.json()) as ActionResponse<Swagger>;
 
     // Check the UserCreate action (PUT /user)
@@ -256,7 +247,7 @@ describe("swagger", () => {
   });
 
   test("swagger documents response types from TypeScript return types", async () => {
-    const res = await fetch(url + "/api/swagger");
+    const res = await fetch(getUrl() + "/api/swagger");
     const response = (await res.json()) as ActionResponse<Swagger>;
 
     // Check the status action response schema
@@ -305,7 +296,7 @@ describe("swagger", () => {
   });
 
   test("swagger documents response types for UserCreate action", async () => {
-    const res = await fetch(url + "/api/swagger");
+    const res = await fetch(getUrl() + "/api/swagger");
     const response = (await res.json()) as ActionResponse<Swagger>;
 
     // Check the user:create action response schema

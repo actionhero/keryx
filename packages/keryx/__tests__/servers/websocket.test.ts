@@ -1,18 +1,11 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { api } from "../../api";
 import { Channel } from "../../classes/Channel";
 import { config } from "../../config";
-import { HOOK_TIMEOUT, serverUrl } from "./../setup";
+import { serverUrl, useTestServer } from "./../setup";
 import { buildWebSocket } from "./websocket-helpers";
 
-beforeAll(async () => {
-  await api.start();
-  await api.db.clearDatabase();
-}, HOOK_TIMEOUT);
-
-afterAll(async () => {
-  await api.stop();
-}, HOOK_TIMEOUT);
+useTestServer({ clearDatabase: true });
 
 test("request to an action", async () => {
   const { socket, messages } = await buildWebSocket();
