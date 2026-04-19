@@ -17,6 +17,13 @@ export abstract class Initializer {
   stopPriority: number;
   /** Which run modes this initializer participates in. Defaults to both SERVER and CLI. */
   runModes: RUN_MODE[];
+  /**
+   * Whether this initializer attaches a property named `this.name` on the `api` singleton.
+   * Runtime validation in `API.initialize()` and `API.start()` will fail if the declared
+   * property is missing. Default: `true`. Set to `false` for initializers that intentionally
+   * don't augment the `API` interface.
+   */
+  declaresAPIProperty: boolean;
 
   constructor(name: string) {
     this.name = name;
@@ -24,6 +31,7 @@ export abstract class Initializer {
     this.startPriority = 1000;
     this.stopPriority = 1000;
     this.runModes = [RUN_MODE.SERVER, RUN_MODE.CLI];
+    this.declaresAPIProperty = true;
   }
 
   /**
