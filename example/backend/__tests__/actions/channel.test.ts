@@ -7,14 +7,14 @@ import {
   test,
 } from "bun:test";
 import { type ActionResponse, api, Channel } from "keryx";
-import type { ChannelMembers } from "../../actions/channel";
-import type { SessionCreate } from "../../actions/session";
 import {
   buildWebSocket,
   createSession,
   createUser,
   subscribeToChannel,
-} from "./../servers/websocket-helpers";
+} from "../../../../packages/keryx/__tests__/servers/websocket-helpers";
+import type { ChannelMembers } from "../../actions/channel";
+import type { SessionCreate } from "../../actions/session";
 import { HOOK_TIMEOUT, serverUrl } from "./../setup";
 
 let url: string;

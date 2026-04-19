@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { api, config } from "keryx";
-import { HOOK_TIMEOUT } from "./../setup";
 import {
   buildWebSocket,
   createSession,
   createUser,
   subscribeToChannel,
-} from "./websocket-helpers";
+} from "../../../../packages/keryx/__tests__/servers/websocket-helpers";
+import { HOOK_TIMEOUT } from "./../setup";
 
 const originalRateLimitEnabled = config.rateLimit.enabled;
 

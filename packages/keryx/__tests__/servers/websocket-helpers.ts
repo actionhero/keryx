@@ -1,8 +1,15 @@
 import { expect } from "bun:test";
-import { serverUrl } from "../setup";
+import { api } from "../../api";
+import type { WebServer } from "../../servers/web";
 
-const wsUrl = () =>
-  serverUrl().replace("https://", "wss://").replace("http://", "ws://");
+const wsUrl = () => {
+  const web = api.servers.servers.find(
+    (s: { name: string }) => s.name === "web",
+  ) as WebServer | undefined;
+  return (web?.url || "")
+    .replace("https://", "wss://")
+    .replace("http://", "ws://");
+};
 
 export const buildWebSocket = async (
   options: { headers?: Record<string, string> } = {},
