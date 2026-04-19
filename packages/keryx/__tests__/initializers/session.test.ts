@@ -1,16 +1,9 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { api, Connection } from "../../api";
 import { config } from "../../config";
-import { HOOK_TIMEOUT } from "./../setup";
+import { useTestServer } from "./../setup";
 
-beforeAll(async () => {
-  await api.start();
-  await api.redis.redis.flushdb();
-}, HOOK_TIMEOUT);
-
-afterAll(async () => {
-  await api.stop();
-}, HOOK_TIMEOUT);
+useTestServer({ clearRedis: true });
 
 describe("session initializer", () => {
   test("session object is initialized", () => {

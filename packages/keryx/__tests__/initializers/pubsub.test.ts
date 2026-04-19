@@ -1,14 +1,7 @@
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  test,
-} from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { api, Connection } from "../../api";
 import type { PubSubMessage } from "../../initializers/pubsub";
-import { HOOK_TIMEOUT, waitFor } from "./../setup";
+import { useTestServer, waitFor } from "./../setup";
 
 /** A test connection that captures broadcast messages instead of throwing. */
 class TestConnection extends Connection {
@@ -24,13 +17,7 @@ class TestConnection extends Connection {
   }
 }
 
-beforeAll(async () => {
-  await api.start();
-}, HOOK_TIMEOUT);
-
-afterAll(async () => {
-  await api.stop();
-}, HOOK_TIMEOUT);
+useTestServer();
 
 afterEach(() => {
   api.connections.connections.clear();

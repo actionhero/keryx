@@ -1,19 +1,10 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { type ActionResponse, api } from "keryx";
+import { describe, expect, test } from "bun:test";
+import { type ActionResponse } from "keryx";
 import path from "path";
 import type { FileUpload } from "../../actions/files";
-import { HOOK_TIMEOUT, serverUrl } from "./../setup";
+import { useTestServer } from "./../setup";
 
-let url: string;
-
-beforeAll(async () => {
-  await api.start();
-  url = serverUrl();
-}, HOOK_TIMEOUT);
-
-afterAll(async () => {
-  await api.stop();
-}, HOOK_TIMEOUT);
+const getUrl = useTestServer();
 
 describe("status", () => {
   test("the web server can handle a request to an action", async () => {
@@ -32,7 +23,7 @@ describe("status", () => {
 
     const f = Bun.file(filePath);
     formData.append("file", f);
-    const res = await fetch(url + "/api/file", {
+    const res = await fetch(getUrl() + "/api/file", {
       method: "POST",
       body: formData,
     });

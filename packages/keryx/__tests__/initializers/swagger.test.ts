@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { rm } from "fs/promises";
 import path from "path";
 import { api } from "../../api";
@@ -7,15 +7,9 @@ import {
   loadCachedSchemas,
   writeSchemasCache,
 } from "../../util/swaggerSchemaGenerator";
-import { HOOK_TIMEOUT } from "./../setup";
+import { useTestServer } from "./../setup";
 
-beforeAll(async () => {
-  await api.start();
-}, HOOK_TIMEOUT);
-
-afterAll(async () => {
-  await api.stop();
-}, HOOK_TIMEOUT);
+useTestServer();
 
 describe("swagger initializer", () => {
   test("swagger namespace is initialized", () => {

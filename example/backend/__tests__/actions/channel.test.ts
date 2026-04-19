@@ -1,11 +1,4 @@
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  test,
-} from "bun:test";
+import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { type ActionResponse, api, Channel } from "keryx";
 import type { ChannelMembers } from "../../actions/channel";
 import type { SessionCreate } from "../../actions/session";
@@ -15,26 +8,15 @@ import {
   createUser,
   subscribeToChannel,
 } from "./../servers/websocket-helpers";
-import { HOOK_TIMEOUT, serverUrl } from "./../setup";
+import { useTestServer } from "./../setup";
 
-let url: string;
-
-beforeAll(async () => {
-  await api.start();
-  url = serverUrl();
-  await api.db.clearDatabase();
-  await api.redis.redis.flushdb();
-}, HOOK_TIMEOUT);
-
-afterAll(async () => {
-  await api.stop();
-}, HOOK_TIMEOUT);
+const getUrl = useTestServer({ clearDatabase: true, clearRedis: true });
 
 describe("channel:members", () => {
   let session: ActionResponse<SessionCreate>["session"];
 
   beforeAll(async () => {
-    await fetch(url + "/api/user", {
+    await fetch(getUrl() + "/api/user", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -44,7 +26,7 @@ describe("channel:members", () => {
       }),
     });
 
-    const sessionRes = await fetch(url + "/api/session", {
+    const sessionRes = await fetch(getUrl() + "/api/session", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -64,7 +46,10 @@ describe("channel:members", () => {
 
   test("rejects invalid channel name", async () => {
     const res = await fetch(
-      url + "/api/channel/" + encodeURIComponent("bad channel!@#") + "/members",
+      getUrl() +
+        "/api/channel/" +
+        encodeURIComponent("bad channel!@#") +
+        "/members",
       {
         method: "GET",
         headers: {
@@ -78,7 +63,7 @@ describe("channel:members", () => {
   });
 
   test("fails without a session", async () => {
-    const res = await fetch(url + "/api/channel/messages/members", {
+    const res = await fetch(getUrl() + "/api/channel/messages/members", {
       method: "GET",
     });
     expect(res.status).toBe(401);
@@ -87,12 +72,15 @@ describe("channel:members", () => {
   });
 
   test("returns empty members for a channel with no subscribers", async () => {
-    const res = await fetch(url + "/api/channel/some-empty-channel/members", {
-      method: "GET",
-      headers: {
-        Cookie: `${session.cookieName}=${session.id}`,
+    const res = await fetch(
+      getUrl() + "/api/channel/some-empty-channel/members",
+      {
+        method: "GET",
+        headers: {
+          Cookie: `${session.cookieName}=${session.id}`,
+        },
       },
-    });
+    );
     expect(res.status).toBe(200);
     const response = (await res.json()) as ActionResponse<ChannelMembers>;
     expect(response.members).toEqual([]);
@@ -111,7 +99,7 @@ describe("channel:members", () => {
     await createSession(socket, messages, "luigi@example.com", "mushroom1");
     await subscribeToChannel(socket, messages, "messages");
 
-    const res = await fetch(url + "/api/channel/messages/members", {
+    const res = await fetch(getUrl() + "/api/channel/messages/members", {
       method: "GET",
       headers: {
         Cookie: `${session.cookieName}=${session.id}`,
@@ -149,7 +137,7 @@ describe("channel:members", () => {
       await subscribeToChannel(socket, messages, "test-channel");
 
       // Verify member is present
-      let res = await fetch(url + "/api/channel/test-channel/members", {
+      let res = await fetch(getUrl() + "/api/channel/test-channel/members", {
         method: "GET",
         headers: {
           Cookie: `${session.cookieName}=${session.id}`,
@@ -163,7 +151,7 @@ describe("channel:members", () => {
       await Bun.sleep(100);
 
       // Verify member is removed
-      res = await fetch(url + "/api/channel/test-channel/members", {
+      res = await fetch(getUrl() + "/api/channel/test-channel/members", {
         method: "GET",
         headers: {
           Cookie: `${session.cookieName}=${session.id}`,
