@@ -27,7 +27,7 @@ export const SessionChannelMiddleware: ChannelMiddleware = {
     _channel: string,
     connection: Connection<SessionImpl>,
   ): Promise<void> => {
-    if (!connection.session || !connection.session.data.userId) {
+    if (!connection.session?.data.userId) {
       throw new TypedError({
         message: "Authentication required to join this channel",
         type: ErrorType.CONNECTION_CHANNEL_AUTHORIZATION,
