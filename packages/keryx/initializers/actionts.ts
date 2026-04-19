@@ -4,6 +4,7 @@ import path from "path";
 import { api, logger } from "../api";
 import { type Action, DEFAULT_QUEUE } from "../classes/Action";
 import { Initializer } from "../classes/Initializer";
+import { Router } from "../classes/Router";
 import { ErrorType, TypedError } from "../classes/TypedError";
 import { config } from "../config";
 import { formatLoadedMessage } from "../util/config";
@@ -672,8 +673,16 @@ export class Actions extends Initializer {
       }),
     );
 
+    // Keep the router compile co-located with action assembly — if in-process
+    // hot-reload is ever added, this is the single seam that must re-fire.
+    // The getter lets the router track wholesale array replacement (e.g. tests
+    // that do `api.actions.actions = api.actions.actions.filter(...)`).
+    const router = new Router();
+    router.compile(() => api.actions.actions);
+
     return {
       actions,
+      router,
 
       enqueue: this.enqueue,
       fanOut: this.fanOut,
