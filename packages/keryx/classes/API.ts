@@ -92,6 +92,8 @@ export class API {
       }
     }
 
+    this.validateInitializerProperties("initialize");
+
     this.initialized = true;
     this.logger.warn("--- 🔄  Initializing complete ---");
   }
@@ -137,6 +139,8 @@ export class API {
         });
       }
     }
+
+    this.validateInitializerProperties("start");
 
     this.started = true;
     this.logger.warn("--- 🔼  Starting complete ---");
@@ -271,5 +275,38 @@ export class API {
 
   private sortInitializers(key: InitializerSortKeys) {
     this.initializers.sort((a, b) => a[key] - b[key]);
+  }
+
+  /**
+   * Assert that every initializer which claims an API namespace (via
+   * `declaresAPIProperty`) has actually attached `api[initializer.name]`.
+   * Closes the silent-drift gap between TypeScript module augmentation
+   * and runtime property assignment — a missing namespace becomes a fast,
+   * loud startup failure instead of a confusing `Cannot read property of
+   * undefined` deep inside a request handler.
+   *
+   * Initializers excluded from the current `runMode` are skipped during the
+   * `start` phase since their `start()` method never ran.
+   */
+  private validateInitializerProperties(phase: "initialize" | "start") {
+    const missing: string[] = [];
+    for (const initializer of this.initializers) {
+      if (initializer.declaresAPIProperty === false) continue;
+      if (phase === "start" && !initializer.runModes.includes(this.runMode)) {
+        continue;
+      }
+      if (this[initializer.name] == null) {
+        missing.push(initializer.name);
+      }
+    }
+    if (missing.length > 0) {
+      throw new TypedError({
+        type: ErrorType.INITIALIZER_VALIDATION,
+        message:
+          `Initializers did not attach their namespace to api after the ${phase} phase: ` +
+          `${missing.join(", ")}. Each initializer must either return a namespace object ` +
+          `from initialize() (and/or populate it in start()), or set declaresAPIProperty = false.`,
+      });
+    }
   }
 }

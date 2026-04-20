@@ -1,6 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { api } from "../../api";
+import { type Action, HTTP_METHOD } from "../../classes/Action";
+import { Router } from "../../classes/Router";
 import { ErrorType } from "../../classes/TypedError";
-import { parseRequestParams } from "../../util/webRouting";
+import { config } from "../../config";
+import { determineActionName, parseRequestParams } from "../../util/webRouting";
+import { HOOK_TIMEOUT } from "../setup";
 
 // Helpers to build minimal Request objects for testing
 function jsonRequest(body: Record<string, unknown>, method = "POST"): Request {
@@ -208,5 +213,76 @@ describe("parseRequestParams", () => {
       expect(params.name).toBe("from-body");
       expect(params.extra).toBe("query-val");
     });
+  });
+});
+
+function makeAction(
+  name: string,
+  route: string | RegExp,
+  method: HTTP_METHOD = HTTP_METHOD.GET,
+): Action {
+  return { name, web: { route, method } } as unknown as Action;
+}
+
+function routerUrl(pathWithQuery: string) {
+  const { parse } = require("node:url");
+  return parse(`http://localhost${pathWithQuery}`, true);
+}
+
+describe("determineActionName", () => {
+  const originalActions = (api as { actions?: unknown }).actions;
+
+  beforeAll(() => {
+    const router = new Router();
+    const actions = [
+      makeAction("status", "/status"),
+      makeAction("user:get", "/users/:id"),
+      makeAction("user:create", "/users", HTTP_METHOD.POST),
+    ];
+    router.compile(actions);
+    (api as { actions: unknown }).actions = { actions, router };
+  }, HOOK_TIMEOUT);
+
+  afterAll(() => {
+    (api as { actions: unknown }).actions = originalActions;
+  }, HOOK_TIMEOUT);
+
+  test("strips the configured apiRoute prefix before matching", async () => {
+    const result = await determineActionName(
+      routerUrl(`${config.server.web.apiRoute}/status`),
+      HTTP_METHOD.GET,
+    );
+    expect(result).toEqual({ actionName: "status", pathParams: undefined });
+  });
+
+  test("extracts path params through the transport layer", async () => {
+    const result = await determineActionName(
+      routerUrl(`${config.server.web.apiRoute}/users/42`),
+      HTTP_METHOD.GET,
+    );
+    expect(result.actionName).toBe("user:get");
+    expect(result.pathParams).toEqual({ id: "42" });
+  });
+
+  test("dispatches GET and POST on the same path to different actions", async () => {
+    const getResult = await determineActionName(
+      routerUrl(`${config.server.web.apiRoute}/users`),
+      HTTP_METHOD.POST,
+    );
+    expect(getResult.actionName).toBe("user:create");
+
+    const missing = await determineActionName(
+      routerUrl(`${config.server.web.apiRoute}/users`),
+      HTTP_METHOD.DELETE,
+    );
+    expect(missing.actionName).toBeNull();
+  });
+
+  test("returns null for an unknown path", async () => {
+    const result = await determineActionName(
+      routerUrl(`${config.server.web.apiRoute}/nope`),
+      HTTP_METHOD.GET,
+    );
+    expect(result).toEqual({ actionName: null, pathParams: null });
   });
 });

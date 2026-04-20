@@ -1,16 +1,13 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { api } from "../../api";
 import { type Action, HTTP_METHOD } from "../../classes/Action";
 import { StreamingResponse } from "../../classes/StreamingResponse";
-import { HOOK_TIMEOUT, serverUrl } from "../setup";
+import { useTestServer } from "../setup";
 
-let url: string;
+const getUrl = useTestServer();
 
-beforeAll(async () => {
-  await api.start();
-  url = serverUrl();
-
+beforeAll(() => {
   // SSE action that sends a configurable number of counter events
   const sseAction = {
     name: "test:sse",
@@ -70,11 +67,7 @@ beforeAll(async () => {
   } as unknown as Action;
 
   api.actions.actions.push(sseAction, streamAction, sseErrorAction);
-}, HOOK_TIMEOUT);
-
-afterAll(async () => {
-  await api.stop();
-}, HOOK_TIMEOUT);
+});
 
 /**
  * Parse raw SSE text into an array of event objects.
@@ -107,7 +100,7 @@ function parseSSE(
 
 describe("SSE streaming", () => {
   test("returns correct SSE headers", async () => {
-    const res = await fetch(url + "/api/test/sse");
+    const res = await fetch(getUrl() + "/api/test/sse");
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("text/event-stream");
     expect(res.headers.get("Cache-Control")).toBe("no-cache");
@@ -116,14 +109,14 @@ describe("SSE streaming", () => {
   });
 
   test("includes standard keryx headers (CORS, security, session)", async () => {
-    const res = await fetch(url + "/api/test/sse");
+    const res = await fetch(getUrl() + "/api/test/sse");
     expect(res.headers.get("X-SERVER-NAME")).toBeTruthy();
     expect(res.headers.get("Set-Cookie")).toBeTruthy();
     await res.text();
   });
 
   test("streams counter events with correct SSE format", async () => {
-    const res = await fetch(url + "/api/test/sse?count=3");
+    const res = await fetch(getUrl() + "/api/test/sse?count=3");
     const text = await res.text();
     const events = parseSSE(text);
 
@@ -136,7 +129,7 @@ describe("SSE streaming", () => {
   });
 
   test("does not compress SSE responses", async () => {
-    const res = await fetch(url + "/api/test/sse?count=5", {
+    const res = await fetch(getUrl() + "/api/test/sse?count=5", {
       headers: { "Accept-Encoding": "gzip, br" },
     });
     expect(res.headers.get("Content-Encoding")).toBeNull();
@@ -144,7 +137,7 @@ describe("SSE streaming", () => {
   });
 
   test("SSE error event sends error and closes stream", async () => {
-    const res = await fetch(url + "/api/test/sse-error");
+    const res = await fetch(getUrl() + "/api/test/sse-error");
     const text = await res.text();
     const events = parseSSE(text);
 
@@ -157,7 +150,7 @@ describe("SSE streaming", () => {
 
 describe("raw streaming", () => {
   test("streams binary chunks with correct content type", async () => {
-    const res = await fetch(url + "/api/test/stream");
+    const res = await fetch(getUrl() + "/api/test/stream");
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("application/octet-stream");
     const text = await res.text();

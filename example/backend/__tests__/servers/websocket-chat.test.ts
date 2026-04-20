@@ -5,22 +5,21 @@ import {
   createSession,
   createUser,
   subscribeToChannel,
+  useTestServer,
   waitForBroadcastMessages,
-} from "../../../../packages/keryx/__tests__/servers/websocket-helpers";
-import { HOOK_TIMEOUT } from "./../setup";
+} from "./../setup";
 
 const originalRateLimitEnabled = config.rateLimit.enabled;
 
-beforeAll(async () => {
+beforeAll(() => {
   (config.rateLimit as any).enabled = false;
-  await api.start();
-  await api.db.clearDatabase();
-}, HOOK_TIMEOUT);
+});
 
-afterAll(async () => {
-  await api.stop();
+useTestServer({ clearDatabase: true });
+
+afterAll(() => {
   (config.rateLimit as any).enabled = originalRateLimitEnabled;
-}, HOOK_TIMEOUT);
+});
 
 beforeEach(async () => {
   await api.db.clearDatabase();

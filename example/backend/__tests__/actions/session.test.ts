@@ -1,30 +1,23 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 import { type ActionResponse, api } from "keryx";
 import type { SessionCreate } from "../../actions/session";
 import { hashPassword } from "../../ops/UserOps";
 import { users } from "../../schema/users";
-import { HOOK_TIMEOUT, serverUrl } from "./../setup";
+import { useTestServer } from "./../setup";
 
-let url: string;
+const getUrl = useTestServer({ clearDatabase: true });
 
 beforeAll(async () => {
-  await api.start();
-  url = serverUrl();
-  await api.db.clearDatabase();
   await api.db.db.insert(users).values({
     name: "Mario Mario",
     email: "mario@example.com",
     password_hash: await hashPassword("mushroom1"),
   });
-}, HOOK_TIMEOUT);
-
-afterAll(async () => {
-  await api.stop();
-}, HOOK_TIMEOUT);
+});
 
 describe("session:create", () => {
   test("returns user when matched", async () => {
-    const res = await fetch(url + "/api/session", {
+    const res = await fetch(getUrl() + "/api/session", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -42,7 +35,7 @@ describe("session:create", () => {
   });
 
   test("fails validation", async () => {
-    const res = await fetch(url + "/api/session", {
+    const res = await fetch(getUrl() + "/api/session", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -56,7 +49,7 @@ describe("session:create", () => {
   });
 
   test("fails when user is not found with generic error", async () => {
-    const res = await fetch(url + "/api/session", {
+    const res = await fetch(getUrl() + "/api/session", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -70,7 +63,7 @@ describe("session:create", () => {
   });
 
   test("fails when passwords do not match with same generic error", async () => {
-    const res = await fetch(url + "/api/session", {
+    const res = await fetch(getUrl() + "/api/session", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -88,7 +81,7 @@ describe("session:destroy", () => {
   let session: ActionResponse<SessionCreate>["session"];
 
   beforeAll(async () => {
-    const sessionRes = await fetch(url + "/api/session", {
+    const sessionRes = await fetch(getUrl() + "/api/session", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -102,7 +95,7 @@ describe("session:destroy", () => {
   });
 
   test("successfully destroys a session", async () => {
-    const res = await fetch(url + "/api/session", {
+    const res = await fetch(getUrl() + "/api/session", {
       method: "DELETE",
       headers: {
         Cookie: `${session.cookieName}=${session.id}`,
@@ -115,7 +108,7 @@ describe("session:destroy", () => {
     expect(response.success).toBe(true);
 
     // Verify session is actually destroyed by trying to access a protected endpoint
-    const userRes = await fetch(url + "/api/user/1", {
+    const userRes = await fetch(getUrl() + "/api/user/1", {
       method: "GET",
       headers: {
         Cookie: `${session.cookieName}=${session.id}`,
@@ -126,7 +119,7 @@ describe("session:destroy", () => {
   });
 
   test("fails without a session", async () => {
-    const res = await fetch(url + "/api/session", {
+    const res = await fetch(getUrl() + "/api/session", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: "{}",

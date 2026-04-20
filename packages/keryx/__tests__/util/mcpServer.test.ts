@@ -12,7 +12,7 @@ import { z } from "zod";
 import { api } from "../../api";
 import { Action, HTTP_METHOD } from "../../classes/Action";
 import { config } from "../../config";
-import { HOOK_TIMEOUT, serverUrl } from "../setup";
+import { serverUrl, useTestServer } from "../setup";
 
 const mcpUrl = () => `${serverUrl()}${config.server.mcp.route}`;
 
@@ -83,10 +83,13 @@ class TestPrompt extends Action {
 describe("mcpServer utilities (integration)", () => {
   const testActions: Action[] = [];
 
-  beforeAll(async () => {
+  beforeAll(() => {
     config.server.mcp.enabled = true;
-    await api.start();
+  });
 
+  useTestServer();
+
+  beforeAll(() => {
     // Inject test actions after start (api.actions is now populated).
     // MCP servers are created per-session, so these will be picked up
     // when the test client connects.
@@ -94,10 +97,9 @@ describe("mcpServer utilities (integration)", () => {
     const prompt = new TestPrompt();
     testActions.push(templateResource, prompt);
     api.actions.actions.push(...testActions);
-  }, HOOK_TIMEOUT);
+  });
 
-  afterAll(async () => {
-    await api.stop();
+  afterAll(() => {
     config.server.mcp.enabled = false;
 
     // Remove injected test actions
@@ -105,7 +107,7 @@ describe("mcpServer utilities (integration)", () => {
       const idx = api.actions.actions.indexOf(action);
       if (idx !== -1) api.actions.actions.splice(idx, 1);
     }
-  }, HOOK_TIMEOUT);
+  });
 
   describe("URI template resources", () => {
     // MCP requires auth — get a token via the OAuth initializer

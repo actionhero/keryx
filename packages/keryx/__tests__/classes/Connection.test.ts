@@ -5,7 +5,7 @@ import { Action, type ActionMiddleware } from "../../classes/Action";
 import { LogFormat, LogLevel } from "../../classes/Logger";
 import { ErrorType, TypedError } from "../../classes/TypedError";
 import { config } from "../../config";
-import { HOOK_TIMEOUT } from "./../setup";
+import { useTestServer } from "./../setup";
 
 class SlowAction extends Action {
   constructor(timeout?: number) {
@@ -31,15 +31,7 @@ class SlowAction extends Action {
   }
 }
 
-beforeAll(async () => {
-  await api.start();
-  await api.db.clearDatabase();
-  await api.redis.redis.flushdb();
-}, HOOK_TIMEOUT);
-
-afterAll(async () => {
-  await api.stop();
-}, HOOK_TIMEOUT);
+useTestServer({ clearDatabase: true, clearRedis: true });
 
 describe("Connection class", () => {
   test("constructor creates connection with unique ID", () => {
