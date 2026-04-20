@@ -8,7 +8,7 @@ import {
   test,
 } from "bun:test";
 import { z } from "zod";
-import { Action, api } from "../../api";
+import { Action, api, Connection } from "../../api";
 import { DEFAULT_QUEUE } from "../../classes/Action";
 import { HOOK_TIMEOUT, waitFor } from "./../setup";
 
@@ -147,5 +147,37 @@ describe("with workers and scheduler", () => {
     await api.resque.startScheduler();
     await waitFor(() => runs.length > 1);
     expect(runs.length).toBeGreaterThan(1);
+  });
+
+  test("task actions receive a task-typed connection with an empty session (fresh start)", async () => {
+    let sessionData: Record<string, any> | undefined;
+    let connectionType: string | undefined;
+
+    class BareAction implements Action {
+      name = "bare_action";
+      inputs = z.object({});
+      run = async (
+        _params: Record<string, unknown>,
+        connection: Connection,
+      ): Promise<void> => {
+        sessionData = connection.session?.data;
+        connectionType = connection.type;
+      };
+    }
+    const instance = new BareAction();
+    api.actions.actions.push(instance);
+    api.resque.jobs[instance.name] = api.resque.wrapActionAsJob(instance);
+
+    await api.actions.enqueue("bare_action");
+    await api.resque.startWorkers();
+    await waitFor(() => sessionData !== undefined);
+
+    expect(sessionData).toEqual({});
+    expect(connectionType).toBe("task");
+
+    api.actions.actions = api.actions.actions.filter(
+      (a) => a.name !== "bare_action",
+    );
+    delete api.resque.jobs.bare_action;
   });
 });

@@ -35,7 +35,7 @@ export class MessageCrete implements Action {
     params: ActionParams<MessageCrete>,
     connection: Connection<SessionImpl>,
   ) {
-    const userId = connection!.session!.data.userId!;
+    const userId = connection.session!.data.userId!;
 
     const [message] = await api.db.db
       .insert(messages)
