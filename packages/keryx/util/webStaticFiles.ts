@@ -1,8 +1,33 @@
+import { realpath } from "node:fs/promises";
 import path from "node:path";
 import type { parse } from "node:url";
 import { logger } from "../api";
 import { config } from "../config";
 import { getSecurityHeaders } from "./webResponse";
+
+/**
+ * Verify that the resolved on-disk path, with symlinks followed, stays
+ * inside the static root. Returns the real base path + target path if
+ * safe, or `null` if the target escapes (via symlink or otherwise).
+ */
+async function resolveWithinStaticRoot(
+  targetPath: string,
+  basePath: string,
+): Promise<string | null> {
+  try {
+    const realBase = await realpath(basePath);
+    const realTarget = await realpath(targetPath);
+    if (
+      realTarget !== realBase &&
+      !realTarget.startsWith(realBase + path.sep)
+    ) {
+      return null;
+    }
+    return realTarget;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Attempt to serve a static file for the given request. Returns a `Response`
@@ -54,6 +79,9 @@ export async function handleStaticFile(
         const indexFile = Bun.file(indexPath);
         const indexExists = await indexFile.exists();
         if (indexExists) {
+          if ((await resolveWithinStaticRoot(indexPath, basePath)) === null) {
+            return null;
+          }
           return buildStaticFileResponse(
             req,
             indexFile,
@@ -62,6 +90,12 @@ export async function handleStaticFile(
         }
       }
       return null; // File not found, let other handlers deal with it
+    }
+
+    // Follow symlinks and confirm the real path stays inside staticDir —
+    // prevents symlinks inside staticDir from serving files outside it.
+    if ((await resolveWithinStaticRoot(fullPath, basePath)) === null) {
+      return null;
     }
 
     return buildStaticFileResponse(req, file, finalPath);
