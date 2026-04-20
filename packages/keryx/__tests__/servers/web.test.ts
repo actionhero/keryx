@@ -269,16 +269,10 @@ describe("static files", () => {
     expect(await res.text()).toBe("hello static");
   });
 
-  test("blocks path traversal with ../", async () => {
-    const res = await fetch(getUrl() + "/../package.json");
-    // Should not serve a file outside staticDir — falls through to action routing → 404
-    expect(res.status).toBe(404);
-  });
-
-  test("blocks encoded path traversal with %2e%2e", async () => {
-    const res = await fetch(getUrl() + "/%2e%2e/package.json");
-    expect(res.status).toBe(404);
-  });
+  // Path traversal rejection tests live in __tests__/util/webStaticFiles.test.ts.
+  // Traversal sequences like `../` and `%2e%2e` are normalized by the WHATWG
+  // URL parser (and Bun.serve) before reaching the handler, so testing requires
+  // raw HTTP sockets — see that file.
 
   test("includes ETag and Last-Modified headers", async () => {
     const res = await fetch(getUrl() + "/test.txt");
