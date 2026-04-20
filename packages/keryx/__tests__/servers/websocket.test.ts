@@ -2,8 +2,7 @@ import { expect, test } from "bun:test";
 import { api } from "../../api";
 import { Channel } from "../../classes/Channel";
 import { config } from "../../config";
-import { serverUrl, useTestServer } from "./../setup";
-import { buildWebSocket } from "./websocket-helpers";
+import { buildWebSocket, serverUrl, useTestServer } from "./../setup";
 
 useTestServer({ clearDatabase: true });
 
