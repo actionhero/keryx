@@ -2,7 +2,17 @@ import { setMaxListeners } from "events";
 // Import from local index first to set api.rootDir before any framework code runs
 import "../index";
 
-export { HOOK_TIMEOUT, serverUrl, useTestServer, waitFor } from "keryx/testing";
+export {
+  buildWebSocket,
+  createSession,
+  createUser,
+  HOOK_TIMEOUT,
+  serverUrl,
+  subscribeToChannel,
+  useTestServer,
+  waitFor,
+  waitForBroadcastMessages,
+} from "keryx/testing";
 
 // Set max listeners to prevent warnings in CI environments
 // TODO: Github Actions needs this, but not locally. Why?

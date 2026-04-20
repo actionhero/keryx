@@ -1,6 +1,16 @@
 import { setMaxListeners } from "events";
 
-export { HOOK_TIMEOUT, serverUrl, useTestServer, waitFor } from "../testing";
+export {
+  buildWebSocket,
+  createSession,
+  createUser,
+  HOOK_TIMEOUT,
+  serverUrl,
+  subscribeToChannel,
+  useTestServer,
+  waitFor,
+  waitForBroadcastMessages,
+} from "../testing";
 
 // Set max listeners to prevent warnings in CI environments
 // TODO: Github Actions needs this, but not locally. Why?

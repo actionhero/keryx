@@ -43,6 +43,7 @@ The `keryx/testing` subpath exports helpers that cover the common test lifecycle
 
 - **`serverUrl()`** — Returns the actual URL the web server bound to (with resolved port). Call after `api.start()`. `useTestServer()` wraps this internally; reach for it directly only when you need manual lifecycle control.
 - **`HOOK_TIMEOUT`** — A generous timeout (15s) for `beforeAll`/`afterAll` hooks, since they connect to Redis, Postgres, run migrations, etc. Pass as the second argument to `beforeAll`/`afterAll` when writing your own lifecycle hooks.
+- **`buildWebSocket(opts?)`**, **`createUser`**, **`createSession`**, **`subscribeToChannel`**, **`waitForBroadcastMessages`** — Higher-level helpers for WebSocket tests. See [Testing WebSocket Connections](#testing-websocket-connections) below.
 - **`waitFor(condition, { interval, timeout })`** — Polls a condition function until it returns `true`, or throws after a timeout. Use this instead of fixed `Bun.sleep()` calls when waiting for async side effects like background tasks:
 
 ```ts
@@ -164,7 +165,7 @@ The session ID comes from the login response, and you pass it as a `Cookie` head
 
 ## Testing WebSocket Connections
 
-WebSocket tests connect to the same server and send JSON messages:
+WebSocket tests connect to the same server and send JSON messages. The lowest-level pattern looks like:
 
 ```ts
 test("websocket action", async () => {
@@ -195,16 +196,32 @@ test("websocket action", async () => {
 });
 ```
 
-For channel subscriptions, send a `subscribe` message and then listen for broadcasts:
+For common flows — opening a socket, creating a user, logging in, subscribing to a channel, and collecting broadcasts — reach for the helpers exported from `keryx/testing`:
 
 ```ts
-ws.send(
-  JSON.stringify({
-    messageType: "subscribe",
-    channel: "messages",
-  }),
-);
+import {
+  buildWebSocket,
+  createSession,
+  createUser,
+  subscribeToChannel,
+  waitForBroadcastMessages,
+} from "keryx/testing";
+
+test("broadcast reaches subscribers", async () => {
+  const { socket, messages } = await buildWebSocket();
+  await createUser(socket, messages, "Marco", "marco@example.com", "abc12345");
+  await createSession(socket, messages, "marco@example.com", "abc12345");
+  await subscribeToChannel(socket, messages, "messages");
+
+  // ...trigger a broadcast...
+  const broadcasts = await waitForBroadcastMessages(messages, 1);
+  expect(broadcasts[0].message.body).toBe("hello");
+
+  socket.close();
+});
 ```
+
+`buildWebSocket()` resolves once the socket's `open` event fires and exposes a live `messages` array that every subsequent handler populates. The action helpers assume the socket is fresh (they read from fixed indices in `messages`); `subscribeToChannel` matches the subscribe confirmation by content so it's resilient to presence broadcasts arriving out of order.
 
 ## Testing Background Tasks
 

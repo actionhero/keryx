@@ -7,8 +7,8 @@ import {
   createSession,
   createUser,
   subscribeToChannel,
-} from "./../servers/websocket-helpers";
-import { useTestServer } from "./../setup";
+  useTestServer,
+} from "./../setup";
 
 const getUrl = useTestServer({ clearDatabase: true, clearRedis: true });
 

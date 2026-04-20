@@ -1,25 +1,24 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { api, config } from "keryx";
-import { HOOK_TIMEOUT } from "./../setup";
 import {
   buildWebSocket,
   createSession,
   createUser,
   subscribeToChannel,
-} from "./websocket-helpers";
+  useTestServer,
+} from "./../setup";
 
 const originalRateLimitEnabled = config.rateLimit.enabled;
 
-beforeAll(async () => {
+beforeAll(() => {
   (config.rateLimit as any).enabled = false;
-  await api.start();
-  await api.db.clearDatabase();
-}, HOOK_TIMEOUT);
+});
 
-afterAll(async () => {
+useTestServer({ clearDatabase: true });
+
+afterAll(() => {
   (config.rateLimit as any).enabled = originalRateLimitEnabled;
-  await api.stop();
-}, HOOK_TIMEOUT);
+});
 
 beforeEach(async () => {
   await api.db.clearDatabase();

@@ -2,6 +2,14 @@ import { afterAll, beforeAll } from "bun:test";
 import { api } from "../api";
 import type { WebServer } from "../servers/web";
 
+export {
+  buildWebSocket,
+  createSession,
+  createUser,
+  subscribeToChannel,
+  waitForBroadcastMessages,
+} from "./websocket";
+
 /**
  * Generous lifecycle hook timeout (15s) for `beforeAll` / `afterAll`.
  *
