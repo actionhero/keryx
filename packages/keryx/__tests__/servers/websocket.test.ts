@@ -154,6 +154,108 @@ test("limits max subscriptions per connection", async () => {
   }
 });
 
+test("rejects subscribe with disallowed characters in channel name", async () => {
+  const { socket, messages } = await buildWebSocket();
+
+  socket.send(
+    JSON.stringify({
+      messageType: "subscribe",
+      channel: "bad channel!",
+      messageId: 1,
+    }),
+  );
+
+  let errorMsg: any;
+  while (!errorMsg) {
+    for (const m of messages) {
+      const parsed = JSON.parse(m.data);
+      if (parsed.error?.type === "CONNECTION_CHANNEL_VALIDATION") {
+        errorMsg = parsed;
+        break;
+      }
+    }
+    if (!errorMsg) await Bun.sleep(10);
+  }
+
+  expect(errorMsg.messageId).toBe(1);
+  expect(errorMsg.error.type).toBe("CONNECTION_CHANNEL_VALIDATION");
+  expect(errorMsg.error.message).toBe("Invalid channel name");
+  expect(typeof errorMsg.error.timestamp).toBe("number");
+  expect(errorMsg.error.timestamp).toBeGreaterThan(0);
+  expect(errorMsg.error.key).toBeUndefined();
+  expect(errorMsg.error.value).toBeUndefined();
+
+  socket.close();
+});
+
+test("rejects subscribe with empty channel name", async () => {
+  const { socket, messages } = await buildWebSocket();
+
+  socket.send(
+    JSON.stringify({
+      messageType: "subscribe",
+      channel: "",
+      messageId: 2,
+    }),
+  );
+
+  let errorMsg: any;
+  while (!errorMsg) {
+    for (const m of messages) {
+      const parsed = JSON.parse(m.data);
+      if (parsed.error?.type === "CONNECTION_CHANNEL_VALIDATION") {
+        errorMsg = parsed;
+        break;
+      }
+    }
+    if (!errorMsg) await Bun.sleep(10);
+  }
+
+  expect(errorMsg.messageId).toBe(2);
+  expect(errorMsg.error.type).toBe("CONNECTION_CHANNEL_VALIDATION");
+  expect(errorMsg.error.message).toBe("Invalid channel name");
+  expect(typeof errorMsg.error.timestamp).toBe("number");
+  expect(errorMsg.error.timestamp).toBeGreaterThan(0);
+  expect(errorMsg.error.key).toBeUndefined();
+  expect(errorMsg.error.value).toBeUndefined();
+
+  socket.close();
+});
+
+test("rejects subscribe with oversized channel name", async () => {
+  const { socket, messages } = await buildWebSocket();
+
+  socket.send(
+    JSON.stringify({
+      messageType: "subscribe",
+      channel: "a".repeat(201),
+      messageId: 3,
+    }),
+  );
+
+  let errorMsg: any;
+  while (!errorMsg) {
+    for (const m of messages) {
+      const parsed = JSON.parse(m.data);
+      if (parsed.error?.type === "CONNECTION_CHANNEL_VALIDATION") {
+        errorMsg = parsed;
+        break;
+      }
+    }
+    if (!errorMsg) await Bun.sleep(10);
+  }
+
+  expect(errorMsg.messageId).toBe(3);
+  expect(errorMsg.error.type).toBe("CONNECTION_CHANNEL_VALIDATION");
+  expect(errorMsg.error.message).toBe("Invalid channel name");
+  expect(typeof errorMsg.error.timestamp).toBe("number");
+  expect(errorMsg.error.timestamp).toBeGreaterThan(0);
+  expect(errorMsg.error.key).toBeUndefined();
+  expect(errorMsg.error.value).toBeUndefined();
+
+  socket.close();
+});
+
 test("WebSocket connection survives concurrent HTTP requests", async () => {
   const { socket, messages } = await buildWebSocket();
 
