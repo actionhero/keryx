@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { api } from "../../api";
 import { config } from "../../config";
-import { useTestServer } from "./../setup";
+import { useTestServer, waitFor } from "./../setup";
 
 useTestServer({ clearRedis: true });
 
@@ -380,6 +380,47 @@ describe("oauth initializer", () => {
       expect(body.error_description).toContain("PKCE verification failed");
     });
 
+    test("rejects expired authorization code", async () => {
+      // Set a code with a short TTL, then wait for Redis to evict it so the
+      // token endpoint sees a truly expired (not merely absent) code.
+      const codeData = {
+        clientId: "test-client",
+        userId: 1,
+        codeChallenge: "test",
+        redirectUri: "http://localhost:9999/callback",
+      };
+      await api.redis.redis.set(
+        "oauth:code:expired-code",
+        JSON.stringify(codeData),
+        "PX",
+        50,
+      );
+      await waitFor(
+        async () =>
+          (await api.redis.redis.get("oauth:code:expired-code")) === null,
+      );
+
+      const res = await oauthRequest("/oauth/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code: "expired-code",
+          code_verifier: "whatever",
+          client_id: "test-client",
+        }).toString(),
+      });
+      expect(res).not.toBeNull();
+      expect(res!.status).toBe(400);
+
+      const body = (await res!.json()) as {
+        error: string;
+        error_description: string;
+      };
+      expect(body.error).toBe("invalid_grant");
+      expect(body.error_description).toContain("Invalid or expired");
+    });
+
     test("authorization codes are single-use", async () => {
       const codeData = {
         clientId: "test-client",
@@ -459,6 +500,32 @@ describe("oauth initializer", () => {
 
       const result = await api.oauth.verifyAccessToken("test-token");
       expect(result).toEqual(tokenData);
+    });
+
+    test("returns null for expired token", async () => {
+      // Seed a token that expires almost immediately, then wait for Redis to
+      // evict it. This proves the Redis TTL on `oauth:token:*` keys works
+      // end-to-end — the MCP handler treats a null return as unauthenticated
+      // and responds 401 with a WWW-Authenticate header (see `mcp.ts`).
+      const tokenData = { userId: 7, clientId: "test-client", scopes: [] };
+      await api.redis.redis.set(
+        "oauth:token:expiring-token",
+        JSON.stringify(tokenData),
+        "PX",
+        50,
+      );
+
+      // Sanity check: token is present before expiration
+      const pre = await api.oauth.verifyAccessToken("expiring-token");
+      expect(pre).toEqual(tokenData);
+
+      await waitFor(
+        async () =>
+          (await api.redis.redis.get("oauth:token:expiring-token")) === null,
+      );
+
+      const post = await api.oauth.verifyAccessToken("expiring-token");
+      expect(post).toBeNull();
     });
   });
 
