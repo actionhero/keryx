@@ -1,23 +1,9 @@
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  test,
-} from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { api } from "../../api";
 import { config } from "../../config";
-import { HOOK_TIMEOUT } from "./../setup";
+import { useTestServer } from "./../setup";
 
-beforeAll(async () => {
-  await api.start();
-  await api.redis.redis.flushdb();
-}, HOOK_TIMEOUT);
-
-afterAll(async () => {
-  await api.stop();
-}, HOOK_TIMEOUT);
+useTestServer({ clearRedis: true });
 
 afterEach(async () => {
   // Clear rate limit keys to avoid 429s between tests

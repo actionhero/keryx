@@ -5,18 +5,13 @@ import { z } from "zod";
 import type { Status } from "../../actions/status";
 import { type ActionResponse, api, config } from "../../api";
 import { type Action, HTTP_METHOD } from "../../classes/Action";
-import { HOOK_TIMEOUT, serverUrl } from "./../setup";
+import { useTestServer } from "./../setup";
 
-let url: string;
-
-beforeAll(async () => {
-  await api.start();
-  url = serverUrl();
-}, HOOK_TIMEOUT);
+const getUrl = useTestServer();
 
 const staticDir = config.server.web.staticFiles.directory;
 
-beforeAll(async () => {
+beforeAll(() => {
   // Ensure the static assets directory exists with test files
   if (!existsSync(staticDir)) mkdirSync(staticDir, { recursive: true });
   writeFileSync(path.join(staticDir, "test.txt"), "hello static");
@@ -30,30 +25,29 @@ beforeAll(async () => {
   writeFileSync(path.join(subDir, "index.html"), "<h1>subdir index</h1>");
 });
 
-afterAll(async () => {
-  await api.stop();
+afterAll(() => {
   // Clean up test files
   rmSync(path.join(staticDir, "test.txt"), { force: true });
   rmSync(path.join(staticDir, "index.html"), { force: true });
   rmSync(path.join(staticDir, "subdir"), { recursive: true, force: true });
-}, HOOK_TIMEOUT);
+});
 
 describe("booting", () => {
   test("the web server will boot on a test port", async () => {
-    expect(url).toMatch(/^http:\/\/localhost:\d+$/);
+    expect(getUrl()).toMatch(/^http:\/\/localhost:\d+$/);
   });
 });
 
 describe("actions", () => {
   test("the web server can handle a request to an action", async () => {
-    const res = await fetch(url + "/api/status");
+    const res = await fetch(getUrl() + "/api/status");
     expect(res.status).toBe(200);
     const response = (await res.json()) as ActionResponse<Status>;
     expect(response.name).toInclude("test-server");
   });
 
   test("trying for a non-existent action returns a 404", async () => {
-    const res = await fetch(url + "/api/non-existent-action");
+    const res = await fetch(getUrl() + "/api/non-existent-action");
     expect(res.status).toBe(404);
     const response = (await res.json()) as ActionResponse<Status>;
     expect(response.error?.message).toContain("Action not found");
@@ -64,7 +58,7 @@ describe("actions", () => {
     const original = config.server.web.includeStackInErrors;
     config.server.web.includeStackInErrors = false;
     try {
-      const res = await fetch(url + "/api/non-existent-action");
+      const res = await fetch(getUrl() + "/api/non-existent-action");
       expect(res.status).toBe(404);
       const response = (await res.json()) as ActionResponse<Status>;
       expect(response.error?.message).toContain("Action not found");
@@ -77,7 +71,7 @@ describe("actions", () => {
 
 describe("security headers", () => {
   test("API responses include security headers", async () => {
-    const res = await fetch(url + "/api/status");
+    const res = await fetch(getUrl() + "/api/status");
     expect(res.headers.get("Content-Security-Policy")).toBe(
       "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net data:; img-src 'self' data: blob:; connect-src 'self'; worker-src blob:",
     );
@@ -92,7 +86,7 @@ describe("security headers", () => {
   });
 
   test("static file responses include security headers", async () => {
-    const res = await fetch(url + "/test.txt");
+    const res = await fetch(getUrl() + "/test.txt");
     expect(res.headers.get("Content-Security-Policy")).toBe(
       "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net data:; img-src 'self' data: blob:; connect-src 'self'; worker-src blob:",
     );
@@ -112,7 +106,7 @@ describe("CORS headers", () => {
     const original = config.server.web.allowedOrigins;
     (config.server.web as any).allowedOrigins = "*";
     try {
-      const res = await fetch(url + "/api/status");
+      const res = await fetch(getUrl() + "/api/status");
       expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
       expect(res.headers.get("Access-Control-Allow-Credentials")).toBeNull();
     } finally {
@@ -124,7 +118,7 @@ describe("CORS headers", () => {
     const original = config.server.web.allowedOrigins;
     (config.server.web as any).allowedOrigins = "*";
     try {
-      const res = await fetch(url + "/api/status", {
+      const res = await fetch(getUrl() + "/api/status", {
         headers: { Origin: "http://example.com" },
       });
       expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
@@ -141,7 +135,7 @@ describe("CORS headers", () => {
     const original = config.server.web.allowedOrigins;
     (config.server.web as any).allowedOrigins = "http://allowed.example.com";
     try {
-      const res = await fetch(url + "/api/status", {
+      const res = await fetch(getUrl() + "/api/status", {
         headers: { Origin: "http://allowed.example.com" },
       });
       expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
@@ -158,7 +152,7 @@ describe("CORS headers", () => {
     const original = config.server.web.allowedOrigins;
     (config.server.web as any).allowedOrigins = "http://allowed.example.com";
     try {
-      const res = await fetch(url + "/api/status", {
+      const res = await fetch(getUrl() + "/api/status", {
         headers: { Origin: "http://evil.example.com" },
       });
       expect(res.headers.get("Access-Control-Allow-Credentials")).toBeNull();
@@ -169,6 +163,7 @@ describe("CORS headers", () => {
 
   test("OPTIONS preflight with Origin reflects origin", async () => {
     const original = config.server.web.allowedOrigins;
+    const url = getUrl();
     (config.server.web as any).allowedOrigins = url;
     try {
       const res = await fetch(url + "/api/status", {
@@ -186,19 +181,19 @@ describe("CORS headers", () => {
 
 describe("cookies", () => {
   test("session cookie uses SameSite=Strict", async () => {
-    const res = await fetch(url + "/api/status");
+    const res = await fetch(getUrl() + "/api/status");
     const setCookie = res.headers.get("set-cookie") ?? "";
     expect(setCookie).toContain("SameSite=Strict");
   });
 
   test("session cookie includes HttpOnly", async () => {
-    const res = await fetch(url + "/api/status");
+    const res = await fetch(getUrl() + "/api/status");
     const setCookie = res.headers.get("set-cookie") ?? "";
     expect(setCookie).toContain("HttpOnly");
   });
 
   test("session cookie includes expected name", async () => {
-    const res = await fetch(url + "/api/status");
+    const res = await fetch(getUrl() + "/api/status");
     const setCookie = res.headers.get("set-cookie") ?? "";
     expect(setCookie).toContain(`${config.session.cookieName}=`);
   });
@@ -206,7 +201,7 @@ describe("cookies", () => {
 
 describe("correlation IDs", () => {
   test("no X-Request-Id header by default (trustProxy is false)", async () => {
-    const res = await fetch(url + "/api/status");
+    const res = await fetch(getUrl() + "/api/status");
     expect(res.headers.get("X-Request-Id")).toBeNull();
   });
 
@@ -215,7 +210,7 @@ describe("correlation IDs", () => {
     (config.server.web.correlationId as any).trustProxy = true;
     try {
       const incomingId = crypto.randomUUID();
-      const res = await fetch(url + "/api/status", {
+      const res = await fetch(getUrl() + "/api/status", {
         headers: { "X-Request-Id": incomingId },
       });
       expect(res.headers.get("X-Request-Id")).toBe(incomingId);
@@ -228,7 +223,7 @@ describe("correlation IDs", () => {
     const original = config.server.web.correlationId.trustProxy;
     (config.server.web.correlationId as any).trustProxy = true;
     try {
-      const res = await fetch(url + "/api/status");
+      const res = await fetch(getUrl() + "/api/status");
       expect(res.headers.get("X-Request-Id")).toBeNull();
     } finally {
       (config.server.web.correlationId as any).trustProxy = original;
@@ -241,7 +236,7 @@ describe("correlation IDs", () => {
     (config.server.web.correlationId as any).header = "";
     (config.server.web.correlationId as any).trustProxy = true;
     try {
-      const res = await fetch(url + "/api/status", {
+      const res = await fetch(getUrl() + "/api/status", {
         headers: { "X-Request-Id": crypto.randomUUID() },
       });
       expect(res.headers.get("X-Request-Id")).toBeNull();
@@ -256,7 +251,7 @@ describe("correlation IDs", () => {
     (config.server.web.correlationId as any).trustProxy = true;
     try {
       const incomingId = crypto.randomUUID();
-      const res = await fetch(url + "/api/non-existent-action", {
+      const res = await fetch(getUrl() + "/api/non-existent-action", {
         headers: { "X-Request-Id": incomingId },
       });
       expect(res.status).toBe(404);
@@ -269,48 +264,48 @@ describe("correlation IDs", () => {
 
 describe("static files", () => {
   test("serves a file from the static directory", async () => {
-    const res = await fetch(url + "/test.txt");
+    const res = await fetch(getUrl() + "/test.txt");
     expect(res.status).toBe(200);
     expect(await res.text()).toBe("hello static");
   });
 
   test("blocks path traversal with ../", async () => {
-    const res = await fetch(url + "/../package.json");
+    const res = await fetch(getUrl() + "/../package.json");
     // Should not serve a file outside staticDir — falls through to action routing → 404
     expect(res.status).toBe(404);
   });
 
   test("blocks encoded path traversal with %2e%2e", async () => {
-    const res = await fetch(url + "/%2e%2e/package.json");
+    const res = await fetch(getUrl() + "/%2e%2e/package.json");
     expect(res.status).toBe(404);
   });
 
   test("includes ETag and Last-Modified headers", async () => {
-    const res = await fetch(url + "/test.txt");
+    const res = await fetch(getUrl() + "/test.txt");
     expect(res.status).toBe(200);
     expect(res.headers.get("etag")).toMatch(/^".+"$/);
     expect(res.headers.get("last-modified")).toBeTruthy();
   });
 
   test("includes Cache-Control header", async () => {
-    const res = await fetch(url + "/test.txt");
+    const res = await fetch(getUrl() + "/test.txt");
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("public, max-age=3600");
   });
 
   test("returns 304 for matching If-None-Match", async () => {
-    const res1 = await fetch(url + "/test.txt");
+    const res1 = await fetch(getUrl() + "/test.txt");
     const etag = res1.headers.get("etag")!;
     expect(etag).toBeTruthy();
 
-    const res2 = await fetch(url + "/test.txt", {
+    const res2 = await fetch(getUrl() + "/test.txt", {
       headers: { "If-None-Match": etag },
     });
     expect(res2.status).toBe(304);
   });
 
   test("returns 200 for non-matching If-None-Match", async () => {
-    const res = await fetch(url + "/test.txt", {
+    const res = await fetch(getUrl() + "/test.txt", {
       headers: { "If-None-Match": '"bogus"' },
     });
     expect(res.status).toBe(200);
@@ -318,18 +313,18 @@ describe("static files", () => {
   });
 
   test("returns 304 for If-Modified-Since when file is not newer", async () => {
-    const res1 = await fetch(url + "/test.txt");
+    const res1 = await fetch(getUrl() + "/test.txt");
     const lastModified = res1.headers.get("last-modified")!;
     expect(lastModified).toBeTruthy();
 
-    const res2 = await fetch(url + "/test.txt", {
+    const res2 = await fetch(getUrl() + "/test.txt", {
       headers: { "If-Modified-Since": lastModified },
     });
     expect(res2.status).toBe(304);
   });
 
   test("returns 200 for If-Modified-Since in the distant past", async () => {
-    const res = await fetch(url + "/test.txt", {
+    const res = await fetch(getUrl() + "/test.txt", {
       headers: { "If-Modified-Since": "Thu, 01 Jan 1970 00:00:00 GMT" },
     });
     expect(res.status).toBe(200);
@@ -340,7 +335,7 @@ describe("static files", () => {
     const original = config.server.web.staticFiles.etag;
     (config.server.web.staticFiles as any).etag = false;
     try {
-      const res = await fetch(url + "/test.txt");
+      const res = await fetch(getUrl() + "/test.txt");
       expect(res.status).toBe(200);
       expect(res.headers.get("etag")).toBeNull();
       expect(res.headers.get("last-modified")).toBeNull();
@@ -351,19 +346,19 @@ describe("static files", () => {
 
   test("serves index.html for root static route", async () => {
     const staticRoute = config.server.web.staticFiles.route;
-    const res = await fetch(url + staticRoute);
+    const res = await fetch(getUrl() + staticRoute);
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("root index");
   });
 
   test("serves index.html for subdirectory path", async () => {
-    const res = await fetch(url + "/subdir/");
+    const res = await fetch(getUrl() + "/subdir/");
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("subdir index");
   });
 
   test("serves index.html for subdirectory path without trailing slash", async () => {
-    const res = await fetch(url + "/subdir");
+    const res = await fetch(getUrl() + "/subdir");
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("subdir index");
   });
@@ -452,14 +447,14 @@ describe("raw Response passthrough", () => {
   });
 
   test("returns the raw Response body and Content-Type", async () => {
-    const res = await fetch(url + "/api/test/raw-response");
+    const res = await fetch(getUrl() + "/api/test/raw-response");
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("application/octet-stream");
     expect(await res.text()).toBe("raw binary data");
   });
 
   test("does not include Keryx standard headers", async () => {
-    const res = await fetch(url + "/api/test/raw-response");
+    const res = await fetch(getUrl() + "/api/test/raw-response");
     expect(res.headers.get("Set-Cookie")).toBeNull();
     expect(res.headers.get("X-SERVER-NAME")).toBeNull();
     expect(res.headers.get("X-Content-Type-Options")).toBeNull();
@@ -467,7 +462,7 @@ describe("raw Response passthrough", () => {
   });
 
   test("preserves custom status codes", async () => {
-    const res = await fetch(url + "/api/test/raw-response-201", {
+    const res = await fetch(getUrl() + "/api/test/raw-response-201", {
       method: "POST",
     });
     expect(res.status).toBe(201);
@@ -476,7 +471,7 @@ describe("raw Response passthrough", () => {
   });
 
   test("handles empty body with 204 status", async () => {
-    const res = await fetch(url + "/api/test/raw-response-204", {
+    const res = await fetch(getUrl() + "/api/test/raw-response-204", {
       method: "DELETE",
     });
     expect(res.status).toBe(204);
@@ -487,7 +482,7 @@ describe("raw Response passthrough", () => {
 describe("compression", () => {
   // The /api/swagger endpoint returns a large OpenAPI spec (well above 1024 bytes)
   test("returns gzip-compressed response when Accept-Encoding: gzip", async () => {
-    const res = await fetch(url + "/api/swagger", {
+    const res = await fetch(getUrl() + "/api/swagger", {
       headers: { "Accept-Encoding": "gzip" },
       decompress: false,
     });
@@ -504,7 +499,7 @@ describe("compression", () => {
   });
 
   test("returns brotli-compressed response when Accept-Encoding: br", async () => {
-    const res = await fetch(url + "/api/swagger", {
+    const res = await fetch(getUrl() + "/api/swagger", {
       headers: { "Accept-Encoding": "br" },
       decompress: false,
     });
@@ -519,7 +514,7 @@ describe("compression", () => {
   });
 
   test("prefers brotli over gzip when both are accepted", async () => {
-    const res = await fetch(url + "/api/swagger", {
+    const res = await fetch(getUrl() + "/api/swagger", {
       headers: { "Accept-Encoding": "gzip, br" },
       decompress: false,
     });
@@ -528,7 +523,7 @@ describe("compression", () => {
   });
 
   test("does not compress when Accept-Encoding is absent", async () => {
-    const res = await fetch(url + "/api/swagger", {
+    const res = await fetch(getUrl() + "/api/swagger", {
       headers: { "Accept-Encoding": "" },
       decompress: false,
     });
@@ -538,7 +533,7 @@ describe("compression", () => {
 
   test("does not compress responses below the threshold", async () => {
     // /api/status returns a small JSON object (~200 bytes), below the 1024 byte threshold
-    const res = await fetch(url + "/api/status", {
+    const res = await fetch(getUrl() + "/api/status", {
       headers: { "Accept-Encoding": "gzip" },
       decompress: false,
     });
@@ -547,7 +542,7 @@ describe("compression", () => {
   });
 
   test("does not compress null-body responses", async () => {
-    const res = await fetch(url + "/.well-known/test", {
+    const res = await fetch(getUrl() + "/.well-known/test", {
       headers: { "Accept-Encoding": "gzip" },
       decompress: false,
     });
@@ -560,7 +555,7 @@ describe("compression", () => {
     writeFileSync(path.join(staticDir, "large.txt"), largeContent);
 
     try {
-      const res = await fetch(url + "/large.txt", {
+      const res = await fetch(getUrl() + "/large.txt", {
         headers: { "Accept-Encoding": "gzip" },
         decompress: false,
       });

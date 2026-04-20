@@ -49,6 +49,7 @@
     "middleware/",
     "servers/",
     "templates/",
+    "testing/",
     "util/",
     "api.ts",
     "index.ts",
@@ -69,7 +70,8 @@
     "./util/*": "./util/*",
     "./config": "./config/index.ts",
     "./config/*": "./config/*",
-    "./servers/*": "./servers/*"
+    "./servers/*": "./servers/*",
+    "./testing": "./testing/index.ts"
   },
   "scripts": {
     "start": "bun keryx.ts start",
