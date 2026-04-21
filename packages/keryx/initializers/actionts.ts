@@ -108,13 +108,35 @@ export class Actions extends Initializer {
    * Enqueues one job per item, injects `_fanOutId` into each,
    * and stores metadata in Redis for result collection.
    *
-   * Two call signatures:
-   * - Single action:  fanOut(actionName, inputsArray, queue?, options?)
-   * - Multi action:   fanOut(jobs, options?) where each job specifies { action, inputs?, queue? }
-   *
-   * Returns a FanOutResult with the fanOutId for later status queries.
+   * @returns A {@link FanOutResult} containing the `fanOutId` for later
+   *   status queries via {@link fanOutStatus}.
+   * @throws {TypedError} With `ErrorType.CONNECTION_TASK_DEFINITION` if any
+   *   referenced action is not registered.
    */
-  fanOut = async (
+  fanOut: {
+    /**
+     * Single-action form: enqueue one job per entry in `inputsArray`, all for the same action.
+     *
+     * @param actionName - Name of the action to enqueue for every job.
+     * @param inputsArray - One input object per child job. An empty array is allowed.
+     * @param queue - Optional queue override for every job. Falls back to the action's configured queue, then `DEFAULT_QUEUE`.
+     * @param options - Fan-out options (batch size, result TTL, correlation ID).
+     */
+    (
+      actionName: string,
+      inputsArray: TaskInputs[],
+      queue?: string,
+      options?: FanOutOptions,
+    ): Promise<FanOutResult>;
+
+    /**
+     * Multi-action form: enqueue heterogeneous jobs, each with its own action and optional queue override.
+     *
+     * @param jobs - Job descriptors. Each entry must reference a registered action.
+     * @param options - Fan-out options (batch size, result TTL, correlation ID).
+     */
+    (jobs: FanOutJob[], options?: FanOutOptions): Promise<FanOutResult>;
+  } = async (
     actionNameOrJobs: string | FanOutJob[],
     inputsArrayOrOptions?: TaskInputs[] | FanOutOptions,
     queue?: string,

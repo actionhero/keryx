@@ -794,6 +794,34 @@ describe("oauth initializer", () => {
         await api.redis.redis.get(`oauth:refresh:${refreshToken}`),
       ).not.toBeNull();
     });
+
+    test("revoked refresh token cannot be exchanged via refresh_token grant", async () => {
+      const { refreshToken } = await seedTokenPair("test-client");
+
+      const revokeRes = await oauthRequest("/oauth/revoke", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          token: refreshToken,
+          token_type_hint: "refresh_token",
+          client_id: "test-client",
+        }).toString(),
+      });
+      expect(revokeRes!.status).toBe(200);
+
+      const exchangeRes = await oauthRequest("/oauth/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: refreshToken,
+          client_id: "test-client",
+        }).toString(),
+      });
+      expect(exchangeRes!.status).toBe(400);
+      const body = (await exchangeRes!.json()) as { error: string };
+      expect(body.error).toBe("invalid_grant");
+    });
   });
 
   describe("/oauth/introspect", () => {
