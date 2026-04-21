@@ -13,7 +13,6 @@ declare module "../classes/API" {
 export class Process extends Initializer {
   constructor() {
     super(namespace);
-    this.loadPriority = 2;
   }
 
   async initialize() {

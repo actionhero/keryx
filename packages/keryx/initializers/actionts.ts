@@ -71,7 +71,6 @@ export type TaskInputs = Record<string, any>;
 export class Actions extends Initializer {
   constructor() {
     super(namespace);
-    this.loadPriority = 100;
   }
 
   /**

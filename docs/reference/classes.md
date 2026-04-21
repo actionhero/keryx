@@ -23,13 +23,13 @@ class API {
   runMode: RUN_MODE;
   initializers: Initializer[];
 
-  /** Run all initializers in loadPriority order */
+  /** Run all initializers in topological order (dependencies first) */
   async initialize(): Promise<void>;
 
-  /** Start all initializers in startPriority order */
+  /** Start all initializers in topological order (dependencies first) */
   async start(runMode?: RUN_MODE): Promise<void>;
 
-  /** Stop all initializers in stopPriority order */
+  /** Stop all initializers in reverse topological order (dependents first) */
   async stop(): Promise<void>;
 
   /** Stop then start */

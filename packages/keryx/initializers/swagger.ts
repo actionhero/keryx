@@ -19,7 +19,7 @@ declare module "../classes/API" {
 export class SwaggerInitializer extends Initializer {
   constructor() {
     super(namespace);
-    this.loadPriority = 150; // After actions (100)
+    this.dependsOn = ["actions"];
   }
 
   async initialize() {

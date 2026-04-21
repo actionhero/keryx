@@ -36,8 +36,7 @@ declare module "../classes/API" {
 export class OAuthInitializer extends Initializer {
   constructor() {
     super(namespace);
-    this.loadPriority = 175;
-    this.startPriority = 175;
+    this.dependsOn = ["redis", "actions"];
   }
 
   async initialize() {

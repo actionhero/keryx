@@ -6,7 +6,7 @@ description: Initializer class definition and the module augmentation pattern.
 
 Source: `packages/keryx/classes/Initializer.ts`
 
-Initializers are the lifecycle components that boot up your server. They run in priority order during `initialize → start → stop`, and each one attaches its namespace to the global `api` singleton.
+Initializers are the lifecycle components that boot up your server. They run in dependency order — derived from each initializer's `dependsOn` field via a topological sort — during `initialize → start → stop`, and each one attaches its namespace to the global `api` singleton.
 
 ## Class Definition
 
@@ -15,14 +15,13 @@ abstract class Initializer {
   /** The name of the initializer — also used as the api namespace key */
   name: string;
 
-  /** Order for initialize() phase. Lower = runs first. Default: 1000 */
-  loadPriority: number;
-
-  /** Order for start() phase. Lower = runs first. Default: 1000 */
-  startPriority: number;
-
-  /** Order for stop() phase. Lower = runs first. Default: 1000 */
-  stopPriority: number;
+  /**
+   * Names of other initializers whose initialize() and start() must complete
+   * before this one runs. Also determines stop order (dependents stop first).
+   * Unknown names and cycles cause a startup error.
+   * Default: []
+   */
+  dependsOn: string[];
 
   /** Which run modes this initializer activates in */
   runModes: RUN_MODE[];
@@ -32,7 +31,7 @@ abstract class Initializer {
   /** Set up namespace object and return it. Attaches to api[name]. */
   async initialize?(): Promise<any>;
 
-  /** Connect to external services. All initializers are loaded by this point. */
+  /** Connect to external services. All dependencies are initialized and started by this point. */
   async start?(): Promise<any>;
 
   /** Clean up — close connections, flush buffers. */
@@ -67,19 +66,26 @@ declare module "../classes/API" {
 
 The return type of `initialize()` becomes `api[namespace]` — autocomplete, type checking, the works.
 
-## Priority Reference
+## Dependency Reference
 
-Core initializers use priorities below 1000 to ensure they run before application code:
+Each framework initializer declares what it depends on:
 
-| Load Priority | Initializers                                                     |
-| ------------- | ---------------------------------------------------------------- |
-| 1             | `connections`, `signals`                                         |
-| 2             | `process`                                                        |
-| 50            | `observability`                                                  |
-| 100           | `actions`, `db`, `channels`                                      |
-| 150           | `swagger`                                                        |
-| 175           | `oauth`                                                          |
-| 200           | `redis`, `mcp`                                                   |
-| 250           | `resque`                                                         |
-| 800           | `servers`                                                        |
-| 1000          | `session`, `pubsub`, `application`, and your custom initializers |
+| Initializer     | `dependsOn`                                     |
+| --------------- | ----------------------------------------------- |
+| `connections`   | `[]`                                            |
+| `signals`       | `[]`                                            |
+| `process`       | `[]`                                            |
+| `db`            | `[]`                                            |
+| `redis`         | `[]`                                            |
+| `actions`       | `[]`                                            |
+| `observability` | `["actions", "connections"]`                    |
+| `swagger`       | `["actions"]`                                   |
+| `session`       | `["redis"]`                                     |
+| `oauth`         | `["redis", "actions"]`                          |
+| `pubsub`        | `["redis", "connections"]`                      |
+| `channels`      | `["redis", "pubsub"]`                           |
+| `servers`       | `["actions"]`                                   |
+| `mcp`           | `["actions", "oauth", "connections", "pubsub"]` |
+| `resque`        | `["redis", "actions", "process"]`               |
+
+The resolved graph is rendered to the logs at startup. See the [initializers guide](../guide/initializers.md) for sample output.

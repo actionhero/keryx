@@ -49,10 +49,7 @@ let SERVER_JOB_COUNTER = 1;
 export class Resque extends Initializer {
   constructor() {
     super(namespace);
-
-    this.loadPriority = 250;
-    this.startPriority = 10000;
-    this.stopPriority = 900;
+    this.dependsOn = ["redis", "actions", "process"];
   }
 
   /** Create and connect the resque `Queue` instance (used for enqueuing jobs). */
