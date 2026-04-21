@@ -17,9 +17,7 @@ declare module "../classes/API" {
 export class Servers extends Initializer {
   constructor() {
     super(namespace);
-    this.loadPriority = 800;
-    this.startPriority = 550;
-    this.stopPriority = 100;
+    this.dependsOn = ["actions"];
     this.runModes = [RUN_MODE.SERVER];
   }
 

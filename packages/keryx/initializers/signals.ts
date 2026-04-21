@@ -14,7 +14,6 @@ declare module "../classes/API" {
 export class Signals extends Initializer {
   constructor() {
     super(namespace);
-    this.loadPriority = 1;
   }
 
   async initialize() {

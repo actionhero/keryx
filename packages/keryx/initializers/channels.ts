@@ -26,9 +26,7 @@ export class Channels extends Initializer {
 
   constructor() {
     super(namespace);
-    this.loadPriority = 100;
-    this.startPriority = 600;
-    this.stopPriority = 50;
+    this.dependsOn = ["redis", "pubsub"];
   }
 
   /**

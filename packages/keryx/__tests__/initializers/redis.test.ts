@@ -14,11 +14,9 @@ afterAll(async () => {
 }, HOOK_TIMEOUT);
 
 describe("Redis initializer", () => {
-  test("declares documented load/start/stop priorities", () => {
+  test("declares no initializer dependencies", () => {
     const r = new Redis();
-    expect(r.loadPriority).toBe(200);
-    expect(r.startPriority).toBe(110);
-    expect(r.stopPriority).toBe(990);
+    expect(r.dependsOn).toEqual([]);
   });
 
   test("exposes two live ioredis clients on api.redis", () => {

@@ -4,7 +4,7 @@ description: Initializers are lifecycle components that set up services and atta
 
 # Initializers
 
-Initializers are the backbone of the server's boot process. They're lifecycle components that set up services — connecting to databases, starting Redis, registering actions, configuring the task queue — in a controlled, priority-ordered sequence.
+Initializers are the backbone of the server's boot process. They're lifecycle components that set up services — connecting to databases, starting Redis, registering actions, configuring the task queue — in a controlled, dependency-ordered sequence.
 
 If you've worked with the original ActionHero, initializers will feel familiar. The big difference here is the TypeScript integration: each initializer uses module augmentation to extend the `API` interface with its namespace, so `api.db`, `api.redis`, `api.actions` are all fully typed throughout the codebase.
 
@@ -20,30 +20,59 @@ initialize()  →  start()  →  [running]  →  stop()
 - **`start()`** — connect to external services (databases, Redis, etc.). By this point, all initializers have been loaded, so you can reference other namespaces.
 - **`stop()`** — clean up. Close connections, flush buffers, shut down gracefully.
 
-## Priority Ordering
+## Dependency Ordering
 
-Each initializer has three priority values. Lower numbers run first:
+Each initializer declares the names of other initializers it depends on via `dependsOn: string[]`. At boot the framework performs a topological sort so every dependency's `initialize()` and `start()` run before the dependent's. The `stop()` phase runs in the reverse order so dependents shut down before their dependencies.
 
-| Initializer     | Load Priority | What it does                                       |
-| --------------- | ------------- | -------------------------------------------------- |
-| `connections`   | 1             | Connection pool management                         |
-| `signals`       | 1             | SIGINT/SIGTERM graceful shutdown handlers          |
-| `process`       | 2             | Process metadata (name, boot time)                 |
-| `observability` | 50            | OpenTelemetry metrics + Prometheus scrape endpoint |
-| `actions`       | 100           | Discovers and registers all actions                |
-| `channels`      | 100           | Discovers and registers PubSub channels            |
-| `db`            | 100           | Sets up Drizzle ORM + connection pool              |
-| `swagger`       | 150           | Parses source code for OpenAPI schemas             |
-| `oauth`         | 175           | OAuth 2.1 provider for MCP auth                    |
-| `redis`         | 200           | Redis client connection                            |
-| `mcp`           | 200           | MCP server — exposes actions as tools              |
-| `resque`        | 250           | Background task queue                              |
-| `servers`       | 800           | Auto-discovers and loads transport servers         |
-| `session`       | 1000          | Redis-backed session management                    |
-| `pubsub`        | 1000          | Redis PubSub for real-time messaging               |
-| `application`   | 1000          | App-specific setup (default user, etc.)            |
+```ts
+export class Session extends Initializer {
+  constructor() {
+    super("session");
+    this.dependsOn = ["redis"]; // session needs api.redis before it can initialize
+  }
+}
+```
 
-The defaults are `1000` for all three priorities (`loadPriority`, `startPriority`, `stopPriority`), so core framework initializers use lower values to ensure they run first.
+Unknown dependency names or cycles cause a startup failure with a clear, actionable error message.
+
+| Initializer     | `dependsOn`                                  | What it does                                       |
+| --------------- | -------------------------------------------- | -------------------------------------------------- |
+| `connections`   | `[]`                                         | Connection pool management                         |
+| `signals`       | `[]`                                         | SIGINT/SIGTERM graceful shutdown handlers          |
+| `process`       | `[]`                                         | Process metadata (name, boot time)                 |
+| `db`            | `[]`                                         | Sets up Drizzle ORM + connection pool              |
+| `redis`         | `[]`                                         | Redis client connection                            |
+| `actions`       | `[]`                                         | Discovers and registers all actions                |
+| `observability` | `["actions", "connections"]`                 | OpenTelemetry metrics + Prometheus scrape endpoint |
+| `swagger`       | `["actions"]`                                | Parses source code for OpenAPI schemas             |
+| `session`       | `["redis"]`                                  | Redis-backed session management                    |
+| `oauth`         | `["redis", "actions"]`                       | OAuth 2.1 provider for MCP auth                    |
+| `pubsub`        | `["redis", "connections"]`                   | Redis PubSub for real-time messaging               |
+| `channels`      | `["redis", "pubsub"]`                        | Discovers and registers PubSub channels            |
+| `servers`       | `["actions"]`                                | Auto-discovers and loads transport servers         |
+| `mcp`           | `["actions", "oauth", "connections", "pubsub"]` | MCP server — exposes actions as tools           |
+| `resque`        | `["redis", "actions", "process"]`            | Background task queue                              |
+
+When the server starts, it renders the resolved graph to the logs so the order is visible at a glance:
+
+```
+--- 🔗  Initializer dependency graph ---
+  01  connections
+  02  signals
+  03  process
+  04  db
+  05  redis
+  06  actions
+  07  observability  ← actions, connections
+  08  swagger        ← actions
+  09  session        ← redis
+  10  oauth          ← redis, actions
+  11  pubsub         ← redis, connections
+  12  channels       ← redis, pubsub
+  13  servers        ← actions
+  14  mcp            ← actions, oauth, connections, pubsub
+  15  resque         ← redis, actions, process
+```
 
 ## The Module Augmentation Pattern
 
@@ -65,9 +94,7 @@ declare module "../classes/API" {
 export class DB extends Initializer {
   constructor() {
     super(namespace);
-    this.loadPriority = 100;
-    this.startPriority = 100;
-    this.stopPriority = 910;
+    // no dependencies — Postgres connection stands alone
   }
 
   async initialize() {
@@ -133,7 +160,7 @@ Each initializer declares which run modes it supports via `runModes`. Most initi
 
 ## Swagger / OpenAPI Schema Generation
 
-The `swagger` initializer (priority 150) generates JSON Schema definitions for action response types using TypeScript AST parsing via [ts-morph](https://github.com/dsherret/ts-morph). It scans all action source files, finds the `run()` method return type, and converts it to JSON Schema.
+The `swagger` initializer (depends on `actions`) generates JSON Schema definitions for action response types using TypeScript AST parsing via [ts-morph](https://github.com/dsherret/ts-morph). It scans all action source files, finds the `run()` method return type, and converts it to JSON Schema.
 
 Schemas are cached in `<rootDir>/.cache/swagger-schemas.json` and regenerated when action source files change (detected via content hashing). These schemas are used by the web server to serve a Swagger/OpenAPI-compatible API description.
 
@@ -143,7 +170,7 @@ The `api` singleton manages the full lifecycle:
 
 ```ts
 await api.start(); // initialize + start all initializers
-await api.stop(); // stop all initializers in reverse priority
+await api.stop(); // stop all initializers in reverse dependency order
 await api.restart(); // stop + start (with flap prevention)
 ```
 
@@ -154,4 +181,4 @@ Signal handlers are registered by the `signals` initializer:
 - **SIGINT** (Ctrl+C) — triggers graceful shutdown via `api.stop()`
 - **SIGTERM** — same graceful shutdown
 
-The shutdown process stops initializers in `stopPriority` order (lowest first), so channels and the MCP server stop before the web server, which stops before the database pool and Redis are closed.
+The shutdown process walks the dependency graph in reverse, so dependents stop before the initializers they depend on — channels and the MCP server stop before the web server, which stops before the database pool and Redis are closed.

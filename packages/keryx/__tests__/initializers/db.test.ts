@@ -15,11 +15,9 @@ afterAll(async () => {
 }, HOOK_TIMEOUT);
 
 describe("DB initializer", () => {
-  test("declares documented load/start/stop priorities", () => {
+  test("declares no initializer dependencies", () => {
     const d = new DB();
-    expect(d.loadPriority).toBe(100);
-    expect(d.startPriority).toBe(100);
-    expect(d.stopPriority).toBe(910);
+    expect(d.dependsOn).toEqual([]);
   });
 
   test("exposes a Pool and a drizzle instance on api.db", () => {

@@ -22,9 +22,6 @@ declare module "../classes/API" {
 export class Redis extends Initializer {
   constructor() {
     super(namespace);
-    this.loadPriority = 200;
-    this.startPriority = 110;
-    this.stopPriority = 990;
   }
 
   async initialize() {

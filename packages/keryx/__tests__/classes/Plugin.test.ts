@@ -18,7 +18,6 @@ import { HOOK_TIMEOUT, serverUrl } from "../setup";
 class PluginTestInitializer extends Initializer {
   constructor() {
     super("pluginTest");
-    this.loadPriority = 999;
   }
 
   async initialize() {

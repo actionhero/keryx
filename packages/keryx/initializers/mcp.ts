@@ -31,9 +31,7 @@ declare module "../classes/API" {
 export class McpInitializer extends Initializer {
   constructor() {
     super(namespace);
-    this.loadPriority = 200;
-    this.startPriority = 560;
-    this.stopPriority = 90;
+    this.dependsOn = ["actions", "oauth", "connections", "pubsub"];
   }
 
   async initialize() {

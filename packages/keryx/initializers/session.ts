@@ -96,7 +96,7 @@ declare module "../classes/API" {
 export class Session extends Initializer {
   constructor() {
     super(namespace);
-    this.startPriority = 600;
+    this.dependsOn = ["redis"];
   }
 
   async initialize() {
