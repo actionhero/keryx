@@ -161,7 +161,7 @@ export class Connection<
           : new TypedError({
               message: `${e}`,
               type: ErrorType.CONNECTION_ACTION_RUN,
-              originalError: e,
+              cause: e,
             });
     } finally {
       if (action && formattedParams) {
@@ -337,7 +337,7 @@ export class Connection<
         throw new TypedError({
           message: `Error validating params: ${e}`,
           type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
-          originalError: e,
+          cause: e,
         });
       }
     }

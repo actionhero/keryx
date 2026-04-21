@@ -37,23 +37,33 @@ describe("TypedError", () => {
     expect(err.value).toBeUndefined();
   });
 
-  test("originalError as Error preserves its stack trace", () => {
+  test("cause as Error is exposed on the native ES2022 cause field", () => {
     const original = new Error("root cause");
     const err = new TypedError({
       message: "wrapped",
       type: ErrorType.CONNECTION_ACTION_RUN,
-      originalError: original,
+      cause: original,
     });
-    expect(err.stack).toBe(original.stack);
+    expect(err.cause).toBe(original);
+    // the wrapper keeps its own stack so the wrap site is not hidden
+    expect(err.stack).not.toBe(original.stack);
   });
 
-  test("originalError as non-Error formats as OriginalStringError", () => {
+  test("cause as non-Error value is passed through unchanged", () => {
     const err = new TypedError({
       message: "wrapped",
       type: ErrorType.CONNECTION_ACTION_RUN,
-      originalError: "something went wrong",
+      cause: "something went wrong",
     });
-    expect(err.stack).toBe("OriginalStringError: something went wrong");
+    expect(err.cause).toBe("something went wrong");
+  });
+
+  test("cause is undefined when not provided", () => {
+    const err = new TypedError({
+      message: "no cause here",
+      type: ErrorType.CONNECTION_SERVER_ERROR,
+    });
+    expect(err.cause).toBeUndefined();
   });
 
   test("ErrorStatusCodes maps each ErrorType to the expected HTTP status", () => {

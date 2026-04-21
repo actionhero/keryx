@@ -73,7 +73,7 @@ export async function withTransaction<T>(
     throw new TypedError({
       message: `${e}`,
       type: ErrorType.CONNECTION_ACTION_RUN,
-      originalError: e,
+      cause: e,
     });
   } finally {
     client.release();

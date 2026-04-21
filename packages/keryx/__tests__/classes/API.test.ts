@@ -181,6 +181,121 @@ describe("API.start validation", () => {
   });
 });
 
+class ThrowingInitializer extends Initializer {
+  phase: "initialize" | "start" | "stop";
+  thrown: unknown;
+
+  constructor(
+    name: string,
+    phase: "initialize" | "start" | "stop",
+    thrown: unknown,
+  ) {
+    super(name);
+    this.declaresAPIProperty = false;
+    this.phase = phase;
+    this.thrown = thrown;
+  }
+
+  async initialize() {
+    if (this.phase === "initialize") throw this.thrown;
+  }
+
+  async start() {
+    if (this.phase === "start") throw this.thrown;
+  }
+
+  async stop() {
+    if (this.phase === "stop") throw this.thrown;
+  }
+}
+
+describe("API lifecycle error wrapping", () => {
+  test("initialize wraps thrown error with initializer name and preserves cause", async () => {
+    const inner = new Error("boom");
+    const testApi = buildTestAPI([
+      new ThrowingInitializer("bad-init", "initialize", inner),
+    ]);
+
+    let caught: unknown;
+    try {
+      await testApi.initialize();
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(TypedError);
+    const err = caught as TypedError;
+    expect(err.type).toBe(ErrorType.SERVER_INITIALIZATION);
+    expect(err.message).toContain(
+      'Failed to initialize initializer "bad-init"',
+    );
+    expect(err.message).toContain("boom");
+    expect(err.cause).toBe(inner);
+  });
+
+  test("start wraps thrown error with initializer name and preserves cause", async () => {
+    const inner = new Error("start failed");
+    const testApi = buildTestAPI([
+      new ThrowingInitializer("bad-start", "start", inner),
+    ]);
+    testApi.initialized = true;
+
+    let caught: unknown;
+    try {
+      await testApi.start();
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(TypedError);
+    const err = caught as TypedError;
+    expect(err.type).toBe(ErrorType.SERVER_START);
+    expect(err.message).toContain('Failed to start initializer "bad-start"');
+    expect(err.message).toContain("start failed");
+    expect(err.cause).toBe(inner);
+  });
+
+  test("stop wraps thrown error with initializer name and preserves cause", async () => {
+    const inner = new Error("stop failed");
+    const testApi = buildTestAPI([
+      new ThrowingInitializer("bad-stop", "stop", inner),
+    ]);
+    testApi.started = true;
+    testApi.stopped = false;
+
+    let caught: unknown;
+    try {
+      await testApi.stop();
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(TypedError);
+    const err = caught as TypedError;
+    expect(err.type).toBe(ErrorType.SERVER_STOP);
+    expect(err.message).toContain('Failed to stop initializer "bad-stop"');
+    expect(err.message).toContain("stop failed");
+    expect(err.cause).toBe(inner);
+  });
+
+  test("non-Error thrown values are preserved on cause without stringification loss", async () => {
+    const inner = { code: "EWEIRD", detail: "not an Error" };
+    const testApi = buildTestAPI([
+      new ThrowingInitializer("weird", "initialize", inner),
+    ]);
+
+    let caught: unknown;
+    try {
+      await testApi.initialize();
+    } catch (e) {
+      caught = e;
+    }
+
+    const err = caught as TypedError;
+    expect(err.cause).toBe(inner);
+  });
+});
+
 describe("API.validateInitializerProperties (direct)", () => {
   test("start phase skips initializers excluded from the active runMode", () => {
     const testApi = buildTestAPI([
