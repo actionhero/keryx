@@ -33,9 +33,14 @@ describe("getComponentDefs (built-ins)", () => {
 
   test("each built-in template file exists on disk", () => {
     const builtIns = getComponentDefs().filter((d) =>
-      ["action", "initializer", "middleware", "channel", "ops", "plugin"].includes(
-        d.type,
-      ),
+      [
+        "action",
+        "initializer",
+        "middleware",
+        "channel",
+        "ops",
+        "plugin",
+      ].includes(d.type),
     );
     for (const def of builtIns) {
       expect(fs.existsSync(def.templatePath)).toBe(true);

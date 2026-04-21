@@ -73,8 +73,11 @@ export type TypedErrorArgs = {
   message: string;
   /** The error category, which determines the HTTP status code. */
   type: ErrorType;
-  /** The original caught error, if wrapping. Its stack trace is preserved on the `TypedError`. */
-  originalError?: unknown;
+  /**
+   * The underlying error being wrapped. Exposed via the standard ES2022 `Error.cause`
+   * field, so `console.error(err)` prints the full "Caused by:" chain natively.
+   */
+  cause?: unknown;
   /** The param key that caused the error (for validation errors). */
   key?: string;
   /** The param value that caused the error (for validation errors). */
@@ -84,7 +87,9 @@ export type TypedErrorArgs = {
 /**
  * Structured error class for action and framework failures. Extends `Error` with an
  * `ErrorType` that maps to an HTTP status code, and optional `key`/`value` fields for
- * param validation errors. If `originalError` is provided, its stack trace is preserved.
+ * param validation errors. When `cause` is provided, it is forwarded to the base
+ * `Error` constructor so the native ES2022 cause chain is preserved — tooling that
+ * inspects errors (Node's default printer, debuggers) will walk both stacks.
  */
 export class TypedError extends Error {
   /** The error category, used to determine the HTTP status code via `ErrorStatusCodes`. */
@@ -95,17 +100,12 @@ export class TypedError extends Error {
   value?: any;
 
   constructor(args: TypedErrorArgs) {
-    super(args.message);
+    super(
+      args.message,
+      args.cause !== undefined ? { cause: args.cause } : undefined,
+    );
     this.type = args.type;
     this.key = args.key;
     this.value = args.value;
-
-    if (args.originalError !== undefined) {
-      if (args.originalError instanceof Error) {
-        this.stack = args.originalError.stack;
-      } else {
-        this.stack = `OriginalStringError: ${args.originalError}`;
-      }
-    }
   }
 }

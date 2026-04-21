@@ -122,7 +122,7 @@ export async function handleWebsocketSubscribe(
         : new TypedError({
             message: `${e}`,
             type: ErrorType.CONNECTION_CHANNEL_AUTHORIZATION,
-            originalError: e,
+            cause: e,
           });
     ws.send(
       JSON.stringify({
@@ -174,7 +174,7 @@ export async function handleWebsocketUnsubscribe(
         : new TypedError({
             message: `${e}`,
             type: ErrorType.CONNECTION_CHANNEL_VALIDATION,
-            originalError: e,
+            cause: e,
           });
     ws.send(
       JSON.stringify({

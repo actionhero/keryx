@@ -181,6 +181,171 @@ describe("API.start validation", () => {
   });
 });
 
+class ThrowingInitializer extends Initializer {
+  phase: "initialize" | "start" | "stop";
+  thrown: unknown;
+
+  constructor(
+    name: string,
+    phase: "initialize" | "start" | "stop",
+    thrown: unknown,
+  ) {
+    super(name);
+    this.declaresAPIProperty = false;
+    this.phase = phase;
+    this.thrown = thrown;
+  }
+
+  async initialize() {
+    if (this.phase === "initialize") throw this.thrown;
+  }
+
+  async start() {
+    if (this.phase === "start") throw this.thrown;
+  }
+
+  async stop() {
+    if (this.phase === "stop") throw this.thrown;
+  }
+}
+
+describe("API lifecycle error wrapping", () => {
+  test("initialize wraps thrown error with initializer name and preserves cause", async () => {
+    const inner = new Error("boom");
+    const testApi = buildTestAPI([
+      new ThrowingInitializer("bad-init", "initialize", inner),
+    ]);
+
+    let caught: unknown;
+    try {
+      await testApi.initialize();
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(TypedError);
+    const err = caught as TypedError;
+    expect(err.type).toBe(ErrorType.SERVER_INITIALIZATION);
+    expect(err.message).toContain(
+      'Failed to initialize initializer "bad-init"',
+    );
+    expect(err.message).toContain("boom");
+    expect(err.cause).toBe(inner);
+  });
+
+  test("start wraps thrown error with initializer name and preserves cause", async () => {
+    const inner = new Error("start failed");
+    const testApi = buildTestAPI([
+      new ThrowingInitializer("bad-start", "start", inner),
+    ]);
+    testApi.initialized = true;
+
+    let caught: unknown;
+    try {
+      await testApi.start();
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(TypedError);
+    const err = caught as TypedError;
+    expect(err.type).toBe(ErrorType.SERVER_START);
+    expect(err.message).toContain('Failed to start initializer "bad-start"');
+    expect(err.message).toContain("start failed");
+    expect(err.cause).toBe(inner);
+  });
+
+  test("stop wraps thrown error with initializer name and preserves cause", async () => {
+    const inner = new Error("stop failed");
+    const testApi = buildTestAPI([
+      new ThrowingInitializer("bad-stop", "stop", inner),
+    ]);
+    testApi.started = true;
+    testApi.stopped = false;
+
+    let caught: unknown;
+    try {
+      await testApi.stop();
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(TypedError);
+    const err = caught as TypedError;
+    expect(err.type).toBe(ErrorType.SERVER_STOP);
+    expect(err.message).toContain('Failed to stop initializer "bad-stop"');
+    expect(err.message).toContain("stop failed");
+    expect(err.cause).toBe(inner);
+  });
+
+  test("non-Error thrown values are preserved on cause without stringification loss", async () => {
+    const inner = { code: "EWEIRD", detail: "not an Error" };
+    const testApi = buildTestAPI([
+      new ThrowingInitializer("weird", "initialize", inner),
+    ]);
+
+    let caught: unknown;
+    try {
+      await testApi.initialize();
+    } catch (e) {
+      caught = e;
+    }
+
+    const err = caught as TypedError;
+    expect(err.cause).toBe(inner);
+  });
+});
+
+describe("API.restart flap preventer", () => {
+  test("is isolated per instance", async () => {
+    const a = buildTestAPI();
+    const b = buildTestAPI();
+
+    // Simulate a restart already in-flight on `a`.
+    (a as unknown as { flapPreventer: boolean }).flapPreventer = true;
+
+    let bStopped = 0;
+    let bStarted = 0;
+    (b as unknown as { stop: () => Promise<void> }).stop = async () => {
+      bStopped++;
+    };
+    (b as unknown as { start: () => Promise<void> }).start = async () => {
+      bStarted++;
+    };
+
+    // `a`'s flag must not block `b`.
+    await b.restart();
+
+    expect(bStopped).toBe(1);
+    expect(bStarted).toBe(1);
+    expect((a as unknown as { flapPreventer: boolean }).flapPreventer).toBe(
+      true,
+    );
+    expect((b as unknown as { flapPreventer: boolean }).flapPreventer).toBe(
+      false,
+    );
+  });
+
+  test("short-circuits a concurrent restart on the same instance", async () => {
+    const testApi = buildTestAPI();
+
+    let stops = 0;
+    let starts = 0;
+    (testApi as unknown as { stop: () => Promise<void> }).stop = async () => {
+      stops++;
+    };
+    (testApi as unknown as { start: () => Promise<void> }).start = async () => {
+      starts++;
+    };
+
+    (testApi as unknown as { flapPreventer: boolean }).flapPreventer = true;
+    await testApi.restart();
+
+    expect(stops).toBe(0);
+    expect(starts).toBe(0);
+  });
+});
+
 describe("API.validateInitializerProperties (direct)", () => {
   test("start phase skips initializers excluded from the active runMode", () => {
     const testApi = buildTestAPI([

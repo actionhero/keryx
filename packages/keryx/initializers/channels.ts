@@ -12,6 +12,16 @@ const namespace = "channels";
 const PRESENCE_KEY_PREFIX = "presence:";
 const LUA_DIR = join(import.meta.dir, "..", "lua");
 
+const ADD_PRESENCE_LUA = await Bun.file(
+  join(LUA_DIR, "add-presence.lua"),
+).text();
+const REMOVE_PRESENCE_LUA = await Bun.file(
+  join(LUA_DIR, "remove-presence.lua"),
+).text();
+const REFRESH_PRESENCE_LUA = await Bun.file(
+  join(LUA_DIR, "refresh-presence.lua"),
+).text();
+
 declare module "../classes/API" {
   export interface API {
     [namespace]: Awaited<ReturnType<Channels["initialize"]>>;
@@ -19,9 +29,6 @@ declare module "../classes/API" {
 }
 
 export class Channels extends Initializer {
-  private addPresenceLua = "";
-  private removePresenceLua = "";
-  private refreshPresenceLua = "";
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
@@ -107,7 +114,7 @@ export class Channels extends Initializer {
     const connectionSetKey = `${PRESENCE_KEY_PREFIX}${channelName}:${key}`;
 
     const added = await api.redis.redis.eval(
-      this.addPresenceLua,
+      ADD_PRESENCE_LUA,
       2,
       connectionSetKey,
       channelKey,
@@ -140,7 +147,7 @@ export class Channels extends Initializer {
     const connectionSetKey = `${PRESENCE_KEY_PREFIX}${channelName}:${key}`;
 
     const shouldLeave = await api.redis.redis.eval(
-      this.removePresenceLua,
+      REMOVE_PRESENCE_LUA,
       2,
       connectionSetKey,
       channelKey,
@@ -190,7 +197,7 @@ export class Channels extends Initializer {
 
     const keys = [...keysToRefresh];
     await api.redis.redis.eval(
-      this.refreshPresenceLua,
+      REFRESH_PRESENCE_LUA,
       keys.length,
       ...keys,
       config.channels.presenceTTL,
@@ -218,16 +225,6 @@ export class Channels extends Initializer {
   };
 
   async initialize() {
-    this.addPresenceLua = await Bun.file(
-      join(LUA_DIR, "add-presence.lua"),
-    ).text();
-    this.removePresenceLua = await Bun.file(
-      join(LUA_DIR, "remove-presence.lua"),
-    ).text();
-    this.refreshPresenceLua = await Bun.file(
-      join(LUA_DIR, "refresh-presence.lua"),
-    ).text();
-
     // Load plugin channels
     const pluginChannels: Channel[] = [];
     for (const plugin of config.plugins) {

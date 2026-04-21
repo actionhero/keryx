@@ -185,12 +185,33 @@ class TypedError extends Error {
   constructor(args: {
     message: string;
     type: ErrorType;
-    originalError?: unknown;
+    cause?: unknown; // underlying error being wrapped (ES2022 Error.cause)
     key?: string;
     value?: any;
   });
 }
 ```
+
+When wrapping a caught error, pass it via `cause` so the native ES2022 `Error.cause` chain is preserved. `console.error(err)` will walk the chain and print the inner error's stack under "Caused by:", which is invaluable when debugging initializer boot failures.
+
+```ts
+try {
+  await redis.connect();
+} catch (e) {
+  throw new TypedError({
+    message: `Failed to connect to Redis`,
+    type: ErrorType.SERVER_INITIALIZATION,
+    cause: e,
+  });
+}
+```
+
+References:
+
+- [MDN — `Error.prototype.cause`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Error/cause)
+- [MDN — `Error()` constructor](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Error/Error) (see the `options.cause` parameter)
+- [TC39 — `proposal-error-cause`](https://github.com/tc39/proposal-error-cause) (stage 4, shipped in ES2022)
+- [Node.js — `util.inspect`](https://nodejs.org/api/util.html#utilinspectobject-options) walks `.cause` by default
 
 ### ErrorType → HTTP Status Mapping
 
