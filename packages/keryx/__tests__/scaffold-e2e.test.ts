@@ -3,6 +3,7 @@ import type { Subprocess } from "bun";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { Pool } from "pg";
 
 const keryxTs = path.join(import.meta.dir, "..", "keryx.ts");
 const keryxPkgDir = path.join(import.meta.dir, "..");
@@ -123,6 +124,19 @@ beforeAll(async () => {
     `REDIS_URL_TEST="redis://localhost:6379/${REDIS_DB}"`,
   );
   fs.writeFileSync(path.join(projectDir, ".env"), envContent);
+
+  // 4a. Reset drizzle state in the shared test DB so auto-migrate will
+  //     re-apply the scaffolded `0000_users` migration regardless of what
+  //     earlier tests in this shard left behind. Drizzle skips migrations
+  //     whose folderMillis is <= the latest __drizzle_migrations.created_at,
+  //     so stale state elsewhere would silently skip creating `users`.
+  const resetPool = new Pool({ connectionString: dbUrl });
+  try {
+    await resetPool.query('DROP TABLE IF EXISTS "users" CASCADE');
+    await resetPool.query("DROP SCHEMA IF EXISTS drizzle CASCADE");
+  } finally {
+    await resetPool.end();
+  }
 
   // 5. Start the server as a background process.
   //    Pass a clean env to prevent the parent's .env vars (e.g. WEB_SERVER_PORT_TEST=0)
