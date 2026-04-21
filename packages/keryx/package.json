@@ -1,6 +1,6 @@
 {
   "name": "keryx",
-  "version": "0.23.0",
+  "version": "0.23.1",
   "module": "index.ts",
   "type": "module",
   "license": "MIT",
