@@ -245,17 +245,24 @@ describe("internal link anchors", () => {
 
 describe("source sync", () => {
   test("CLI docs list all generator types from source", () => {
-    const generateSrc = readFileSync(
-      resolve(docsDir, "..", "packages", "keryx", "util", "generate.ts"),
+    const registrySrc = readFileSync(
+      resolve(
+        docsDir,
+        "..",
+        "packages",
+        "keryx",
+        "util",
+        "componentRegistry.ts",
+      ),
       "utf-8",
     );
-    // Extract VALID_TYPES array values from source
-    const typesMatch = generateSrc.match(
-      /VALID_TYPES\s*=\s*\[([\s\S]*?)\]\s*as\s*const/,
+    // Extract type names from the BUILT_IN_DEFS array
+    const defsMatch = registrySrc.match(
+      /BUILT_IN_DEFS\s*:\s*ComponentDef\[\]\s*=\s*\[([\s\S]*?)\];/,
     );
-    expect(typesMatch).not.toBeNull();
+    expect(defsMatch).not.toBeNull();
 
-    const sourceTypes = [...typesMatch![1].matchAll(/"(\w+)"/g)].map(
+    const sourceTypes = [...defsMatch![1].matchAll(/type:\s*"([\w-]+)"/g)].map(
       (m) => m[1],
     );
     expect(sourceTypes.length).toBeGreaterThan(0);
