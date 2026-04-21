@@ -18,8 +18,6 @@ export enum RUN_MODE {
   SERVER = "server",
 }
 
-let flapPreventer = false;
-
 /**
  * The global singleton that manages the full framework lifecycle: initialize → start → stop.
  * All initializers attach their namespaces to this object (e.g., `api.db`, `api.actions`, `api.redis`).
@@ -44,6 +42,8 @@ export class API {
   runMode!: RUN_MODE;
   /** All discovered initializer instances, topologically sorted by `dependsOn` after discovery. */
   initializers: Initializer[];
+  /** Guards `restart()` against concurrent re-entry so rapid stop/start cycles get coalesced. */
+  private flapPreventer = false;
 
   // allow arbitrary properties to be set on the API, to be added and typed later
   [key: string]: any;
@@ -184,12 +184,12 @@ export class API {
    * concurrent restart calls to avoid rapid stop/start cycles.
    */
   async restart() {
-    if (flapPreventer) return;
+    if (this.flapPreventer) return;
 
-    flapPreventer = true;
+    this.flapPreventer = true;
     await this.stop();
     await this.start();
-    flapPreventer = false;
+    this.flapPreventer = false;
   }
 
   private async loadLocalConfig() {

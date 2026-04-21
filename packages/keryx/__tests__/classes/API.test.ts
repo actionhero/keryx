@@ -296,6 +296,56 @@ describe("API lifecycle error wrapping", () => {
   });
 });
 
+describe("API.restart flap preventer", () => {
+  test("is isolated per instance", async () => {
+    const a = buildTestAPI();
+    const b = buildTestAPI();
+
+    // Simulate a restart already in-flight on `a`.
+    (a as unknown as { flapPreventer: boolean }).flapPreventer = true;
+
+    let bStopped = 0;
+    let bStarted = 0;
+    (b as unknown as { stop: () => Promise<void> }).stop = async () => {
+      bStopped++;
+    };
+    (b as unknown as { start: () => Promise<void> }).start = async () => {
+      bStarted++;
+    };
+
+    // `a`'s flag must not block `b`.
+    await b.restart();
+
+    expect(bStopped).toBe(1);
+    expect(bStarted).toBe(1);
+    expect((a as unknown as { flapPreventer: boolean }).flapPreventer).toBe(
+      true,
+    );
+    expect((b as unknown as { flapPreventer: boolean }).flapPreventer).toBe(
+      false,
+    );
+  });
+
+  test("short-circuits a concurrent restart on the same instance", async () => {
+    const testApi = buildTestAPI();
+
+    let stops = 0;
+    let starts = 0;
+    (testApi as unknown as { stop: () => Promise<void> }).stop = async () => {
+      stops++;
+    };
+    (testApi as unknown as { start: () => Promise<void> }).start = async () => {
+      starts++;
+    };
+
+    (testApi as unknown as { flapPreventer: boolean }).flapPreventer = true;
+    await testApi.restart();
+
+    expect(stops).toBe(0);
+    expect(starts).toBe(0);
+  });
+});
+
 describe("API.validateInitializerProperties (direct)", () => {
   test("start phase skips initializers excluded from the active runMode", () => {
     const testApi = buildTestAPI([
