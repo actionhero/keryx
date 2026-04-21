@@ -77,7 +77,7 @@ export async function parseRequestParams(
       throw new TypedError({
         message: `cannot parse request body: ${e}`,
         type: ErrorType.CONNECTION_ACTION_RUN,
-        originalError: e,
+        cause: e,
       });
     }
   } else if (

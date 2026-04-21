@@ -38,7 +38,7 @@ export async function globLoader<T>(searchDir: string) {
           throw new TypedError({
             message: `Error loading from ${dir} -  ${name} - ${error}`,
             type: ErrorType.SERVER_INITIALIZATION,
-            originalError: error,
+            cause: error,
           });
         }
       }

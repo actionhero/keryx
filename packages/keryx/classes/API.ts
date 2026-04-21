@@ -86,9 +86,9 @@ export class API {
         this.logger.debug(`Initialized initializer ${initializer.name}`);
       } catch (e) {
         throw new TypedError({
-          message: `${e}`,
+          message: `Failed to initialize initializer "${initializer.name}": ${e instanceof Error ? e.message : e}`,
           type: ErrorType.SERVER_INITIALIZATION,
-          originalError: e,
+          cause: e,
         });
       }
     }
@@ -132,9 +132,9 @@ export class API {
         this.logger.debug(`Started initializer ${initializer.name}`);
       } catch (e) {
         throw new TypedError({
-          message: `${e}`,
+          message: `Failed to start initializer "${initializer.name}": ${e instanceof Error ? e.message : e}`,
           type: ErrorType.SERVER_START,
-          originalError: e,
+          cause: e,
         });
       }
     }
@@ -167,9 +167,9 @@ export class API {
         this.logger.debug(`Stopped initializer ${initializer.name}`);
       } catch (e) {
         throw new TypedError({
-          message: `${e}`,
+          message: `Failed to stop initializer "${initializer.name}": ${e instanceof Error ? e.message : e}`,
           type: ErrorType.SERVER_STOP,
-          originalError: e,
+          cause: e,
         });
       }
     }
