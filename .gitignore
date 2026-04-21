@@ -6,6 +6,7 @@ actionhero
 packages/keryx/.env
 packages/keryx/drizzle
 packages/keryx/README.md
+packages/keryx/assets/
 example/backend/.env
 example/frontend/.env
 types
