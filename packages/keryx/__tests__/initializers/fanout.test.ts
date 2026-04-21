@@ -440,12 +440,9 @@ describe("fanOut overload types (compile-time)", () => {
       // Good: single-action form
       await api.actions.fanOut("fanout:child", [{ itemId: "1" }]);
       await api.actions.fanOut("fanout:child", [{ itemId: "1" }], "worker");
-      await api.actions.fanOut(
-        "fanout:child",
-        [{ itemId: "1" }],
-        "worker",
-        { resultTtl: 30 },
-      );
+      await api.actions.fanOut("fanout:child", [{ itemId: "1" }], "worker", {
+        resultTtl: 30,
+      });
 
       // Good: multi-action form
       await api.actions.fanOut([{ action: "fanout:child" }]);
