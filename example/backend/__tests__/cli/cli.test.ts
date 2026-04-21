@@ -52,31 +52,38 @@ describe("CLI", () => {
     expect(stdout.toString()).toContain("The user's password");
   });
 
-  test("create user and session via the CLI as integration test", async () => {
-    const { stdout, stderr, exitCode } =
-      await $`./keryx.ts "user:create" --name test --email test@test.com --password testpass123`.quiet();
+  test(
+    "create user and session via the CLI as integration test",
+    async () => {
+      const { stdout, stderr, exitCode } =
+        await $`./keryx.ts "user:create" --name test --email test@test.com --password testpass123`.quiet();
 
-    expect(exitCode).toBe(0);
-    expect(stderr).toBeEmpty();
+      expect(exitCode).toBe(0);
+      expect(stderr).toBeEmpty();
 
-    const { response } = JSON.parse(stdout.toString());
-    expect(response.user.id).toBeGreaterThan(0);
-    expect(response.user.email).toEqual("test@test.com");
+      const { response } = JSON.parse(stdout.toString());
+      expect(response.user.id).toBeGreaterThan(0);
+      expect(response.user.email).toEqual("test@test.com");
 
-    const {
-      stdout: stdout2,
-      stderr: stderr2,
-      exitCode: exitCode2,
-    } = await $`./keryx.ts "session:create" --email test@test.com --password testpass123`.quiet();
+      const {
+        stdout: stdout2,
+        stderr: stderr2,
+        exitCode: exitCode2,
+      } = await $`./keryx.ts "session:create" --email test@test.com --password testpass123`.quiet();
 
-    expect(exitCode2).toBe(0);
-    expect(stderr2).toBeEmpty();
+      expect(exitCode2).toBe(0);
+      expect(stderr2).toBeEmpty();
 
-    const { response: response2 } = JSON.parse(stdout2.toString());
-    expect(response2.user.id).toBeGreaterThan(1);
-    expect(response2.user.email).toEqual("test@test.com");
-    expect(response2.session.id).not.toBeNull();
-  });
+      const { response: response2 } = JSON.parse(stdout2.toString());
+      expect(response2.user.id).toBeGreaterThan(1);
+      expect(response2.user.email).toEqual("test@test.com");
+      expect(response2.session.id).not.toBeNull();
+    },
+    // Two full CLI subprocess boots (init + start + action + stop) can exceed
+    // Bun's default 5s per-test timeout under load — especially in CI runners
+    // where the benchmark suite caps a single CLI call at 3s.
+    HOOK_TIMEOUT,
+  );
 
   describe("CLI errors", () => {
     test("action not found", async () => {
