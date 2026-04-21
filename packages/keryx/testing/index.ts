@@ -3,6 +3,11 @@ import { api } from "../api";
 import type { WebServer } from "../servers/web";
 
 export {
+  createTestSession,
+  createTestUser,
+  DEFAULT_TEST_USER,
+} from "./http";
+export {
   buildWebSocket,
   createSession,
   createUser,

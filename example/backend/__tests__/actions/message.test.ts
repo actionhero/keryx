@@ -7,7 +7,7 @@ import type {
 } from "../../actions/message";
 import type { SessionCreate } from "../../actions/session";
 import { messages } from "../../schema/messages";
-import { useTestServer } from "./../setup";
+import { createTestSession, createTestUser, useTestServer } from "./../setup";
 
 const getUrl = useTestServer({ clearDatabase: true, clearRedis: true });
 
@@ -16,24 +16,8 @@ describe("message:create", () => {
   let session: ActionResponse<SessionCreate>["session"];
 
   beforeAll(async () => {
-    await fetch(getUrl() + "/api/user", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: "Mario Mario",
-        email: "mario@example.com",
-        password: "mushroom1",
-      }),
-    });
-
-    const sessionRes = await fetch(getUrl() + "/api/session", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: "mario@example.com",
-        password: "mushroom1",
-      }),
-    });
+    await createTestUser(getUrl());
+    const sessionRes = await createTestSession(getUrl());
     const sessionResponse =
       (await sessionRes.json()) as ActionResponse<SessionCreate>;
     user = sessionResponse.user;

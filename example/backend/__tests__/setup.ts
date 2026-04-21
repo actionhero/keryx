@@ -5,7 +5,10 @@ import "../index";
 export {
   buildWebSocket,
   createSession,
+  createTestSession,
+  createTestUser,
   createUser,
+  DEFAULT_TEST_USER,
   HOOK_TIMEOUT,
   serverUrl,
   subscribeToChannel,
