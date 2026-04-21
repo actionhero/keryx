@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { type ActionResponse, config, logger } from "keryx";
 import type { SessionCreate } from "../../actions/session";
 import type { UserCreate, UserEdit, UserView } from "../../actions/user";
-import { useTestServer } from "./../setup";
+import { createTestSession, createTestUser, useTestServer } from "./../setup";
 
 const getUrl = useTestServer({ clearDatabase: true });
 
@@ -109,14 +109,7 @@ describe("user:edit", () => {
   });
 
   test("the user can be updated", async () => {
-    const sessionRes = await fetch(getUrl() + "/api/session", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: "mario@example.com",
-        password: "mushroom1",
-      }),
-    });
+    const sessionRes = await createTestSession(getUrl());
     const sessionResponse =
       (await sessionRes.json()) as ActionResponse<SessionCreate>;
     expect(sessionRes.status).toBe(200);
@@ -153,24 +146,14 @@ describe("user:view", () => {
 
   test("user can view themselves", async () => {
     // Create a user first
-    await fetch(getUrl() + "/api/user", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: "Luigi Mario",
-        email: "luigi@example.com",
-        password: "mushroom1",
-      }),
+    await createTestUser(getUrl(), {
+      name: "Luigi Mario",
+      email: "luigi@example.com",
     });
 
     // Create a session
-    const sessionRes = await fetch(getUrl() + "/api/session", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: "luigi@example.com",
-        password: "mushroom1",
-      }),
+    const sessionRes = await createTestSession(getUrl(), {
+      email: "luigi@example.com",
     });
     const sessionResponse =
       (await sessionRes.json()) as ActionResponse<SessionCreate>;
@@ -196,24 +179,14 @@ describe("user:view", () => {
 
   test("user can view another user (public information only)", async () => {
     // Create two users
-    await fetch(getUrl() + "/api/user", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: "Peach Toadstool",
-        email: "peach@example.com",
-        password: "mushroom1",
-      }),
+    await createTestUser(getUrl(), {
+      name: "Peach Toadstool",
+      email: "peach@example.com",
     });
 
     // Create a session for Peach
-    const sessionRes = await fetch(getUrl() + "/api/session", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: "peach@example.com",
-        password: "mushroom1",
-      }),
+    const sessionRes = await createTestSession(getUrl(), {
+      email: "peach@example.com",
     });
     const sessionResponse =
       (await sessionRes.json()) as ActionResponse<SessionCreate>;
@@ -239,13 +212,8 @@ describe("user:view", () => {
 
   test("fails with invalid user id format", async () => {
     // Create a session
-    const sessionRes = await fetch(getUrl() + "/api/session", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: "peach@example.com",
-        password: "mushroom1",
-      }),
+    const sessionRes = await createTestSession(getUrl(), {
+      email: "peach@example.com",
     });
     const sessionResponse =
       (await sessionRes.json()) as ActionResponse<SessionCreate>;
@@ -267,13 +235,8 @@ describe("user:view", () => {
 
   test("fails when user not found", async () => {
     // Create a session
-    const sessionRes = await fetch(getUrl() + "/api/session", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: "peach@example.com",
-        password: "mushroom1",
-      }),
+    const sessionRes = await createTestSession(getUrl(), {
+      email: "peach@example.com",
     });
     const sessionResponse =
       (await sessionRes.json()) as ActionResponse<SessionCreate>;
