@@ -430,3 +430,38 @@ describe("with workers", () => {
     }
   });
 });
+
+describe("fanOut overload types (compile-time)", () => {
+  test("both overload shapes type-check and bad shapes are rejected", () => {
+    // These calls are never awaited — the suite exists purely to lock in
+    // the overload contract. If the overloads regress to a flat union,
+    // the @ts-expect-error lines below will start failing.
+    const _never = async () => {
+      // Good: single-action form
+      await api.actions.fanOut("fanout:child", [{ itemId: "1" }]);
+      await api.actions.fanOut("fanout:child", [{ itemId: "1" }], "worker");
+      await api.actions.fanOut(
+        "fanout:child",
+        [{ itemId: "1" }],
+        "worker",
+        { resultTtl: 30 },
+      );
+
+      // Good: multi-action form
+      await api.actions.fanOut([{ action: "fanout:child" }]);
+      await api.actions.fanOut(
+        [{ action: "fanout:child", inputs: { itemId: "1" } }],
+        { resultTtl: 30 },
+      );
+
+      // Bad: single-action form can't take FanOutOptions in the inputsArray slot
+      // @ts-expect-error - options is not a TaskInputs[]
+      await api.actions.fanOut("fanout:child", { resultTtl: 30 });
+
+      // Bad: multi-action form can't take a queue string in the options slot
+      // @ts-expect-error - "worker" is not a FanOutOptions
+      await api.actions.fanOut([{ action: "fanout:child" }], "worker");
+    };
+    expect(typeof _never).toBe("function");
+  });
+});
