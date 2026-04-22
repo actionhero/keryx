@@ -72,7 +72,7 @@ jobs:
         env:
           DATABASE_URL_TEST: postgres://postgres:postgres@localhost:5432/keryx-test
 
-  test-resque-admin:
+  test-plugin-resque-admin:
     runs-on: ubuntu-latest
 
     services:
@@ -209,7 +209,7 @@ jobs:
   complete:
     runs-on: ubuntu-latest
     if: always()
-    needs: [compile, lint, test-package, test-resque-admin, test-example-backend, test-example-frontend, test-docs, benchmark, docker-build-backend, docker-build-frontend]
+    needs: [compile, lint, test-package, test-plugin-resque-admin, test-example-backend, test-example-frontend, test-docs, benchmark, docker-build-backend, docker-build-frontend]
     steps:
       - run: |
           if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
