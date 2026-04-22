@@ -11,7 +11,10 @@ import { api, logger } from "../api";
 import { Initializer } from "../classes/Initializer";
 import { ErrorType, TypedError } from "../classes/TypedError";
 import { config } from "../config";
-import { formatConnectionStringForLogging } from "../util/connectionString";
+import {
+  formatConnectionStringForLogging,
+  throwConnectionError,
+} from "../util/connectionString";
 
 const namespace = "db";
 
@@ -24,9 +27,6 @@ declare module "../classes/API" {
 export class DB extends Initializer {
   constructor() {
     super(namespace);
-    this.loadPriority = 100;
-    this.startPriority = 100;
-    this.stopPriority = 910;
   }
 
   async initialize() {
@@ -62,10 +62,7 @@ export class DB extends Initializer {
     try {
       await api.db.db.execute(sql`SELECT NOW()`);
     } catch (e) {
-      throw new TypedError({
-        type: ErrorType.SERVER_INITIALIZATION,
-        message: `Cannot connect to database (${formatConnectionStringForLogging(config.database.connectionString)}): ${e}`,
-      });
+      throwConnectionError("database", config.database.connectionString, e);
     }
 
     if (config.database.autoMigrate) {

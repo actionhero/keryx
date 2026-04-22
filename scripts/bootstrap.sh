@@ -18,6 +18,22 @@ echo "Running in Claude Code cloud environment"
 echo ""
 
 # -----------------------------------------------------------------------------
+# 0. Fix PostgreSQL authentication for cloud environment
+# -----------------------------------------------------------------------------
+echo "[0/6] Configuring PostgreSQL authentication..."
+
+PG_HBA=$(find /etc/postgresql -name pg_hba.conf 2>/dev/null | head -1)
+if [ -n "$PG_HBA" ]; then
+    sed -i 's/^\(local.*all.*postgres.*\)peer$/\1trust/' "$PG_HBA"
+    sed -i 's/^\(local.*all.*all.*\)peer$/\1trust/' "$PG_HBA"
+    sed -i 's/^\(host.*all.*all.*127\.0\.0\.1\/32.*\)scram-sha-256$/\1trust/' "$PG_HBA"
+    sed -i 's/^\(host.*all.*all.*::1\/128.*\)scram-sha-256$/\1trust/' "$PG_HBA"
+    echo "  pg_hba.conf updated to trust auth"
+else
+    echo "  WARNING: pg_hba.conf not found, skipping auth configuration"
+fi
+
+# -----------------------------------------------------------------------------
 # 1. Start PostgreSQL
 # -----------------------------------------------------------------------------
 echo "[1/6] Starting PostgreSQL..."
@@ -50,7 +66,10 @@ if ! pg_isready -q 2>/dev/null; then
     echo "  WARNING: PostgreSQL may not be running. Tests may fail."
 fi
 
-# Set postgres user password to match .env.example expectations
+# Reload config so pg_hba.conf changes take effect
+pg_ctlcluster 16 main reload 2>/dev/null || true
+
+# Set postgres user password to match DATABASE_URL expectations
 psql -U postgres -c "ALTER USER postgres WITH PASSWORD 'postgres';" 2>/dev/null || true
 echo "  PostgreSQL password configured"
 
@@ -100,17 +119,23 @@ fi
 echo "  Using PostgreSQL user: $PG_USER"
 
 # Create main database
-if psql -U "$PG_USER" -lqt 2>/dev/null | cut -d \| -f 1 | grep -qw bun; then
-    echo "  Database 'bun' already exists"
+if psql -U "$PG_USER" -lqt 2>/dev/null | cut -d \| -f 1 | grep -qw keryx; then
+    echo "  Database 'keryx' already exists"
 else
-    createdb -U "$PG_USER" bun 2>/dev/null && echo "  Created database 'bun'" || echo "  Could not create database 'bun' (may already exist)"
+    createdb -U "$PG_USER" keryx 2>/dev/null && echo "  Created database 'keryx'" || echo "  Could not create database 'keryx' (may already exist)"
 fi
 
-# Create test database
-if psql -U "$PG_USER" -lqt 2>/dev/null | cut -d \| -f 1 | grep -qw bun-test; then
-    echo "  Database 'bun-test' already exists"
+# Create test databases — one per workspace, matching CI where each job gets its own Postgres
+if psql -U "$PG_USER" -lqt 2>/dev/null | cut -d \| -f 1 | grep -qw keryx-test; then
+    echo "  Database 'keryx-test' already exists"
 else
-    createdb -U "$PG_USER" bun-test 2>/dev/null && echo "  Created database 'bun-test'" || echo "  Could not create database 'bun-test' (may already exist)"
+    createdb -U "$PG_USER" keryx-test 2>/dev/null && echo "  Created database 'keryx-test'" || echo "  Could not create database 'keryx-test' (may already exist)"
+fi
+
+if psql -U "$PG_USER" -lqt 2>/dev/null | cut -d \| -f 1 | grep -qw keryx-package-test; then
+    echo "  Database 'keryx-package-test' already exists"
+else
+    createdb -U "$PG_USER" keryx-package-test 2>/dev/null && echo "  Created database 'keryx-package-test'" || echo "  Could not create database 'keryx-package-test' (may already exist)"
 fi
 
 # -----------------------------------------------------------------------------
@@ -132,25 +157,64 @@ fi
 # -----------------------------------------------------------------------------
 echo "[5/6] Setting up environment files..."
 
-# Backend .env
-if [ ! -f "$CLAUDE_PROJECT_DIR/backend/.env" ]; then
-    if [ -f "$CLAUDE_PROJECT_DIR/backend/.env.example" ]; then
-        cp "$CLAUDE_PROJECT_DIR/backend/.env.example" "$CLAUDE_PROJECT_DIR/backend/.env"
-        echo "  Created backend/.env from .env.example"
-    fi
-else
-    echo "  backend/.env already exists"
-fi
+# Cloud-appropriate connection strings
+CLOUD_DB_URL="postgres://postgres:postgres@localhost:5432/keryx"
+CLOUD_DB_URL_TEST="postgres://postgres:postgres@localhost:5432/keryx-test"
+CLOUD_PKG_DB_URL_TEST="postgres://postgres:postgres@localhost:5432/keryx-package-test"
+CLOUD_REDIS_URL="redis://localhost:6379/0"
+CLOUD_REDIS_URL_TEST="redis://localhost:6379/1"
 
-# Frontend .env
-if [ ! -f "$CLAUDE_PROJECT_DIR/frontend/.env" ]; then
-    if [ -f "$CLAUDE_PROJECT_DIR/frontend/.env.example" ]; then
-        cp "$CLAUDE_PROJECT_DIR/frontend/.env.example" "$CLAUDE_PROJECT_DIR/frontend/.env"
-        echo "  Created frontend/.env from .env.example"
+# Helper: copy .env.example to .env and override specific keys via sed
+setup_env() {
+    local dir="$1"
+    shift
+    # remaining args are key=value pairs to override
+
+    local example="$CLAUDE_PROJECT_DIR/$dir/.env.example"
+    local target="$CLAUDE_PROJECT_DIR/$dir/.env"
+
+    if [ ! -f "$example" ]; then
+        echo "  WARNING: $dir/.env.example not found, skipping"
+        return
     fi
-else
-    echo "  frontend/.env already exists"
-fi
+
+    if [ ! -f "$target" ]; then
+        cp "$example" "$target"
+        echo "  Created $dir/.env from .env.example"
+    else
+        echo "  $dir/.env already exists, re-applying overrides"
+    fi
+
+    # Apply overrides via sed (pipe delimiter avoids conflict with URLs)
+    while [ $# -gt 0 ]; do
+        local key="${1%%=*}"
+        local val="${1#*=}"
+        if grep -qE "^#?\s*${key}=" "$target"; then
+            sed -i "s|^#\?\s*${key}=.*|${key}=${val}|" "$target"
+        else
+            echo "${key}=${val}" >> "$target"
+        fi
+        shift
+    done
+}
+
+# packages/keryx/.env — uses separate test DB to avoid migration conflicts with example/backend
+setup_env "packages/keryx" \
+    "DATABASE_URL=\"$CLOUD_DB_URL\"" \
+    "DATABASE_URL_TEST=\"$CLOUD_PKG_DB_URL_TEST\"" \
+    "REDIS_URL=\"$CLOUD_REDIS_URL\"" \
+    "REDIS_URL_TEST=\"$CLOUD_REDIS_URL_TEST\""
+
+# example/backend/.env
+setup_env "example/backend" \
+    "DATABASE_URL=\"$CLOUD_DB_URL\"" \
+    "DATABASE_URL_TEST=\"$CLOUD_DB_URL_TEST\"" \
+    "REDIS_URL=\"$CLOUD_REDIS_URL\"" \
+    "REDIS_URL_TEST=\"$CLOUD_REDIS_URL_TEST\""
+
+# example/frontend/.env
+setup_env "example/frontend" \
+    "VITE_API_URL=http://localhost:8080"
 
 # -----------------------------------------------------------------------------
 # 6. Export environment variables for the session
@@ -158,17 +222,17 @@ fi
 echo "[6/6] Configuring session environment..."
 
 if [ -n "$CLAUDE_ENV_FILE" ]; then
-    # Use connection strings matching .env.example format (with password)
+    # DATABASE_URL* intentionally omitted — each workspace .env provides its own
+    # value so packages/keryx and example/backend use isolated test databases
+    # (matching CI where each job gets its own Postgres instance).
     cat >> "$CLAUDE_ENV_FILE" << 'ENVEOF'
-export DATABASE_URL="postgres://postgres:postgres@localhost:5432/keryx"
-export DATABASE_URL_TEST="postgres://postgres:postgres@localhost:5432/keryx-test"
 export REDIS_URL="redis://localhost:6379/0"
 export REDIS_URL_TEST="redis://localhost:6379/1"
-export NODE_ENV="development"
 ENVEOF
     echo "  Session environment variables configured"
-    echo "  DATABASE_URL=postgres://postgres:postgres@localhost:5432/keryx"
-    echo "  DATABASE_URL_TEST=postgres://postgres:postgres@localhost:5432/keryx-test"
+    echo "  REDIS_URL=redis://localhost:6379/0"
+    echo "  REDIS_URL_TEST=redis://localhost:6379/1"
+    echo "  (DATABASE_URL* provided per-workspace via .env files)"
 else
     echo "  CLAUDE_ENV_FILE not set (running outside Claude Code?)"
 fi

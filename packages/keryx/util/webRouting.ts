@@ -7,6 +7,10 @@ import { config } from "../config";
 /**
  * Match a URL path + HTTP method against registered action routes.
  * Returns the action name and any extracted path parameters, or `null` if no match.
+ *
+ * Delegates to the pre-compiled `api.actions.router` for O(1) static-route lookup
+ * and an ordered scan of parameterized routes. This function only handles the
+ * transport concern of stripping the configured API prefix before routing.
  */
 export async function determineActionName(
   url: ReturnType<typeof parse>,
@@ -20,46 +24,14 @@ export async function determineActionName(
     "",
   );
 
-  for (const action of api.actions.actions) {
-    if (!action?.web?.route) continue;
+  if (!pathToMatch) return { actionName: null, pathParams: null };
 
-    // Convert route with path parameters to regex
-    const routeWithParams = `${action.web.route}`.replace(/:\w+/g, "([^/]+)");
-    const matcher =
-      action.web.route instanceof RegExp
-        ? action.web.route
-        : new RegExp(`^${routeWithParams}$`);
-
-    if (
-      pathToMatch &&
-      pathToMatch.match(matcher) &&
-      method.toUpperCase() === action.web.method
-    ) {
-      // Extract path parameters if the route has them
-      const pathParams: Record<string, string> = {};
-      const paramNames = (`${action.web.route}`.match(/:\w+/g) || []).map(
-        (name) => name.slice(1),
-      );
-      const match = pathToMatch.match(matcher);
-
-      if (match && paramNames.length > 0) {
-        // Skip the first match (full string) and use the captured groups
-        for (let i = 0; i < paramNames.length; i++) {
-          const value = match[i + 1];
-          if (value !== undefined) {
-            pathParams[paramNames[i]] = value;
-          }
-        }
-      }
-
-      return {
-        actionName: action.name,
-        pathParams: Object.keys(pathParams).length > 0 ? pathParams : undefined,
-      };
-    }
-  }
-
-  return { actionName: null, pathParams: null };
+  const match = api.actions.router.match(
+    pathToMatch,
+    method.toUpperCase() as HTTP_METHOD,
+  );
+  if (!match) return { actionName: null, pathParams: null };
+  return { actionName: match.actionName, pathParams: match.pathParams };
 }
 
 /**
@@ -105,7 +77,7 @@ export async function parseRequestParams(
       throw new TypedError({
         message: `cannot parse request body: ${e}`,
         type: ErrorType.CONNECTION_ACTION_RUN,
-        originalError: e,
+        cause: e,
       });
     }
   } else if (

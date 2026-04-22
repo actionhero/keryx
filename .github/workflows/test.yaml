@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v1
+      - uses: oven-sh/setup-bun@v2
       - run: bun install
       - run: bun lint
 
@@ -59,7 +59,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v1
+      - uses: oven-sh/setup-bun@v2
       - run: bun install
       - run: cp packages/keryx/.env.example packages/keryx/.env
       - name: Run test shard ${{ matrix.shard }}/2
@@ -131,7 +131,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v1
+      - uses: oven-sh/setup-bun@v2
       - run: bun install
       - run: cp example/backend/.env.example example/backend/.env
       - name: Run test shard ${{ matrix.shard }}/2
@@ -148,7 +148,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v1
+      - uses: oven-sh/setup-bun@v2
       - run: bun install
       - run: cp example/backend/.env.example example/backend/.env
       - run: bun test-example-frontend

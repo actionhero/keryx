@@ -10,10 +10,14 @@ import {
 import {
   handleAuthorizeGet,
   handleAuthorizePost,
+  handleIntrospect,
   handleMetadata,
   handleProtectedResourceMetadata,
   handleRegister,
+  handleRevoke,
   handleToken,
+  OAUTH_PATHS,
+  OAUTH_WELL_KNOWN_PATHS,
   type TokenData,
 } from "../util/oauthHandlers";
 import {
@@ -32,8 +36,7 @@ declare module "../classes/API" {
 export class OAuthInitializer extends Initializer {
   constructor() {
     super(namespace);
-    this.loadPriority = 175;
-    this.startPriority = 175;
+    this.dependsOn = ["redis", "actions"];
   }
 
   async initialize() {
@@ -70,7 +73,7 @@ export class OAuthInitializer extends Initializer {
         return new Response(null, { status: 204, headers: corsHeaders });
       }
 
-      const prmPrefix = "/.well-known/oauth-protected-resource";
+      const prmPrefix = OAUTH_WELL_KNOWN_PATHS.protectedResource;
       if (path.startsWith(prmPrefix) && method === "GET") {
         const resourcePath = path.slice(prmPrefix.length) || "";
         return appendHeaders(
@@ -79,7 +82,7 @@ export class OAuthInitializer extends Initializer {
         );
       }
       if (
-        path === "/.well-known/oauth-authorization-server" &&
+        path === OAUTH_WELL_KNOWN_PATHS.authorizationServer &&
         method === "GET"
       ) {
         return appendHeaders(handleMetadata(origin), corsHeaders);
@@ -89,13 +92,15 @@ export class OAuthInitializer extends Initializer {
       if (
         config.rateLimit.enabled &&
         ip &&
-        (path === "/oauth/register" ||
-          path === "/oauth/authorize" ||
-          path === "/oauth/token")
+        (path === OAUTH_PATHS.register ||
+          path === OAUTH_PATHS.authorize ||
+          path === OAUTH_PATHS.token ||
+          path === OAUTH_PATHS.introspect ||
+          path === OAUTH_PATHS.revoke)
       ) {
         // /oauth/register gets a stricter, dedicated rate limit
         const overrides =
-          path === "/oauth/register"
+          path === OAUTH_PATHS.register
             ? {
                 limit: config.rateLimit.oauthRegisterLimit,
                 windowMs: config.rateLimit.oauthRegisterWindowMs,
@@ -123,17 +128,23 @@ export class OAuthInitializer extends Initializer {
         }
       }
 
-      if (path === "/oauth/register" && method === "POST") {
+      if (path === OAUTH_PATHS.register && method === "POST") {
         return appendHeaders(await handleRegister(req), corsHeaders);
       }
-      if (path === "/oauth/authorize" && method === "GET") {
+      if (path === OAUTH_PATHS.authorize && method === "GET") {
         return handleAuthorizeGet(url, templates);
       }
-      if (path === "/oauth/authorize" && method === "POST") {
+      if (path === OAUTH_PATHS.authorize && method === "POST") {
         return handleAuthorizePost(req, templates);
       }
-      if (path === "/oauth/token" && method === "POST") {
+      if (path === OAUTH_PATHS.token && method === "POST") {
         return appendHeaders(await handleToken(req), corsHeaders);
+      }
+      if (path === OAUTH_PATHS.introspect && method === "POST") {
+        return appendHeaders(await handleIntrospect(req), corsHeaders);
+      }
+      if (path === OAUTH_PATHS.revoke && method === "POST") {
+        return appendHeaders(await handleRevoke(req), corsHeaders);
       }
 
       return null;

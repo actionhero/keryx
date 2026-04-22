@@ -17,7 +17,7 @@ declare module "keryx" {
 export class Application extends Initializer {
   constructor() {
     super(namespace);
-    this.startPriority = 1000;
+    this.dependsOn = ["db"];
   }
 
   async initialize() {

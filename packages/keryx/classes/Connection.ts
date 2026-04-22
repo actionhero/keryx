@@ -1,10 +1,10 @@
-import colors from "colors";
 import { randomUUID } from "crypto";
 import { api, logger } from "../api";
 import { config } from "../config";
 import type { PubSubMessage } from "../initializers/pubsub";
 import type { SessionData } from "../initializers/session";
 import type { RateLimitInfo } from "../middleware/rateLimit";
+import { ansi } from "../util/ansi";
 import { isSecret } from "../util/zodMixins";
 import type { Action, ActionParams } from "./Action";
 import { LogFormat } from "./Logger";
@@ -161,7 +161,7 @@ export class Connection<
           : new TypedError({
               message: `${e}`,
               type: ErrorType.CONNECTION_ACTION_RUN,
-              originalError: e,
+              cause: e,
             });
     } finally {
       if (action && formattedParams) {
@@ -337,7 +337,7 @@ export class Connection<
         throw new TypedError({
           message: `Error validating params: ${e}`,
           type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
-          originalError: e,
+          cause: e,
         });
       }
     }
@@ -380,20 +380,20 @@ function logAction(opts: {
     logger.info(`action: ${opts.actionName}`, data);
   } else {
     const loggingParams = config.logger.colorize
-      ? colors.gray(JSON.stringify(opts.params))
+      ? ansi.gray(JSON.stringify(opts.params))
       : JSON.stringify(opts.params);
 
     const statusMessage = `[ACTION:${opts.connectionType.toUpperCase()}:${opts.status}]`;
     const messagePrefix = config.logger.colorize
       ? opts.status === "OK"
-        ? colors.bgBlue(statusMessage)
-        : colors.bgMagenta(statusMessage)
+        ? ansi.bgBlue(statusMessage)
+        : ansi.bgMagenta(statusMessage)
       : statusMessage;
 
     const errorStack =
       opts.error && opts.error.stack
         ? config.logger.colorize
-          ? "\r\n" + colors.gray(opts.error.stack)
+          ? "\r\n" + ansi.gray(opts.error.stack)
           : "\r\n" + opts.error.stack
         : "";
 

@@ -1,9 +1,28 @@
 import { expect } from "bun:test";
-import { serverUrl } from "../setup";
+import { api } from "../api";
+import type { WebServer } from "../servers/web";
 
-const wsUrl = () =>
-  serverUrl().replace("https://", "wss://").replace("http://", "ws://");
+const wsUrl = () => {
+  const web = api.servers.servers.find(
+    (s: { name: string }) => s.name === "web",
+  ) as WebServer | undefined;
+  return (web?.url || "")
+    .replace("https://", "wss://")
+    .replace("http://", "ws://");
+};
 
+/**
+ * Open a WebSocket against the running test server and return the socket along
+ * with a mutable array that accumulates every `message` event as it arrives.
+ *
+ * The promise resolves once the socket's `open` event fires, so callers can
+ * immediately send actions without an additional readiness check.
+ *
+ * @param options.headers - Request headers to include in the WebSocket upgrade
+ *   (for example a session cookie). Optional.
+ * @returns An object with the open `socket` and the live `messages` array that
+ *   every subsequent handler populates.
+ */
 export const buildWebSocket = async (
   options: { headers?: Record<string, string> } = {},
 ) => {
@@ -21,6 +40,14 @@ export const buildWebSocket = async (
   return { socket, messages };
 };
 
+/**
+ * Send a `user:create` action over the given WebSocket and return the created
+ * user from the server's response.
+ *
+ * Assumes this is the first action sent on the socket — it reads `messages[0]`.
+ *
+ * @throws {Error} If the server responds with an error payload.
+ */
 export const createUser = async (
   socket: WebSocket,
   messages: MessageEvent[],
@@ -47,6 +74,14 @@ export const createUser = async (
   return response.response.user;
 };
 
+/**
+ * Send a `session:create` action over the given WebSocket and return the
+ * response payload (user + session).
+ *
+ * Assumes `createUser` was invoked first — it reads `messages[1]`.
+ *
+ * @throws {Error} If the server responds with an error payload.
+ */
 export const createSession = async (
   socket: WebSocket,
   messages: MessageEvent[],
@@ -72,6 +107,14 @@ export const createSession = async (
   return response.response;
 };
 
+/**
+ * Subscribe the socket to a channel and wait for the server's subscribe
+ * confirmation.
+ *
+ * Matches the confirmation by content rather than index, because presence
+ * broadcast events (join/leave) delivered via Redis pub/sub can arrive before
+ * the subscribe confirmation and shift message indices.
+ */
 export const subscribeToChannel = async (
   socket: WebSocket,
   messages: MessageEvent[],
@@ -79,9 +122,6 @@ export const subscribeToChannel = async (
 ) => {
   socket.send(JSON.stringify({ messageType: "subscribe", channel }));
 
-  // Find the subscribe confirmation by content rather than index, because
-  // presence broadcast events (join/leave) delivered via Redis pub/sub can
-  // arrive before the subscribe confirmation, shifting message indices.
   let response: Record<string, any> | undefined;
   while (!response) {
     for (const m of messages) {
@@ -96,11 +136,22 @@ export const subscribeToChannel = async (
   return response;
 };
 
+/**
+ * Wait briefly and return all broadcast (non-action-reply) messages received on
+ * the socket so far, asserting the expected count.
+ *
+ * Broadcasts are distinguished from action replies by the absence of a
+ * `messageId` field. Uses `expect()` internally so callers see a readable
+ * failure with the raw broadcast payload dumped to stderr on mismatch.
+ *
+ * @throws {Error} When the observed broadcast count does not equal
+ *   `expectedCount`.
+ */
 export const waitForBroadcastMessages = async (
   messages: MessageEvent[],
   expectedCount: number,
 ) => {
-  await Bun.sleep(100); // Give time for messages to be broadcast
+  await Bun.sleep(100);
 
   const broadcastMessages: Record<string, any>[] = [];
   for (const message of messages) {

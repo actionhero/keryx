@@ -12,7 +12,6 @@ declare module "../classes/API" {
 export class Connections extends Initializer {
   constructor() {
     super(namespace);
-    this.loadPriority = 1;
   }
 
   async initialize() {

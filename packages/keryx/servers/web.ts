@@ -1,7 +1,5 @@
 import { parse } from "node:url";
 import type { ServerWebSocket } from "bun";
-import colors from "colors";
-import cookie from "cookie";
 import { randomUUID } from "crypto";
 import { api, logger } from "../api";
 import { type HTTP_METHOD } from "../classes/Action";
@@ -11,6 +9,7 @@ import { StreamingResponse } from "../classes/StreamingResponse";
 import { ErrorStatusCodes, ErrorType, TypedError } from "../classes/TypedError";
 import { config } from "../config";
 import type { PubSubMessage } from "../initializers/pubsub";
+import { ansi } from "../util/ansi";
 import { isOriginAllowed } from "../util/http";
 import { compressResponse } from "../util/webCompression";
 import {
@@ -68,7 +67,7 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
       this.port = server.port ?? config.server.web.port;
       this.url = `http://${config.server.web.host}:${this.port}`;
       const startMessage = `started server @ ${this.url}`;
-      logger.info(logger.colorize ? colors.bgBlue(startMessage) : startMessage);
+      logger.info(logger.colorize ? ansi.bgBlue(startMessage) : startMessage);
     } catch (e) {
       await Bun.sleep(1000);
       startupAttempts++;
@@ -144,8 +143,8 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
   ) {
     const ip = server.requestIP(req)?.address || "unknown-IP";
     const headers = req.headers;
-    const cookies = cookie.parse(req.headers.get("cookie") ?? "");
-    const id = cookies[config.session.cookieName] || randomUUID();
+    const cookies = new Bun.CookieMap(req.headers.get("cookie") ?? "");
+    const id = cookies.get(config.session.cookieName) || randomUUID();
 
     // Reject new WebSocket upgrades during shutdown
     if (

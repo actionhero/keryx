@@ -28,9 +28,7 @@ declare module "../classes/API" {
 export class Observability extends Initializer {
   constructor() {
     super(namespace);
-    this.loadPriority = 50;
-    this.startPriority = 50;
-    this.stopPriority = 50;
+    this.dependsOn = ["actions", "connections"];
   }
 
   async initialize() {
