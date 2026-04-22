@@ -8,6 +8,7 @@ import { ResqueAdminLocks } from "./actions/locks";
 import { ResqueAdminOverview } from "./actions/overview";
 import { ResqueAdminQueue } from "./actions/queue";
 import { ResqueAdminRedisInfo } from "./actions/redisInfo";
+import { ResqueAdminRemoveAllFailed } from "./actions/removeAllFailed";
 import { ResqueAdminRemoveFailed } from "./actions/removeFailed";
 import { ResqueAdminRetryFailed } from "./actions/retryFailed";
 import { ResqueAdminUI } from "./actions/ui";
@@ -36,6 +37,7 @@ export const resqueAdminPlugin: KeryxPlugin = {
     ResqueAdminFailed,
     ResqueAdminRetryFailed,
     ResqueAdminRemoveFailed,
+    ResqueAdminRemoveAllFailed,
     ResqueAdminQueue,
     ResqueAdminDelQueue,
     ResqueAdminLocks,
@@ -50,3 +52,11 @@ export const resqueAdminPlugin: KeryxPlugin = {
     },
   },
 };
+
+declare module "keryx" {
+  interface KeryxConfig {
+    resqueAdmin: {
+      password: string;
+    };
+  }
+}

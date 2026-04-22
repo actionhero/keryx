@@ -2,9 +2,8 @@ import { type Action, HTTP_METHOD } from "keryx";
 import { config } from "keryx/config";
 import { z } from "zod";
 
-const dashboardTemplate = await Bun.file(
-  new URL("../templates/dashboard.html", import.meta.url).pathname,
-).text();
+const dashboardPath = new URL("../templates/dashboard.html", import.meta.url)
+  .pathname;
 
 export class ResqueAdminUI implements Action {
   name = "resque-admin:ui";
@@ -18,7 +17,8 @@ export class ResqueAdminUI implements Action {
       config as unknown as { server: { web: { apiRoute: string } } }
     ).server.web.apiRoute;
 
-    const html = dashboardTemplate.replace("{{API_ROUTE}}", apiRoute);
+    const template = await Bun.file(dashboardPath).text();
+    const html = template.replace("{{API_ROUTE}}", apiRoute);
     return new Response(html, {
       status: 200,
       headers: { "Content-Type": "text/html; charset=utf-8" },

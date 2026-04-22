@@ -6,6 +6,8 @@ description: A web dashboard and API for monitoring Redis, Resque queues, worker
 
 `@keryxjs/resque-admin` provides a password-protected web dashboard and a set of API endpoints for monitoring your Keryx application's background task system. Think of it as a modern [resque-web](https://github.com/resque/resque-web) for Keryx.
 
+![Resque Admin overview tab showing stats, queues, a 5-minute queue-length chart, and workers](/images/resque-admin-overview.png)
+
 ## Installation
 
 ```bash

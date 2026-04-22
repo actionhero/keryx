@@ -37,7 +37,7 @@
   pre { background: var(--bg2); border: 1px solid var(--border); border-radius: 4px; padding: 0.75rem;
     overflow-x: auto; font-family: var(--mono); font-size: 0.8rem; margin-bottom: 0.75rem; white-space: pre-wrap; word-break: break-all; }
   button, .btn { padding: 0.35rem 0.75rem; border: 1px solid var(--border); border-radius: 4px;
-    background: var(--bg2); color: var(--fg); cursor: pointer; font-size: 0.8rem; }
+    background: var(--bg2); color: var(--fg); cursor: pointer; font-size: 0.8rem; min-width: 5rem; }
   button:hover, .btn:hover { background: var(--border); }
   .btn-danger { background: var(--danger); color: white; border-color: var(--danger); }
   .btn-danger:hover { opacity: 0.9; }
@@ -67,6 +67,20 @@
   }
   .refresh-info { font-size: 0.75rem; color: var(--fg2); margin-bottom: 0.75rem; }
   .queue-link { color: var(--accent); cursor: pointer; text-decoration: underline; }
+  #queue-chart { width: 100%; height: 180px; background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 4px; margin-bottom: 1rem; display: block; }
+  .j-key { color: #d73a49; }
+  .j-str { color: #22863a; }
+  .j-num { color: #005cc5; }
+  .j-bool { color: #6f42c1; }
+  .j-null { color: #6a737d; }
+  @media (prefers-color-scheme: dark) {
+    .j-key { color: #ff7b72; }
+    .j-str { color: #a5d6ff; }
+    .j-num { color: #79c0ff; }
+    .j-bool { color: #d2a8ff; }
+    .j-null { color: #8b949e; }
+  }
 </style>
 </head>
 <body>
@@ -96,6 +110,7 @@
       <div id="overview-stats" class="stat-grid"></div>
       <h2>Queues</h2>
       <table><thead><tr><th>Queue</th><th>Jobs</th><th>Actions</th></tr></thead><tbody id="overview-queues"></tbody></table>
+      <canvas id="queue-chart"></canvas>
       <h2>Workers</h2>
       <table><thead><tr><th>Worker</th><th>Status</th></tr></thead><tbody id="overview-workers"></tbody></table>
     </div>
@@ -103,14 +118,14 @@
     <div id="failed" class="panel">
       <div id="failed-msg"></div>
       <div id="failed-info"></div>
-      <table><thead><tr><th>Time</th><th>Action</th><th>Queue</th><th>Error</th><th>Actions</th></tr></thead><tbody id="failed-jobs"></tbody></table>
+      <table><thead><tr><th>Time</th><th>Action</th><th>Arguments</th><th>Queue</th><th>Error</th><th>Actions</th></tr></thead><tbody id="failed-jobs"></tbody></table>
     </div>
 
     <div id="queues" class="panel">
       <div class="form-row">
         <div class="form-group">
           <label>Queue Name</label>
-          <input type="text" id="queue-name" placeholder="default">
+          <select id="queue-name"></select>
         </div>
         <button class="btn-primary" onclick="loadQueue()">Inspect</button>
       </div>
@@ -190,6 +205,146 @@ function esc(s) {
   return d.innerHTML;
 }
 
+const CHART_WINDOW_MS = 5 * 60 * 1000;
+const CHART_PALETTE = ["#0d6efd", "#198754", "#dc3545", "#6f42c1", "#fd7e14", "#20c997", "#d63384", "#ffc107"];
+const queueHistory = {};
+
+function sampleQueues(queues) {
+  const now = Date.now();
+  const names = Object.keys(queues);
+  for (const name of names) {
+    if (!queueHistory[name]) queueHistory[name] = [];
+    queueHistory[name].push({ t: now, len: Number(queues[name].length) || 0 });
+  }
+  const cutoff = now - CHART_WINDOW_MS;
+  for (const name of Object.keys(queueHistory)) {
+    queueHistory[name] = queueHistory[name].filter(p => p.t >= cutoff);
+    if (queueHistory[name].length === 0) delete queueHistory[name];
+  }
+}
+
+function drawQueueChart() {
+  const canvas = document.getElementById("queue-chart");
+  if (!canvas || !canvas.isConnected) return;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width === 0) return;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const style = getComputedStyle(document.body);
+  const fg2 = style.getPropertyValue("--fg2").trim() || "#888";
+  const border = style.getPropertyValue("--border").trim() || "#ccc";
+
+  const names = Object.keys(queueHistory).sort();
+  ctx.font = "10px -apple-system, BlinkMacSystemFont, sans-serif";
+  if (names.length === 0) {
+    ctx.fillStyle = fg2;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("Waiting for data…", W / 2, H / 2);
+    return;
+  }
+
+  const padL = 36, padR = 8, padT = 24, padB = 20;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const now = Date.now();
+  const tMin = now - CHART_WINDOW_MS;
+  let maxLen = 0;
+  for (const name of names) for (const p of queueHistory[name]) if (p.len > maxLen) maxLen = p.len;
+  const yMax = Math.max(1, Math.ceil(maxLen * 1.1));
+
+  ctx.strokeStyle = border;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(padL, padT);
+  ctx.lineTo(padL, padT + plotH);
+  ctx.lineTo(padL + plotW, padT + plotH);
+  ctx.stroke();
+
+  ctx.fillStyle = fg2;
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  const ySteps = 4;
+  for (let i = 0; i <= ySteps; i++) {
+    const v = Math.round((yMax * i) / ySteps);
+    const y = padT + plotH - (plotH * i) / ySteps;
+    ctx.fillText(String(v), padL - 4, y);
+    if (i > 0) {
+      ctx.globalAlpha = 0.3;
+      ctx.beginPath();
+      ctx.moveTo(padL, y);
+      ctx.lineTo(padL + plotW, y);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillText("-5m", padL, padT + plotH + 4);
+  ctx.fillText("now", padL + plotW, padT + plotH + 4);
+
+  names.forEach((name, idx) => {
+    const color = CHART_PALETTE[idx % CHART_PALETTE.length];
+    const pts = queueHistory[name];
+    if (pts.length < 1) return;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    pts.forEach((p, i) => {
+      const x = padL + (plotW * (p.t - tMin)) / CHART_WINDOW_MS;
+      const y = padT + plotH - (plotH * Math.min(p.len, yMax)) / yMax;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  });
+
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  let lx = padL, ly = padT - 10;
+  names.forEach((name, idx) => {
+    const color = CHART_PALETTE[idx % CHART_PALETTE.length];
+    const label = name;
+    const w = 14 + ctx.measureText(label).width + 12;
+    if (lx + w > padL + plotW) return;
+    ctx.fillStyle = color;
+    ctx.fillRect(lx, ly - 1, 10, 2);
+    ctx.fillStyle = fg2;
+    ctx.fillText(label, lx + 14, ly);
+    lx += w;
+  });
+}
+
+function renderArgs(args) {
+  if (Array.isArray(args) && args.length === 1 && args[0] && typeof args[0] === "object") {
+    return jsonPretty(args[0]);
+  }
+  return jsonPretty(args ?? []);
+}
+
+function jsonPretty(value) {
+  const json = JSON.stringify(value, null, 2);
+  if (json === undefined) return "";
+  return esc(json).replace(
+    /("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g,
+    (match, str, colon, lit) => {
+      if (str !== undefined) {
+        return colon
+          ? '<span class="j-key">' + str + '</span>' + colon
+          : '<span class="j-str">' + str + '</span>';
+      }
+      if (lit === "null") return '<span class="j-null">null</span>';
+      if (lit !== undefined) return '<span class="j-bool">' + lit + '</span>';
+      return '<span class="j-num">' + match + '</span>';
+    }
+  );
+}
+
 async function doLogin() {
   password = document.getElementById("password").value;
   try {
@@ -197,14 +352,14 @@ async function doLogin() {
     sessionStorage.setItem("resque-admin-password", password);
     document.getElementById("login").style.display = "none";
     document.getElementById("app").style.display = "block";
-    switchTab(location.hash.slice(1) || "overview");
+    switchTab(parseHash().panel, { queue: parseHash().queue });
     startRefresh();
   } catch (e) {
     document.getElementById("login-error").innerHTML = '<div class="msg msg-error">' + esc(e.message) + '</div>';
   }
 }
 
-const loaders = { overview: loadOverview, failed: loadFailed, delayed: loadDelayed, locks: loadLocks, redis: loadRedis };
+const loaders = { overview: loadOverview, failed: loadFailed, queues: loadQueues, delayed: loadDelayed, locks: loadLocks, redis: loadRedis };
 
 function refreshActiveTab() {
   const active = document.querySelector(".tab.active");
@@ -216,15 +371,40 @@ function startRefresh() {
   refreshTimer = setInterval(refreshActiveTab, 5000);
 }
 
-function switchTab(panel) {
+function parseHash() {
+  const h = location.hash.slice(1);
+  if (!h) return { panel: "overview", queue: null };
+  const slash = h.indexOf("/");
+  if (slash < 0) return { panel: h, queue: null };
+  return { panel: h.slice(0, slash), queue: decodeURIComponent(h.slice(slash + 1)) };
+}
+
+async function switchTab(panel, opts = {}) {
   document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
   document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
   const tab = document.querySelector('[data-panel="' + panel + '"]');
   if (!tab) return;
   tab.classList.add("active");
   document.getElementById(panel).classList.add("active");
-  location.hash = panel;
-  if (loaders[panel]) loaders[panel]();
+  if (panel === "queues") {
+    const queueName = opts.queue || null;
+    location.hash = queueName ? "queues/" + encodeURIComponent(queueName) : "queues";
+    await loadQueues();
+    if (queueName) {
+      const select = document.getElementById("queue-name");
+      if (!Array.from(select.options).some(o => o.value === queueName)) {
+        const opt = document.createElement("option");
+        opt.value = queueName;
+        opt.textContent = queueName;
+        select.appendChild(opt);
+      }
+      select.value = queueName;
+      loadQueue();
+    }
+  } else {
+    location.hash = panel;
+    if (loaders[panel]) loaders[panel]();
+  }
 }
 
 // Tab switching
@@ -243,6 +423,9 @@ async function loadOverview() {
       { label: "Leader", value: data.leader || "none" },
     ].map(s => '<div class="stat-card"><div class="label">' + esc(s.label) + '</div><div class="value">' + esc(s.value) + '</div></div>').join("");
 
+    sampleQueues(data.queues || {});
+    drawQueueChart();
+
     const queues = document.getElementById("overview-queues");
     const queueEntries = Object.entries(data.queues || {});
     queues.innerHTML = queueEntries.length === 0
@@ -256,7 +439,7 @@ async function loadOverview() {
     workers.innerHTML = workerEntries.length === 0
       ? '<tr><td colspan="2">No workers</td></tr>'
       : workerEntries.map(([name, info]) =>
-        '<tr><td>' + esc(name) + '</td><td><pre>' + esc(typeof info === "string" ? info : JSON.stringify(info, null, 2)) + '</pre></td></tr>'
+        '<tr><td>' + esc(name) + '</td><td><pre>' + (typeof info === "string" ? esc(info) : jsonPretty(info)) + '</pre></td></tr>'
       ).join("");
   } catch (e) {
     document.getElementById("overview-stats").innerHTML = '<div class="msg msg-error">' + esc(e.message) + '</div>';
@@ -266,12 +449,17 @@ async function loadOverview() {
 async function loadFailed() {
   try {
     const data = await apiFetch("/resque-admin/failed");
-    document.getElementById("failed-info").innerHTML = '<p>Total failed: <strong>' + esc(data.totalFailed) + '</strong></p>';
+    const total = Number(data.totalFailed) || 0;
+    document.getElementById("failed-info").innerHTML = '<div class="form-row" style="align-items:center"><p style="margin:0">Total failed: <strong>' + esc(total) + '</strong></p>'
+      + (total > 0 ? ' <button class="btn-danger" onclick="removeAllFailed()">Remove All</button>' : '')
+      + '</div>';
     const tbody = document.getElementById("failed-jobs");
     tbody.innerHTML = (data.jobs || []).length === 0
-      ? '<tr><td colspan="5">No failed jobs</td></tr>'
+      ? '<tr><td colspan="6">No failed jobs</td></tr>'
       : data.jobs.map((job, i) =>
-        '<tr><td>' + esc(job.failed_at) + '</td><td>' + esc(job.payload?.class) + '</td><td>' + esc(job.queue) + '</td><td><pre>' + esc(job.error) + '</pre></td>'
+        '<tr><td>' + esc(job.failed_at) + '</td><td>' + esc(job.payload?.class) + '</td>'
+        + '<td><pre>' + renderArgs(job.payload?.args) + '</pre></td>'
+        + '<td>' + esc(job.queue) + '</td><td><pre>' + esc(job.error) + '</pre></td>'
         + '<td><button class="btn-success" onclick="retryFailed(' + i + ')">Retry</button> '
         + '<button class="btn-danger" onclick="removeFailed(' + i + ')">Remove</button></td></tr>'
       ).join("");
@@ -304,21 +492,46 @@ async function removeFailed(index) {
   }
 }
 
+async function removeAllFailed() {
+  if (!confirm("Remove ALL failed jobs? This cannot be undone.")) return;
+  try {
+    const res = await apiFetch("/resque-admin/remove-all-failed", { method: "POST" });
+    document.getElementById("failed-msg").innerHTML = '<div class="msg msg-success">Removed ' + esc(res.removed ?? 0) + ' failed jobs</div>';
+    loadFailed();
+  } catch (e) {
+    document.getElementById("failed-msg").innerHTML = '<div class="msg msg-error">' + esc(e.message) + '</div>';
+  }
+}
+
 function inspectQueue(name) {
-  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
-  document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
-  document.querySelector('[data-panel="queues"]').classList.add("active");
-  document.getElementById("queues").classList.add("active");
-  document.getElementById("queue-name").value = name;
-  loadQueue();
+  switchTab("queues", { queue: name });
+}
+
+async function loadQueues() {
+  try {
+    const data = await apiFetch("/resque-admin/overview");
+    const select = document.getElementById("queue-name");
+    const prev = select.value;
+    const names = Object.keys(data.queues || {}).sort();
+    const current = Array.from(select.options).map(o => o.value);
+    const changed = names.length !== current.length || names.some((n, i) => n !== current[i]);
+    if (!changed) return;
+    select.innerHTML = names.length === 0
+      ? '<option value="">No queues</option>'
+      : names.map(n => '<option value="' + esc(n) + '">' + esc(n) + '</option>').join("");
+    if (prev && names.includes(prev)) select.value = prev;
+  } catch (e) {
+    document.getElementById("queue-info").innerHTML = '<div class="msg msg-error">' + esc(e.message) + '</div>';
+  }
 }
 
 async function loadQueue() {
   const name = document.getElementById("queue-name").value || "default";
+  location.hash = "queues/" + encodeURIComponent(name);
   try {
     const data = await apiFetch("/resque-admin/queue/" + encodeURIComponent(name));
     document.getElementById("queue-info").innerHTML = '<p>Queue: <strong>' + esc(data.queue) + '</strong> — ' + esc((data.jobs || []).length) + ' jobs shown</p>';
-    document.getElementById("queue-jobs").textContent = JSON.stringify(data.jobs, null, 2);
+    document.getElementById("queue-jobs").innerHTML = jsonPretty(data.jobs);
   } catch (e) {
     document.getElementById("queue-info").innerHTML = '<div class="msg msg-error">' + esc(e.message) + '</div>';
     document.getElementById("queue-jobs").textContent = "";
@@ -345,7 +558,7 @@ async function loadDelayed() {
       return;
     }
     el.innerHTML = entries.map(([ts, jobs]) =>
-      '<h2>' + esc(new Date(Number(ts) * 1000).toISOString()) + ' (' + esc(jobs.length) + ' jobs)</h2><pre>' + esc(JSON.stringify(jobs, null, 2)) + '</pre>'
+      '<h2>' + esc(new Date(Number(ts) * 1000).toLocaleString()) + ' (' + esc(jobs.length) + ' jobs)</h2><pre>' + jsonPretty(jobs) + '</pre>'
     ).join("");
   } catch (e) {
     document.getElementById("delayed-content").innerHTML = '<div class="msg msg-error">' + esc(e.message) + '</div>';
@@ -413,7 +626,7 @@ if (password) {
   apiFetch("/resque-admin/overview").then(() => {
     document.getElementById("login").style.display = "none";
     document.getElementById("app").style.display = "block";
-    switchTab(location.hash.slice(1) || "overview");
+    switchTab(parseHash().panel, { queue: parseHash().queue });
     startRefresh();
   }).catch(() => {
     sessionStorage.removeItem("resque-admin-password");
