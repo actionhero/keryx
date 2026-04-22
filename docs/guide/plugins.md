@@ -4,6 +4,10 @@ description: Plugins let third-party packages contribute actions, initializers, 
 
 # Plugins
 
+::: tip Looking for first-party plugins?
+See the [Plugins catalog](/plugins/) for ready-to-use plugins maintained by the Keryx team.
+:::
+
 Plugins package reusable functionality — initializers, actions, channels, servers, and config defaults — into npm modules that any Keryx app can install and register. If you've built an initializer or a set of actions that would be useful across projects, a plugin is how you distribute it.
 
 ## Using a Plugin
