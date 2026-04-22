@@ -14,12 +14,12 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@scalar/api-reference-react": "^0.9.21",
+    "@scalar/api-reference-react": "^0.9.26",
     "keryx": "workspace:*",
     "react": "^19.2.5",
     "react-bootstrap": "^2.10.4",
     "react-dom": "^19.2.5",
-    "react-router-dom": "^7.14.0"
+    "react-router-dom": "^7.14.2"
   },
   "devDependencies": {
     "@types/react": "^19.2.14",
@@ -28,7 +28,7 @@
     "bootstrap": "^5.3.3",
     "bootswatch": "^5.3.3",
     "sass": "^1.99.0",
-    "typescript": "^6.0.2",
-    "vite": "^8.0.8"
+    "typescript": "^6.0.3",
+    "vite": "^8.0.9"
   }
 }
