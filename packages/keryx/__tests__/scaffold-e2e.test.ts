@@ -3,6 +3,7 @@ import type { Subprocess } from "bun";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { Pool } from "pg";
 
 const keryxTs = path.join(import.meta.dir, "..", "keryx.ts");
 const keryxPkgDir = path.join(import.meta.dir, "..");
@@ -13,6 +14,14 @@ const REDIS_DB = 9;
 let tmpDir: string;
 let projectDir: string;
 let serverProc: Subprocess | undefined;
+let serverStderrFile: string;
+
+function readServerStderr(): string {
+  if (!serverStderrFile || !fs.existsSync(serverStderrFile)) {
+    return "(no stderr captured)";
+  }
+  return fs.readFileSync(serverStderrFile, "utf-8");
+}
 
 async function runCommand(
   args: string[],
@@ -59,6 +68,7 @@ async function waitForServer(
 beforeAll(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "keryx-e2e-"));
   const stderrFile = path.join(tmpDir, "server-stderr.log");
+  serverStderrFile = stderrFile;
 
   // 1. Scaffold a new project with all defaults
   const scaffold = await runCommand(
@@ -124,6 +134,19 @@ beforeAll(async () => {
   );
   fs.writeFileSync(path.join(projectDir, ".env"), envContent);
 
+  // 4a. Reset drizzle state in the shared test DB so auto-migrate will
+  //     re-apply the scaffolded `0000_users` migration regardless of what
+  //     earlier tests in this shard left behind. Drizzle skips migrations
+  //     whose folderMillis is <= the latest __drizzle_migrations.created_at,
+  //     so stale state elsewhere would silently skip creating `users`.
+  const resetPool = new Pool({ connectionString: dbUrl });
+  try {
+    await resetPool.query('DROP TABLE IF EXISTS "users" CASCADE');
+    await resetPool.query("DROP SCHEMA IF EXISTS drizzle CASCADE");
+  } finally {
+    await resetPool.end();
+  }
+
   // 5. Start the server as a background process.
   //    Pass a clean env to prevent the parent's .env vars (e.g. WEB_SERVER_PORT_TEST=0)
   //    from leaking into the subprocess and overriding the child's .env file.
@@ -143,6 +166,24 @@ beforeAll(async () => {
 
   // 6. Wait for the server to be ready
   await waitForServer(`http://localhost:${SERVER_PORT}/api/status`, stderrFile);
+
+  // 7. Verify the server's auto-migrate actually applied the scaffolded
+  //    `0000_users` migration. If it didn't, fail fast with the server's
+  //    stderr so the CI log shows *why* the migration was skipped instead
+  //    of a generic 500 on sign-up.
+  const checkPool = new Pool({ connectionString: dbUrl });
+  try {
+    const { rows } = await checkPool.query(
+      "SELECT to_regclass('public.users') AS exists",
+    );
+    if (rows[0]?.exists === null) {
+      throw new Error(
+        `Scaffolded server started but "users" table was not created by auto-migrate.\nServer stderr:\n${readServerStderr()}`,
+      );
+    }
+  } finally {
+    await checkPool.end();
+  }
 }, E2E_TIMEOUT);
 
 afterAll(async () => {
