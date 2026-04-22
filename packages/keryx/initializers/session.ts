@@ -87,7 +87,7 @@ async function destroy(connection: Connection) {
   return response > 0;
 }
 
-declare module "../classes/API" {
+declare module "keryx" {
   export interface API {
     [namespace]: Awaited<ReturnType<Session["initialize"]>>;
   }

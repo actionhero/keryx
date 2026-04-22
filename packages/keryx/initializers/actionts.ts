@@ -60,7 +60,7 @@ export type FanOutStatus = {
   errors: Array<{ params: Record<string, any>; error: string }>;
 };
 
-declare module "../classes/API" {
+declare module "keryx" {
   export interface API {
     [namespace]: Awaited<ReturnType<Actions["initialize"]>>;
   }

@@ -3,7 +3,7 @@ import { Initializer } from "../classes/Initializer";
 
 const namespace = "connections";
 
-declare module "../classes/API" {
+declare module "keryx" {
   export interface API {
     [namespace]: Awaited<ReturnType<Connections["initialize"]>>;
   }
