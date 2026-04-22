@@ -1,6 +1,6 @@
 {
   "name": "@keryxjs/resque-admin",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "module": "index.ts",
   "type": "module",
   "license": "MIT",
@@ -33,6 +33,9 @@
   ],
   "exports": {
     ".": "./index.ts"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "peerDependencies": {
     "keryx": ">=0.21.0"
