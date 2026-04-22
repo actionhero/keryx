@@ -22,7 +22,7 @@ type McpHandleRequest = (req: Request, ip: string) => Promise<Response>;
 
 const namespace = "mcp";
 
-declare module "../classes/API" {
+declare module "keryx" {
   export interface API {
     [namespace]: Awaited<ReturnType<McpInitializer["initialize"]>>;
   }

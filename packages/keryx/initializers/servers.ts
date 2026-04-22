@@ -8,7 +8,7 @@ import { globLoader } from "../util/glob";
 
 const namespace = "servers";
 
-declare module "../classes/API" {
+declare module "keryx" {
   export interface API {
     [namespace]: Awaited<ReturnType<Servers["initialize"]>>;
   }

@@ -10,7 +10,7 @@ import {
 const namespace = "redis";
 const testKey = `__keryx_test_key:${config.process.name}`;
 
-declare module "../classes/API" {
+declare module "keryx" {
   export interface API {
     [namespace]: Awaited<ReturnType<Redis["initialize"]>>;
   }

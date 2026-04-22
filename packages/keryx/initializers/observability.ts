@@ -11,7 +11,7 @@ import { config } from "../config";
 
 const namespace = "observability";
 
-declare module "../classes/API" {
+declare module "keryx" {
   export interface API {
     [namespace]: Awaited<ReturnType<Observability["initialize"]>>;
   }

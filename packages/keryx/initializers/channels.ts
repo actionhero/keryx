@@ -22,7 +22,7 @@ const REFRESH_PRESENCE_LUA = await Bun.file(
   join(LUA_DIR, "refresh-presence.lua"),
 ).text();
 
-declare module "../classes/API" {
+declare module "keryx" {
   export interface API {
     [namespace]: Awaited<ReturnType<Channels["initialize"]>>;
   }

@@ -27,7 +27,7 @@ import {
 
 const namespace = "oauth";
 
-declare module "../classes/API" {
+declare module "keryx" {
   export interface API {
     [namespace]: Awaited<ReturnType<OAuthInitializer["initialize"]>>;
   }

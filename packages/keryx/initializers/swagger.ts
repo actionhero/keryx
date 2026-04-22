@@ -10,7 +10,7 @@ import {
 
 const namespace = "swagger";
 
-declare module "../classes/API" {
+declare module "keryx" {
   export interface API {
     [namespace]: Awaited<ReturnType<SwaggerInitializer["initialize"]>>;
   }
