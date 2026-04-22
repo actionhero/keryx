@@ -13,7 +13,7 @@
  */
 
 import { $ } from "bun";
-import { existsSync } from "fs";
+import { existsSync, readdirSync } from "fs";
 import { join } from "path";
 
 const ROOT_DIR = join(import.meta.dir, "..");
@@ -156,15 +156,16 @@ const envOverrides = {
   REDIS_URL_TEST: redisUrlTest,
 };
 
-// Write packages/keryx/.env
-applyEnvOverrides(
-  join(ROOT_DIR, "packages/keryx/.env.example"),
-  join(ROOT_DIR, "packages/keryx/.env"),
-  envOverrides,
-);
-console.log("Wrote packages/keryx/.env");
-for (const [key, val] of Object.entries(envOverrides)) {
-  console.log(`  ${key}=${val}`);
+// Write .env for every package that ships a .env.example (framework + plugins)
+const packagesDir = join(ROOT_DIR, "packages");
+for (const pkg of readdirSync(packagesDir)) {
+  const examplePath = join(packagesDir, pkg, ".env.example");
+  if (!existsSync(examplePath)) continue;
+  applyEnvOverrides(examplePath, join(packagesDir, pkg, ".env"), envOverrides);
+  console.log(`Wrote packages/${pkg}/.env`);
+  for (const [key, val] of Object.entries(envOverrides)) {
+    console.log(`  ${key}=${val}`);
+  }
 }
 
 // Write example/backend/.env

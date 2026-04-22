@@ -63,6 +63,11 @@ For example: \`/guide/actions.md\`, \`/reference/config.md\`
 - Servers (HTTP, WebSocket, CLI, MCP): /reference/servers.md
 - Zod Helpers & Utilities: /reference/utilities.md
 - Configuration Reference: /reference/config.md
+
+## Plugins
+
+- Plugins Overview: /plugins/index.md
+- Resque Admin: /plugins/resque-admin.md
 `;
 
 export function toMarkdownUrl(url: string): string {
@@ -151,6 +156,7 @@ export default defineConfig({
     logo: "/images/horn.svg",
     nav: [
       { text: "Guide", link: "/guide/" },
+      { text: "Plugins", link: "/plugins/" },
       { text: "Reference", link: "/reference/actions" },
       { text: "Changelog", link: "/changelog" },
       {
@@ -227,6 +233,15 @@ export default defineConfig({
         {
           text: "Contributing",
           items: [{ text: "Style Guide", link: "/guide/style-guide" }],
+        },
+      ],
+      "/plugins/": [
+        {
+          text: "First-Party Plugins",
+          items: [
+            { text: "Overview", link: "/plugins/" },
+            { text: "Resque Admin", link: "/plugins/resque-admin" },
+          ],
         },
       ],
       "/reference/": [

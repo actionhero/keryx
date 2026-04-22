@@ -7,6 +7,7 @@ packages/keryx/.env
 packages/keryx/drizzle
 packages/keryx/README.md
 packages/keryx/assets/
+packages/resque-admin/.env
 example/backend/.env
 example/frontend/.env
 types
