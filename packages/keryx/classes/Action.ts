@@ -181,10 +181,12 @@ export abstract class Action {
    *   action's `inputs` Zod schema (falls back to `Record<string, unknown>` when no schema is
    *   defined). By the time `run` is called, all middleware `runBefore` hooks have already
    *   executed and may have mutated the params.
-   * @param connection - The connection that initiated this action. Provides access to the
-   *   caller's session (`connection.session`), subscription state, and raw transport handle.
-   *   It is `undefined` when the action is invoked outside an HTTP/WebSocket request context
-   *   (e.g., as a background task via the Resque worker or via `api.actions.run()`).
+   * @param connection - The connection that initiated this action. Always defined. Provides
+   *   access to the caller's session (`connection.session`), subscription state, and raw
+   *   transport handle. For background tasks (resque worker), `connection.type === "task"`
+   *   and `connection.session.data` is empty — tasks are fresh starts, so actions that
+   *   need user context should receive it as an input parameter rather than reading from
+   *   the session.
    * @param abortSignal - An `AbortSignal` tied to the action's timeout. The signal is aborted
    *   when the per-action `timeout` (or the global `config.actions.timeout`, default 300 000 ms)
    *   elapses. Long-running actions should check `abortSignal.aborted` or pass the signal to
@@ -194,7 +196,7 @@ export abstract class Action {
    */
   abstract run(
     params: ActionParams<Action>,
-    connection?: Connection,
+    connection: Connection,
     abortSignal?: AbortSignal,
   ): Promise<any>;
 }

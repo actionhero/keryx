@@ -4,13 +4,18 @@ description: Plugins let third-party packages contribute actions, initializers, 
 
 # Plugins
 
+::: tip Looking for first-party plugins?
+See the [Plugins catalog](/plugins/) for ready-to-use plugins maintained by the Keryx team.
+:::
+
 Plugins package reusable functionality — initializers, actions, channels, servers, and config defaults — into npm modules that any Keryx app can install and register. If you've built an initializer or a set of actions that would be useful across projects, a plugin is how you distribute it.
 
 ## First-Party Plugins
 
 | Package | Description |
 |---------|-------------|
-| [`@keryxjs/observability`](/guide/observability) | OpenTelemetry metrics (Prometheus) and distributed tracing |
+| [`@keryxjs/observability`](/plugins/observability) | OpenTelemetry metrics (Prometheus) and distributed tracing |
+| [`@keryxjs/resque-admin`](/plugins/resque-admin) | Web dashboard and API for monitoring Redis, queues, workers, failed jobs, and locks |
 
 ## Using a Plugin
 
@@ -69,7 +74,7 @@ All fields except `name` and `version` are optional. Provide only what your plug
 
 ### Initializers
 
-Plugin initializers work exactly like framework or user initializers — they extend the `Initializer` class, have priority-based lifecycle hooks, and can attach namespaces to the `api` singleton via module augmentation:
+Plugin initializers work exactly like framework or user initializers — they extend the `Initializer` class, declare their dependencies via `dependsOn`, and can attach namespaces to the `api` singleton via module augmentation:
 
 ```ts
 import { Initializer } from "keryx";
@@ -83,7 +88,7 @@ declare module "keryx" {
 export class CacheInitializer extends Initializer {
   constructor() {
     super("cache");
-    this.loadPriority = 300;
+    this.dependsOn = ["redis"]; // names of other initializers this one needs
   }
 
   async initialize() {
@@ -196,17 +201,17 @@ The template receives `{{ name }}` and `{{ className }}` as variables.
 
 ## Loading Order
 
-Understanding the loading order helps you set priorities correctly:
+Understanding the loading order helps you declare `dependsOn` correctly:
 
 1. **User config loaded** — from the app's `config/` directory (including `config.plugins`)
 2. **Plugin config defaults applied** — via `deepMergeDefaults` (never overwrites user-set values)
 3. **Initializer discovery** — framework → plugins → user (registration order within plugins)
-4. **Initializer execution** — all initializers sorted by `loadPriority`, regardless of source
+4. **Initializer execution** — all initializers are topologically sorted by `dependsOn`, regardless of source
 5. **Action discovery** — plugin actions → user actions
 6. **Channel discovery** — plugin channels → user channels
 7. **Server discovery** — framework servers → plugin servers → user servers
 
-Priorities control execution order across all sources. A plugin initializer with `loadPriority: 50` runs before a framework initializer with `loadPriority: 100`.
+`dependsOn` names can refer to any initializer in the graph — framework, plugin, or user. Unknown names and cycles cause a startup error. Independent initializers keep their discovery order, so when two plugins are mutually independent the order they appear in `config.plugins` wins.
 
 ## Naming Convention
 

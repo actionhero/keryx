@@ -45,9 +45,8 @@ export class ObservabilityPlugin extends Initializer {
 
   constructor() {
     super("@keryxjs/observability");
-    this.loadPriority = 60;
-    this.startPriority = 60;
-    this.stopPriority = 60;
+    this.dependsOn = ["observability", "actions", "connections", "servers"];
+    this.declaresAPIProperty = false;
   }
 
   // initialize() is intentionally omitted — the core Observability stub

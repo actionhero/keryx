@@ -2,15 +2,18 @@ import { SpanKind } from "@opentelemetry/api";
 import { Redis as RedisClient } from "ioredis";
 import { api, logger } from "../api";
 import { Initializer } from "../classes/Initializer";
-import { ErrorType, TypedError } from "../classes/TypedError";
 import { config } from "../config";
-import { formatConnectionStringForLogging } from "../util/connectionString";
+
+import {
+  formatConnectionStringForLogging,
+  throwConnectionError,
+} from "../util/connectionString";
 import { finalizeSpanOnPromise } from "../util/tracing";
 
 const namespace = "redis";
 const testKey = `__keryx_test_key:${config.process.name}`;
 
-declare module "../classes/API" {
+declare module "keryx" {
   export interface API {
     [namespace]: Awaited<ReturnType<Redis["initialize"]>>;
   }
@@ -24,9 +27,6 @@ declare module "../classes/API" {
 export class Redis extends Initializer {
   constructor() {
     super(namespace);
-    this.loadPriority = 200;
-    this.startPriority = 110;
-    this.stopPriority = 990;
   }
 
   async initialize() {
@@ -47,10 +47,7 @@ export class Redis extends Initializer {
       await api.redis.subscription.set(testKey, Date.now());
       await api.redis.subscription.del(testKey);
     } catch (e) {
-      throw new TypedError({
-        type: ErrorType.SERVER_INITIALIZATION,
-        message: `Cannot connect to redis (${formatConnectionStringForLogging(config.redis.connectionString)}): ${e}`,
-      });
+      throwConnectionError("redis", config.redis.connectionString, e);
     }
 
     // Instrument the main Redis client with tracing spans.

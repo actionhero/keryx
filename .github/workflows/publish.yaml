@@ -6,13 +6,26 @@ on:
     paths:
       - packages/keryx/package.json
       - packages/plugins/observability/package.json
+      - packages/resque-admin/package.json
 
 jobs:
-  publish-keryx:
+  publish:
     runs-on: ubuntu-latest
     permissions:
       contents: write
       id-token: write
+    strategy:
+      matrix:
+        include:
+          - package: keryx
+            dir: packages/keryx
+            npm_name: keryx
+          - package: observability
+            dir: packages/plugins/observability
+            npm_name: "@keryxjs/observability"
+          - package: resque-admin
+            dir: packages/resque-admin
+            npm_name: "@keryxjs/resque-admin"
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -26,8 +39,8 @@ jobs:
       - name: Check if version changed
         id: version
         run: |
-          LOCAL=$(node -p "require('./packages/keryx/package.json').version")
-          REMOTE=$(npm view keryx version 2>/dev/null || echo "0.0.0")
+          LOCAL=$(node -p "require('./${{ matrix.dir }}/package.json').version")
+          REMOTE=$(npm view ${{ matrix.npm_name }} version 2>/dev/null || echo "0.0.0")
           echo "local=$LOCAL" >> "$GITHUB_OUTPUT"
           echo "remote=$REMOTE" >> "$GITHUB_OUTPUT"
           if [ "$LOCAL" != "$REMOTE" ]; then
@@ -39,57 +52,16 @@ jobs:
       - name: Publish to npm
         if: steps.version.outputs.changed == 'true'
         run: npm publish --access public --provenance
-        working-directory: packages/keryx
+        working-directory: ${{ matrix.dir }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release
-        if: steps.version.outputs.changed == 'true'
+        if: steps.version.outputs.changed == 'true' && matrix.package == 'keryx'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=${{ steps.version.outputs.local }}
           gh release create "v${VERSION}" \
             --title "v${VERSION}" \
-            --generate-notes
-
-  publish-plugin-observability:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          registry-url: https://registry.npmjs.org
-      - run: npm install -g npm@latest
-      - run: bun install
-
-      - name: Check if version changed
-        id: version
-        run: |
-          LOCAL=$(node -p "require('./packages/plugins/observability/package.json').version")
-          REMOTE=$(npm view @keryxjs/observability version 2>/dev/null || echo "0.0.0")
-          echo "local=$LOCAL" >> "$GITHUB_OUTPUT"
-          echo "remote=$REMOTE" >> "$GITHUB_OUTPUT"
-          if [ "$LOCAL" != "$REMOTE" ]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Publish to npm
-        if: steps.version.outputs.changed == 'true'
-        run: npm publish --access public --provenance
-        working-directory: packages/plugins/observability
-
-      - name: Create GitHub Release
-        if: steps.version.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          VERSION=${{ steps.version.outputs.local }}
-          gh release create "@keryxjs/observability@${VERSION}" \
-            --title "@keryxjs/observability v${VERSION}" \
             --generate-notes

@@ -5,7 +5,8 @@ import { Action, api, Connection, RUN_MODE } from "../api";
 import { ExitCode } from "./../classes/ExitCode";
 import { TypedError } from "./../classes/TypedError";
 import { config } from "../config";
-import { generateComponent, getValidTypes } from "./generate";
+import { getValidTypes } from "./componentRegistry";
+import { generateComponent } from "./generate";
 import { globLoader } from "./glob";
 import {
   interactiveScaffold,

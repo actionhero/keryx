@@ -24,7 +24,7 @@ export type ClientUnsubscribeMessage = {
   channel: string;
 };
 
-declare module "../classes/API" {
+declare module "keryx" {
   export interface API {
     [namespace]: Awaited<ReturnType<PubSub["initialize"]>>;
   }
@@ -33,8 +33,7 @@ declare module "../classes/API" {
 export class PubSub extends Initializer {
   constructor() {
     super(namespace);
-    this.startPriority = 150;
-    this.stopPriority = 950;
+    this.dependsOn = ["redis", "connections"];
   }
 
   async initialize() {

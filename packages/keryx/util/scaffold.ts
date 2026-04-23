@@ -4,16 +4,11 @@ import Mustache from "mustache";
 import path from "path";
 import * as readline from "readline";
 import pkg from "../package.json";
+import { loadScaffoldTemplate as loadTemplate } from "./componentRegistry";
 
 export interface ScaffoldOptions {
   includeDb: boolean;
   includeExample: boolean;
-}
-
-const templatesDir = path.join(import.meta.dir, "..", "templates", "scaffold");
-
-async function loadTemplate(name: string): Promise<string> {
-  return Bun.file(path.join(templatesDir, name)).text();
 }
 
 async function prompt(question: string, defaultValue: string): Promise<string> {

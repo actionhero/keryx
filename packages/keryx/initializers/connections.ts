@@ -3,7 +3,7 @@ import { Initializer } from "../classes/Initializer";
 
 const namespace = "connections";
 
-declare module "../classes/API" {
+declare module "keryx" {
   export interface API {
     [namespace]: Awaited<ReturnType<Connections["initialize"]>>;
   }
@@ -12,7 +12,6 @@ declare module "../classes/API" {
 export class Connections extends Initializer {
   constructor() {
     super(namespace);
-    this.loadPriority = 1;
   }
 
   async initialize() {

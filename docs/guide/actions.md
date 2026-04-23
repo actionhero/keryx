@@ -1,5 +1,5 @@
 ---
-description: Actions are the universal controller — one class handles HTTP, WebSocket, CLI, background tasks, and MCP.
+description: How to write actions — inputs, validation, web routes, task scheduling, middleware, MCP exposure, and type helpers.
 ---
 
 # Actions

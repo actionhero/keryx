@@ -100,7 +100,7 @@ export class UserEdit implements Action {
     const [user] = await api.db.db
       .update(users)
       .set(updates)
-      .where(eq(users.id, connection.session?.data.userId))
+      .where(eq(users.id, connection.session!.data.userId))
       .returning();
 
     return { user: serializeUser(user) };

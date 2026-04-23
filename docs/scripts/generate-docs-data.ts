@@ -273,9 +273,7 @@ actions.sort((a, b) => a.name.localeCompare(b.name));
 // --- Extract Initializers ---
 type InitializerInfo = {
   name: string;
-  loadPriority: number;
-  startPriority: number;
-  stopPriority: number;
+  dependsOn: string[];
   namespace: string;
   sourceFile: string;
 };
@@ -303,35 +301,31 @@ for (const sf of project.getSourceFiles()) {
       if (init) namespace = init.getText().replace(/^["']|["']$/g, "");
     }
 
-    // Get priorities from constructor
-    let loadPriority = 1000;
-    let startPriority = 1000;
-    let stopPriority = 1000;
-
+    // Extract dependsOn from the constructor body
+    let dependsOn: string[] = [];
     const ctor = classDecl.getConstructors()[0];
     if (ctor) {
       const body = ctor.getBody()?.getText() || "";
-      const loadMatch = body.match(/this\.loadPriority\s*=\s*(\d+)/);
-      const startMatch = body.match(/this\.startPriority\s*=\s*(\d+)/);
-      const stopMatch = body.match(/this\.stopPriority\s*=\s*(\d+)/);
-      if (loadMatch) loadPriority = parseInt(loadMatch[1]);
-      if (startMatch) startPriority = parseInt(startMatch[1]);
-      if (stopMatch) stopPriority = parseInt(stopMatch[1]);
+      const match = body.match(/this\.dependsOn\s*=\s*\[([^\]]*)\]/);
+      if (match) {
+        dependsOn = match[1]
+          .split(",")
+          .map((s) => s.trim().replace(/^["']|["']$/g, ""))
+          .filter((s) => s.length > 0);
+      }
     }
 
     const relPath = path.relative(rootDir, sf.getFilePath());
     initializers.push({
       name: classDecl.getName() || "Unknown",
-      loadPriority,
-      startPriority,
-      stopPriority,
+      dependsOn,
       namespace,
       sourceFile: relPath,
     });
   }
 }
 
-initializers.sort((a, b) => a.loadPriority - b.loadPriority);
+initializers.sort((a, b) => a.name.localeCompare(b.name));
 
 // --- Extract Config ---
 type ConfigInfo = {

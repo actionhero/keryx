@@ -34,7 +34,7 @@ function logResqueEvent(
   }
 }
 
-declare module "../classes/API" {
+declare module "keryx" {
   export interface API {
     [namespace]: Awaited<ReturnType<Resque["initialize"]>>;
   }
@@ -50,10 +50,7 @@ let SERVER_JOB_COUNTER = 1;
 export class Resque extends Initializer {
   constructor() {
     super(namespace);
-
-    this.loadPriority = 250;
-    this.startPriority = 10000;
-    this.stopPriority = 900;
+    this.dependsOn = ["redis", "actions", "process"];
   }
 
   /** Create and connect the resque `Queue` instance (used for enqueuing jobs). */
@@ -280,9 +277,11 @@ export class Resque extends Initializer {
   };
 
   /**
-   * Wrap an action as a node-resque job. Creates a temporary `Connection` with type `"resque"`,
-   * converts inputs to a plain object, and runs the action via `connection.act()`. Handles
-   * fan-out result/error collection and recurring task re-enqueue.
+   * Wrap an action as a node-resque job. Creates a fresh `Connection` of type `"task"`
+   * with an empty in-memory session stub (tasks are fresh starts — no Redis read/write
+   * for session), converts inputs to a plain object, and runs the action via
+   * `connection.act()`. Handles fan-out result/error collection and recurring task
+   * re-enqueue.
    */
   wrapActionAsJob = (
     action: Action,
@@ -292,21 +291,6 @@ export class Resque extends Initializer {
       pluginOptions: {},
 
       perform: async function (params: ActionParams<typeof action>) {
-        const connection = new Connection(
-          "resque",
-          `job:${api.process.name}:${SERVER_JOB_COUNTER++}}`,
-        );
-
-        const propagatedCorrelationId = params._correlationId as
-          | string
-          | undefined;
-        if (propagatedCorrelationId) {
-          connection.correlationId = propagatedCorrelationId;
-        }
-
-        // Restore trace context from propagated W3C headers
-        connection._traceContext = extractTraceFromParams(params);
-
         const plainParams: Record<string, unknown> =
           typeof params === "object" && params !== null
             ? Object.fromEntries(
@@ -316,9 +300,36 @@ export class Resque extends Initializer {
               )
             : {};
 
-        // Strip internal framework fields so they don't leak into action params
+        const propagatedCorrelationId = plainParams._correlationId as
+          | string
+          | undefined;
+
+        const connection = new Connection(
+          "task",
+          `job:${api.process.name}:${SERVER_JOB_COUNTER++}`,
+        );
+        if (propagatedCorrelationId) {
+          connection.correlationId = propagatedCorrelationId;
+        }
+
+        // Restore trace context from propagated W3C headers so task spans
+        // participate in the parent request's distributed trace.
+        connection._traceContext = extractTraceFromParams(plainParams);
+
+        // Strip internal framework trace-propagation fields so they don't leak
+        // into the action's validated params.
         delete plainParams._traceParent;
         delete plainParams._traceState;
+
+        // Synthesize an empty session in-memory — tasks are fresh starts; needed data
+        // must come through action params, not session state.
+        connection.session = {
+          id: `task:${connection.id}`,
+          cookieName: config.session.cookieName,
+          createdAt: Date.now(),
+          data: {},
+        };
+        connection.sessionLoaded = true;
 
         const fanOutId = plainParams._fanOutId as string | undefined;
 

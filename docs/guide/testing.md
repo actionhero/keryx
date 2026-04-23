@@ -8,25 +8,15 @@ We don't mock the server. That's a deliberate choice — if you're testing an AP
 
 ## Test Structure
 
-Each test file boots and stops the full server in `beforeAll`/`afterAll`. Tests use dynamic port binding (`WEB_SERVER_PORT=0`) so each file gets a random available port — no conflicts when running multiple test files:
+Each test file boots and stops the full server in `beforeAll`/`afterAll`. Tests use dynamic port binding (`WEB_SERVER_PORT=0`) so each file gets a random available port — no conflicts when running multiple test files. Use the `useTestServer()` helper to register these hooks in one line:
 
 ```ts
-import { api } from "keryx";
-import { serverUrl, HOOK_TIMEOUT } from "../setup";
+import { useTestServer } from "keryx/testing";
 
-let url: string;
-
-beforeAll(async () => {
-  await api.start();
-  url = serverUrl();
-}, HOOK_TIMEOUT);
-
-afterAll(async () => {
-  await api.stop();
-}, HOOK_TIMEOUT);
+const getUrl = useTestServer();
 
 test("status endpoint returns server info", async () => {
-  const res = await fetch(url + "/api/status");
+  const res = await fetch(getUrl() + "/api/status");
   const body = (await res.json()) as ActionResponse<Status>;
 
   expect(res.status).toBe(200);
@@ -39,10 +29,21 @@ Yes, this means each test file starts the entire server — database connections
 
 ## Test Helpers
 
-The `backend/__tests__/setup.ts` file provides helpers used across the test suite:
+The `keryx/testing` subpath exports helpers that cover the common test lifecycle:
 
-- **`serverUrl()`** — Returns the actual URL the web server bound to (with resolved port). Call after `api.start()`.
-- **`HOOK_TIMEOUT`** — A generous timeout (15s) for `beforeAll`/`afterAll` hooks, since they connect to Redis, Postgres, run migrations, etc. Pass as the second argument to `beforeAll`/`afterAll`.
+- **`useTestServer(opts?)`** — Registers `beforeAll` / `afterAll` hooks that call `api.start()` and `api.stop()`. Returns a getter that resolves the server URL (the URL isn't known until the port is bound, so it's a function, not a string). Options:
+  - `clearDatabase` (default `false`) — truncate all tables in `beforeAll` (requires the `db` initializer).
+  - `clearRedis` (default `false`) — `FLUSHDB` on the current Redis database in `beforeAll` (requires the `redis` initializer). Opt in for tests that exercise pub/sub so messages from prior tests don't leak in.
+
+  ```ts
+  const getUrl = useTestServer({ clearDatabase: true, clearRedis: true });
+  ```
+
+  Need additional setup like inserting a seed user? Bun supports multiple `beforeAll` blocks per file — add another one after `useTestServer()` that runs once `api.start()` has completed.
+
+- **`serverUrl()`** — Returns the actual URL the web server bound to (with resolved port). Call after `api.start()`. `useTestServer()` wraps this internally; reach for it directly only when you need manual lifecycle control.
+- **`HOOK_TIMEOUT`** — A generous timeout (15s) for `beforeAll`/`afterAll` hooks, since they connect to Redis, Postgres, run migrations, etc. Pass as the second argument to `beforeAll`/`afterAll` when writing your own lifecycle hooks.
+- **`buildWebSocket(opts?)`**, **`createUser`**, **`createSession`**, **`subscribeToChannel`**, **`waitForBroadcastMessages`** — Higher-level helpers for WebSocket tests. See [Testing WebSocket Connections](#testing-websocket-connections) below.
 - **`waitFor(condition, { interval, timeout })`** — Polls a condition function until it returns `true`, or throws after a timeout. Use this instead of fixed `Bun.sleep()` calls when waiting for async side effects like background tasks:
 
 ```ts
@@ -78,7 +79,7 @@ Just use `fetch`. Here's a typical test for creating a user:
 
 ```ts
 test("create a user", async () => {
-  const res = await fetch(url + "/api/user", {
+  const res = await fetch(getUrl() + "/api/user", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -98,13 +99,10 @@ Nothing special — it's the same `fetch` you'd use in a browser or a Bun script
 
 ## Database Setup
 
-Tests typically clear the database before running to ensure a clean slate:
+Tests typically clear the database before running to ensure a clean slate — pass `clearDatabase: true` to `useTestServer()`:
 
 ```ts
-beforeAll(async () => {
-  await api.start();
-  await api.db.clearDatabase();
-});
+const getUrl = useTestServer({ clearDatabase: true });
 ```
 
 `clearDatabase()` truncates all tables with `RESTART IDENTITY CASCADE`. It refuses to run when `NODE_ENV=production`, so you can't accidentally nuke your production data.
@@ -126,7 +124,7 @@ import { config } from "keryx";
 
 test("authenticated request", async () => {
   // Create a user
-  await fetch(url + "/api/user", {
+  await fetch(getUrl() + "/api/user", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -137,7 +135,7 @@ test("authenticated request", async () => {
   });
 
   // Log in
-  const sessionRes = await fetch(url + "/api/session", {
+  const sessionRes = await fetch(getUrl() + "/api/session", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -150,7 +148,7 @@ test("authenticated request", async () => {
   const sessionId = sessionBody.session.id;
 
   // Make an authenticated request
-  const res = await fetch(url + "/api/user", {
+  const res = await fetch(getUrl() + "/api/user", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -167,11 +165,11 @@ The session ID comes from the login response, and you pass it as a `Cookie` head
 
 ## Testing WebSocket Connections
 
-WebSocket tests connect to the same server and send JSON messages:
+WebSocket tests connect to the same server and send JSON messages. The lowest-level pattern looks like:
 
 ```ts
 test("websocket action", async () => {
-  const wsUrl = url.replace("http", "ws");
+  const wsUrl = getUrl().replace("http", "ws");
   const ws = new WebSocket(wsUrl);
 
   await new Promise<void>((resolve) => {
@@ -198,16 +196,32 @@ test("websocket action", async () => {
 });
 ```
 
-For channel subscriptions, send a `subscribe` message and then listen for broadcasts:
+For common flows — opening a socket, creating a user, logging in, subscribing to a channel, and collecting broadcasts — reach for the helpers exported from `keryx/testing`:
 
 ```ts
-ws.send(
-  JSON.stringify({
-    messageType: "subscribe",
-    channel: "messages",
-  }),
-);
+import {
+  buildWebSocket,
+  createSession,
+  createUser,
+  subscribeToChannel,
+  waitForBroadcastMessages,
+} from "keryx/testing";
+
+test("broadcast reaches subscribers", async () => {
+  const { socket, messages } = await buildWebSocket();
+  await createUser(socket, messages, "Marco", "marco@example.com", "abc12345");
+  await createSession(socket, messages, "marco@example.com", "abc12345");
+  await subscribeToChannel(socket, messages, "messages");
+
+  // ...trigger a broadcast...
+  const broadcasts = await waitForBroadcastMessages(messages, 1);
+  expect(broadcasts[0].message.body).toBe("hello");
+
+  socket.close();
+});
 ```
+
+`buildWebSocket()` resolves once the socket's `open` event fires and exposes a live `messages` array that every subsequent handler populates. The action helpers assume the socket is fresh (they read from fixed indices in `messages`); `subscribeToChannel` matches the subscribe confirmation by content so it's resilient to presence broadcasts arriving out of order.
 
 ## Testing Background Tasks
 

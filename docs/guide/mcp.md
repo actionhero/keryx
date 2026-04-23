@@ -1,5 +1,5 @@
 ---
-description: Expose your actions as MCP tools for AI agents, with built-in OAuth 2.1 authentication.
+description: MCP server configuration — how actions become tools, controlling tool exposure, McpActionConfig options, response formats, resources, and prompts.
 ---
 
 # MCP Server

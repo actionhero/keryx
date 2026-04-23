@@ -5,7 +5,7 @@ import { config } from "../config";
 
 const namespace = "signals";
 
-declare module "../classes/API" {
+declare module "keryx" {
   export interface API {
     [namespace]: Awaited<ReturnType<Signals["initialize"]>>;
   }
@@ -14,7 +14,6 @@ declare module "../classes/API" {
 export class Signals extends Initializer {
   constructor() {
     super(namespace);
-    this.loadPriority = 1;
   }
 
   async initialize() {

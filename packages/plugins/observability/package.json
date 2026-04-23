@@ -49,6 +49,9 @@
   },
   "peerDependencies": {
     "@opentelemetry/api": "^1.9.0",
-    "keryx": "workspace:*"
+    "keryx": ">=0.25.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

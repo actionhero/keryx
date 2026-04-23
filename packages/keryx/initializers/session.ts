@@ -87,7 +87,7 @@ async function destroy(connection: Connection) {
   return response > 0;
 }
 
-declare module "../classes/API" {
+declare module "keryx" {
   export interface API {
     [namespace]: Awaited<ReturnType<Session["initialize"]>>;
   }
@@ -96,7 +96,7 @@ declare module "../classes/API" {
 export class Session extends Initializer {
   constructor() {
     super(namespace);
-    this.startPriority = 600;
+    this.dependsOn = ["redis"];
   }
 
   async initialize() {

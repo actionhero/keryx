@@ -8,7 +8,7 @@ import {
   formatLoadedMessage,
 } from "../util/config";
 import { globLoader } from "../util/glob";
-import type { Initializer, InitializerSortKeys } from "./Initializer";
+import type { Initializer } from "./Initializer";
 import { Logger } from "./Logger";
 import { ErrorType, TypedError } from "./TypedError";
 
@@ -17,8 +17,6 @@ export enum RUN_MODE {
   CLI = "cli",
   SERVER = "server",
 }
-
-let flapPreventer = false;
 
 /**
  * The global singleton that manages the full framework lifecycle: initialize → start → stop.
@@ -42,8 +40,10 @@ export class API {
   logger: Logger;
   /** The current run mode (SERVER or CLI), set during `start()`. */
   runMode!: RUN_MODE;
-  /** All discovered initializer instances, sorted by the most-recently-used priority key. */
+  /** All discovered initializer instances, topologically sorted by `dependsOn` after discovery. */
   initializers: Initializer[];
+  /** Guards `restart()` against concurrent re-entry so rapid stop/start cycles get coalesced. */
+  private flapPreventer = false;
 
   // allow arbitrary properties to be set on the API, to be added and typed later
   [key: string]: any;
@@ -63,7 +63,7 @@ export class API {
 
   /**
    * Load configuration overrides and discover + run all initializers.
-   * Calls each initializer's `initialize()` method in `loadPriority` order.
+   * Calls each initializer's `initialize()` method in dependency order (topological sort of `dependsOn`).
    * The return value of each initializer is attached to `api[initializer.name]`.
    *
    * @throws {TypedError} With `ErrorType.SERVER_INITIALIZATION` if any initializer fails.
@@ -75,7 +75,8 @@ export class API {
     await this.loadLocalConfig();
     this.loadPluginConfig();
     await this.findInitializers();
-    this.sortInitializers("loadPriority");
+    this.topologicallySortInitializers();
+    this.logInitializerDag();
 
     for (const initializer of this.initializers) {
       try {
@@ -85,12 +86,14 @@ export class API {
         this.logger.debug(`Initialized initializer ${initializer.name}`);
       } catch (e) {
         throw new TypedError({
-          message: `${e}`,
+          message: `Failed to initialize initializer "${initializer.name}": ${e instanceof Error ? e.message : e}`,
           type: ErrorType.SERVER_INITIALIZATION,
-          originalError: e,
+          cause: e,
         });
       }
     }
+
+    this.validateInitializerProperties("initialize");
 
     this.initialized = true;
     this.logger.warn("--- 🔄  Initializing complete ---");
@@ -99,7 +102,7 @@ export class API {
   /**
    * Start the framework: connect to external services, bind server ports, start workers.
    * Calls `initialize()` first if it hasn't been run yet, then calls each initializer's
-   * `start()` method in `startPriority` order. Initializers whose `runModes` do not include
+   * `start()` method in dependency order. Initializers whose `runModes` do not include
    * the current `runMode` are skipped.
    *
    * @param runMode - Whether to start in SERVER mode (HTTP/WebSocket) or CLI mode.
@@ -115,8 +118,6 @@ export class API {
 
     this.logger.warn("--- 🔼  Starting process ---");
 
-    this.sortInitializers("startPriority");
-
     for (const initializer of this.initializers) {
       if (!initializer.runModes.includes(runMode)) {
         this.logger.debug(
@@ -131,12 +132,14 @@ export class API {
         this.logger.debug(`Started initializer ${initializer.name}`);
       } catch (e) {
         throw new TypedError({
-          message: `${e}`,
+          message: `Failed to start initializer "${initializer.name}": ${e instanceof Error ? e.message : e}`,
           type: ErrorType.SERVER_START,
-          originalError: e,
+          cause: e,
         });
       }
     }
+
+    this.validateInitializerProperties("start");
 
     this.started = true;
     this.logger.warn("--- 🔼  Starting complete ---");
@@ -144,7 +147,8 @@ export class API {
 
   /**
    * Gracefully shut down the framework: disconnect from services, close server ports, stop workers.
-   * Calls each initializer's `stop()` method in `stopPriority` order. No-ops if already stopped.
+   * Calls each initializer's `stop()` method in reverse dependency order (dependents stop before
+   * their dependencies). No-ops if already stopped.
    *
    * @throws {TypedError} With `ErrorType.SERVER_STOP` if any initializer fails to stop.
    */
@@ -156,18 +160,16 @@ export class API {
 
     this.logger.warn("--- 🔽  Stopping process ---");
 
-    this.sortInitializers("stopPriority");
-
-    for (const initializer of this.initializers) {
+    for (const initializer of [...this.initializers].reverse()) {
       try {
         this.logger.debug(`Stopping initializer ${initializer.name}`);
         await initializer.stop?.();
         this.logger.debug(`Stopped initializer ${initializer.name}`);
       } catch (e) {
         throw new TypedError({
-          message: `${e}`,
+          message: `Failed to stop initializer "${initializer.name}": ${e instanceof Error ? e.message : e}`,
           type: ErrorType.SERVER_STOP,
-          originalError: e,
+          cause: e,
         });
       }
     }
@@ -182,12 +184,12 @@ export class API {
    * concurrent restart calls to avoid rapid stop/start cycles.
    */
   async restart() {
-    if (flapPreventer) return;
+    if (this.flapPreventer) return;
 
-    flapPreventer = true;
+    this.flapPreventer = true;
     await this.stop();
     await this.start();
-    flapPreventer = false;
+    this.flapPreventer = false;
   }
 
   private async loadLocalConfig() {
@@ -224,6 +226,11 @@ export class API {
   }
 
   private async findInitializers() {
+    // Reset so that re-running `initialize()` (e.g. between test files that share
+    // the `globalThis.api` singleton) produces a deterministic graph rather than
+    // accumulating duplicates from previous runs.
+    this.initializers = [];
+
     // Load framework initializers from the package directory
     const frameworkInitializers = await globLoader<Initializer>(
       path.join(this.packageDir, "initializers"),
@@ -269,7 +276,140 @@ export class API {
     );
   }
 
-  private sortInitializers(key: InitializerSortKeys) {
-    this.initializers.sort((a, b) => a[key] - b[key]);
+  /**
+   * Reorder `this.initializers` into a topological execution order derived from each
+   * initializer's `dependsOn` list. Uses Kahn's algorithm with insertion-order tie-breaking
+   * so framework initializers keep their relative load order when they are mutually
+   * independent. Throws on missing dependencies or cycles — both indicate misconfiguration
+   * that would otherwise surface as confusing runtime errors.
+   *
+   * @throws {TypedError} With `ErrorType.INITIALIZER_VALIDATION` on unknown dependency
+   *   names or circular dependency chains.
+   */
+  private topologicallySortInitializers() {
+    const byName = new Map<string, Initializer>();
+    for (const i of this.initializers) byName.set(i.name, i);
+
+    // Validate dependency names exist before we try to sort.
+    for (const i of this.initializers) {
+      for (const dep of i.dependsOn) {
+        if (!byName.has(dep)) {
+          throw new TypedError({
+            type: ErrorType.INITIALIZER_VALIDATION,
+            message: `Initializer "${i.name}" depends on unknown initializer "${dep}". Available: ${[...byName.keys()].join(", ")}.`,
+          });
+        }
+      }
+    }
+
+    // Kahn's algorithm. `indegree[name]` = number of unresolved deps.
+    const indegree = new Map<string, number>();
+    for (const i of this.initializers) indegree.set(i.name, i.dependsOn.length);
+
+    // Reverse adjacency: for each dep, who depends on it?
+    const dependents = new Map<string, string[]>();
+    for (const i of this.initializers) {
+      for (const dep of i.dependsOn) {
+        const list = dependents.get(dep) ?? [];
+        list.push(i.name);
+        dependents.set(dep, list);
+      }
+    }
+
+    const sorted: Initializer[] = [];
+    // Seed the queue with zero-indegree initializers, preserving original insertion order.
+    const queue: Initializer[] = this.initializers.filter(
+      (i) => indegree.get(i.name) === 0,
+    );
+
+    while (queue.length > 0) {
+      const next = queue.shift()!;
+      sorted.push(next);
+      for (const dependentName of dependents.get(next.name) ?? []) {
+        const remaining = indegree.get(dependentName)! - 1;
+        indegree.set(dependentName, remaining);
+        if (remaining === 0) {
+          // Insert in original position to keep deterministic ordering.
+          const dependent = byName.get(dependentName)!;
+          // Keep queue ordered by original index among ready items.
+          const dependentIndex = this.initializers.indexOf(dependent);
+          let insertAt = queue.length;
+          for (let i = 0; i < queue.length; i++) {
+            if (this.initializers.indexOf(queue[i]) > dependentIndex) {
+              insertAt = i;
+              break;
+            }
+          }
+          queue.splice(insertAt, 0, dependent);
+        }
+      }
+    }
+
+    if (sorted.length !== this.initializers.length) {
+      const unresolved = this.initializers
+        .filter((i) => (indegree.get(i.name) ?? 0) > 0)
+        .map((i) => i.name);
+      throw new TypedError({
+        type: ErrorType.INITIALIZER_VALIDATION,
+        message: `Circular dependency detected among initializers: ${unresolved.join(" → ")}. Check each initializer's \`dependsOn\` list for a cycle.`,
+      });
+    }
+
+    this.initializers = sorted;
+  }
+
+  /**
+   * Render the resolved initializer dependency graph to the logs as a numbered list,
+   * one line per initializer, with each dependency shown to the right. Leaf initializers
+   * (no deps) render without an arrow.
+   */
+  private logInitializerDag() {
+    const longestName = this.initializers.reduce(
+      (max, i) => Math.max(max, i.name.length),
+      0,
+    );
+    const digits = String(this.initializers.length).length;
+
+    this.logger.debug("--- 🔗  Initializer dependency graph ---");
+    this.initializers.forEach((i, idx) => {
+      const num = String(idx + 1).padStart(digits, "0");
+      const name = i.name.padEnd(longestName);
+      const deps =
+        i.dependsOn.length > 0 ? `  ← ${i.dependsOn.join(", ")}` : "";
+      this.logger.debug(`  ${num}  ${name}${deps}`);
+    });
+  }
+
+  /**
+   * Assert that every initializer which claims an API namespace (via
+   * `declaresAPIProperty`) has actually attached `api[initializer.name]`.
+   * Closes the silent-drift gap between TypeScript module augmentation
+   * and runtime property assignment — a missing namespace becomes a fast,
+   * loud startup failure instead of a confusing `Cannot read property of
+   * undefined` deep inside a request handler.
+   *
+   * Initializers excluded from the current `runMode` are skipped during the
+   * `start` phase since their `start()` method never ran.
+   */
+  private validateInitializerProperties(phase: "initialize" | "start") {
+    const missing: string[] = [];
+    for (const initializer of this.initializers) {
+      if (initializer.declaresAPIProperty === false) continue;
+      if (phase === "start" && !initializer.runModes.includes(this.runMode)) {
+        continue;
+      }
+      if (this[initializer.name] == null) {
+        missing.push(initializer.name);
+      }
+    }
+    if (missing.length > 0) {
+      throw new TypedError({
+        type: ErrorType.INITIALIZER_VALIDATION,
+        message:
+          `Initializers did not attach their namespace to api after the ${phase} phase: ` +
+          `${missing.join(", ")}. Each initializer must either return a namespace object ` +
+          `from initialize() (and/or populate it in start()), or set declaresAPIProperty = false.`,
+      });
+    }
   }
 }

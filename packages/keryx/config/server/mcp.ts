@@ -13,5 +13,9 @@ export const configServerMcp = {
     60 * 60 * 24 * 30,
   ), // 30 days, in seconds
   oauthCodeTtl: await loadFromEnvIfSet("MCP_OAUTH_CODE_TTL", 300), // 5 minutes, in seconds
+  oauthRefreshTtl: await loadFromEnvIfSet(
+    "MCP_OAUTH_REFRESH_TTL",
+    60 * 60 * 24 * 30,
+  ), // 30 days, in seconds
   markdownDepthLimit: await loadFromEnvIfSet("MCP_MARKDOWN_DEPTH_LIMIT", 5),
 };

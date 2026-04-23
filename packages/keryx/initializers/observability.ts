@@ -8,7 +8,7 @@ import { Initializer } from "../classes/Initializer";
 
 const namespace = "observability";
 
-declare module "../classes/API" {
+declare module "keryx" {
   export interface API {
     [namespace]: Awaited<ReturnType<Observability["initialize"]>>;
   }
@@ -72,9 +72,7 @@ function createNoopTracer() {
 export class Observability extends Initializer {
   constructor() {
     super(namespace);
-    this.loadPriority = 50;
-    this.startPriority = 50;
-    this.stopPriority = 50;
+    this.dependsOn = ["actions", "connections"];
   }
 
   async initialize() {

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 import { type ActionResponse, api } from "keryx";
 import type {
   MessageCrete,
@@ -7,44 +7,17 @@ import type {
 } from "../../actions/message";
 import type { SessionCreate } from "../../actions/session";
 import { messages } from "../../schema/messages";
-import { HOOK_TIMEOUT, serverUrl } from "./../setup";
+import { createTestSession, createTestUser, useTestServer } from "./../setup";
 
-let url: string;
-
-beforeAll(async () => {
-  await api.start();
-  url = serverUrl();
-  await api.db.clearDatabase();
-  await api.redis.redis.flushdb();
-}, HOOK_TIMEOUT);
-
-afterAll(async () => {
-  await api.stop();
-}, HOOK_TIMEOUT);
+const getUrl = useTestServer({ clearDatabase: true, clearRedis: true });
 
 describe("message:create", () => {
   let user: ActionResponse<SessionCreate>["user"];
   let session: ActionResponse<SessionCreate>["session"];
 
   beforeAll(async () => {
-    await fetch(url + "/api/user", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: "Mario Mario",
-        email: "mario@example.com",
-        password: "mushroom1",
-      }),
-    });
-
-    const sessionRes = await fetch(url + "/api/session", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: "mario@example.com",
-        password: "mushroom1",
-      }),
-    });
+    await createTestUser(getUrl());
+    const sessionRes = await createTestSession(getUrl());
     const sessionResponse =
       (await sessionRes.json()) as ActionResponse<SessionCreate>;
     user = sessionResponse.user;
@@ -52,7 +25,7 @@ describe("message:create", () => {
   });
 
   test("fails without a session", async () => {
-    const res = await fetch(url + "/api/message", {
+    const res = await fetch(getUrl() + "/api/message", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ body: "Hello, world!" }),
@@ -63,7 +36,7 @@ describe("message:create", () => {
   });
 
   test("fails without a valid session", async () => {
-    const res = await fetch(url + "/api/message", {
+    const res = await fetch(getUrl() + "/api/message", {
       method: "PUT",
       headers: {
         Cookie: `${session.cookieName}=123`,
@@ -77,7 +50,7 @@ describe("message:create", () => {
   });
 
   test("messages can be created", async () => {
-    const res = await fetch(url + "/api/message", {
+    const res = await fetch(getUrl() + "/api/message", {
       method: "PUT",
       headers: {
         Cookie: `${session.cookieName}=${session.id}`,
@@ -112,7 +85,7 @@ describe("message:create", () => {
     });
 
     test("messages can be listed in the proper (reverse) order", async () => {
-      const res = await fetch(url + "/api/messages/list", {
+      const res = await fetch(getUrl() + "/api/messages/list", {
         method: "GET",
         headers: {
           Cookie: `${session.cookieName}=${session.id}`,
@@ -128,7 +101,7 @@ describe("message:create", () => {
     });
 
     test("returns pagination metadata", async () => {
-      const res = await fetch(url + "/api/messages/list", {
+      const res = await fetch(getUrl() + "/api/messages/list", {
         method: "GET",
         headers: {
           Cookie: `${session.cookieName}=${session.id}`,
@@ -146,7 +119,7 @@ describe("message:create", () => {
     });
 
     test("limit and page can be used", async () => {
-      const res = await fetch(url + "/api/messages/list?limit=2&page=2", {
+      const res = await fetch(getUrl() + "/api/messages/list?limit=2&page=2", {
         method: "GET",
         headers: {
           Cookie: `${session.cookieName}=${session.id}`,
@@ -181,7 +154,7 @@ describe("message:create", () => {
     });
 
     test("fails without a session", async () => {
-      const res = await fetch(url + `/api/message/${messageId}`, {
+      const res = await fetch(getUrl() + `/api/message/${messageId}`, {
         method: "GET",
         headers: { "Content-Type": "application/json" },
       });
@@ -191,7 +164,7 @@ describe("message:create", () => {
     });
 
     test("can view a message by ID", async () => {
-      const res = await fetch(url + `/api/message/${messageId}`, {
+      const res = await fetch(getUrl() + `/api/message/${messageId}`, {
         method: "GET",
         headers: {
           Cookie: `${session.cookieName}=${session.id}`,
@@ -208,7 +181,7 @@ describe("message:create", () => {
     });
 
     test("includes user_name in response", async () => {
-      const res = await fetch(url + `/api/message/${messageId}`, {
+      const res = await fetch(getUrl() + `/api/message/${messageId}`, {
         method: "GET",
         headers: {
           Cookie: `${session.cookieName}=${session.id}`,
@@ -223,7 +196,7 @@ describe("message:create", () => {
     });
 
     test("fails with invalid message id format", async () => {
-      const res = await fetch(url + `/api/message/invalid`, {
+      const res = await fetch(getUrl() + `/api/message/invalid`, {
         method: "GET",
         headers: {
           Cookie: `${session.cookieName}=${session.id}`,
@@ -236,7 +209,7 @@ describe("message:create", () => {
     });
 
     test("fails when message not found", async () => {
-      const res = await fetch(url + `/api/message/99999`, {
+      const res = await fetch(getUrl() + `/api/message/99999`, {
         method: "GET",
         headers: {
           Cookie: `${session.cookieName}=${session.id}`,

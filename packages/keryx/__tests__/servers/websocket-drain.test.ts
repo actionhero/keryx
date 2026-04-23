@@ -2,8 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { api } from "../../api";
 import { config } from "../../config";
 import type { WebServer } from "../../servers/web";
-import { HOOK_TIMEOUT, serverUrl } from "./../setup";
-import { buildWebSocket } from "./websocket-helpers";
+import { buildWebSocket, HOOK_TIMEOUT, serverUrl } from "./../setup";
 
 beforeAll(async () => {
   await api.start();

@@ -1,11 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import colors from "colors";
 import { randomUUID } from "crypto";
 import { api, logger } from "../api";
 import { Initializer } from "../classes/Initializer";
 import { ErrorType, TypedError } from "../classes/TypedError";
 import { config } from "../config";
+import { ansi } from "../util/ansi";
 import { buildCorsHeaders, getExternalOrigin } from "../util/http";
 import {
   createMcpServer,
@@ -22,7 +22,7 @@ type McpHandleRequest = (req: Request, ip: string) => Promise<Response>;
 
 const namespace = "mcp";
 
-declare module "../classes/API" {
+declare module "keryx" {
   export interface API {
     [namespace]: Awaited<ReturnType<McpInitializer["initialize"]>>;
   }
@@ -31,9 +31,7 @@ declare module "../classes/API" {
 export class McpInitializer extends Initializer {
   constructor() {
     super(namespace);
-    this.loadPriority = 200;
-    this.startPriority = 560;
-    this.stopPriority = 90;
+    this.dependsOn = ["actions", "oauth", "connections", "pubsub"];
   }
 
   async initialize() {
@@ -236,7 +234,7 @@ export class McpInitializer extends Initializer {
 
     const mcpUrl = `${config.server.web.applicationUrl}${mcpRoute}`;
     const startMessage = `started MCP server @ ${mcpUrl}`;
-    logger.info(logger.colorize ? colors.bgBlue(startMessage) : startMessage);
+    logger.info(logger.colorize ? ansi.bgBlue(startMessage) : startMessage);
   }
 
   async stop() {

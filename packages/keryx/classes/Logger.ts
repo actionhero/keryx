@@ -1,6 +1,5 @@
-import colors from "colors";
-
 import type { configLogger } from "../config/logger";
+import { ansi } from "../util/ansi";
 
 export enum LogLevel {
   trace = "trace",
@@ -133,7 +132,7 @@ export class Logger {
   private logText(level: LogLevel, message: string, data?: any) {
     let timestamp = this.includeTimestamps ? `${new Date().toISOString()}` : "";
     if (this.colorize && timestamp.length > 0) {
-      timestamp = colors.gray(timestamp);
+      timestamp = ansi.gray(timestamp);
     }
 
     let formattedLevel = `[${level}]`;
@@ -146,7 +145,7 @@ export class Logger {
         ? JSON.stringify(data, null, this.jSONObjectParsePadding)
         : "";
     if (this.colorize && prettyObject.length > 0) {
-      prettyObject = colors.cyan(prettyObject);
+      prettyObject = ansi.cyan(prettyObject);
     }
 
     this.outputStream(
@@ -176,17 +175,17 @@ export class Logger {
   private colorFromLogLevel(level: LogLevel) {
     switch (level) {
       case LogLevel.trace:
-        return colors.gray;
+        return ansi.gray;
       case LogLevel.debug:
-        return colors.blue;
+        return ansi.blue;
       case LogLevel.info:
-        return colors.green;
+        return ansi.green;
       case LogLevel.warn:
-        return colors.yellow;
+        return ansi.yellow;
       case LogLevel.error:
-        return colors.red;
+        return ansi.red;
       case LogLevel.fatal:
-        return colors.magenta;
+        return ansi.magenta;
     }
   }
 }

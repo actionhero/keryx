@@ -2,7 +2,9 @@ import { readFileSync } from "fs";
 import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
 import { defineConfig } from "vitepress";
-import llmstxt from "vitepress-plugin-llms";
+import llmstxt, {
+  copyOrDownloadAsMarkdownButtons,
+} from "vitepress-plugin-llms";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(
@@ -27,15 +29,17 @@ This is the Keryx documentation site. Two LLM-friendly documentation formats are
 Each documentation page is available in Markdown format by appending \`.md\` to the URL.
 For example: \`/guide/actions.md\`, \`/reference/config.md\`
 
-## Key Documentation
+## Guide
 
 - Getting Started: /guide/index.md
+- About Keryx: /guide/about.md
 - Actions: /guide/actions.md
+- Streaming: /guide/streaming.md
 - Initializers: /guide/initializers.md
 - Channels: /guide/channels.md
 - Tasks: /guide/tasks.md
 - Middleware: /guide/middleware.md
-- MCP: /guide/mcp.md
+- MCP Server: /guide/mcp.md
 - Configuration: /guide/config.md
 - Plugins: /guide/plugins.md
 - CLI: /guide/cli.md
@@ -43,8 +47,26 @@ For example: \`/guide/actions.md\`, \`/reference/config.md\`
 - Typed Clients: /guide/typed-clients.md
 - Building for AI Agents: /guide/agents.md
 - Caching: /guide/caching.md
+- Security: /guide/security.md
 - Advanced Patterns: /guide/advanced-patterns.md
+- Testing: /guide/testing.md
 - Deployment: /guide/deployment.md
+- Coming from ActionHero: /guide/from-actionhero.md
+- Framework Comparisons: /guide/comparisons.md
+
+## Reference
+
+- Action class: /reference/actions.md
+- Initializer class: /reference/initializers.md
+- API, Connection, Channel, Server, TypedError, Logger: /reference/classes.md
+- Servers (HTTP, WebSocket, CLI, MCP): /reference/servers.md
+- Zod Helpers & Utilities: /reference/utilities.md
+- Configuration Reference: /reference/config.md
+
+## Plugins
+
+- Plugins Overview: /plugins/index.md
+- Resque Admin: /plugins/resque-admin.md
 `;
 
 export function toMarkdownUrl(url: string): string {
@@ -123,10 +145,17 @@ export default defineConfig({
     ],
   ],
 
+  markdown: {
+    config: (md) => {
+      md.use(copyOrDownloadAsMarkdownButtons);
+    },
+  },
+
   themeConfig: {
     logo: "/images/horn.svg",
     nav: [
       { text: "Guide", link: "/guide/" },
+      { text: "Plugins", link: "/plugins/" },
       { text: "Reference", link: "/reference/actions" },
       { text: "Changelog", link: "/changelog" },
       {
@@ -177,7 +206,6 @@ export default defineConfig({
             { text: "Caching", link: "/guide/caching" },
             { text: "Security", link: "/guide/security" },
             { text: "Advanced Patterns", link: "/guide/advanced-patterns" },
-            { text: "Observability", link: "/guide/observability" },
             { text: "Testing", link: "/guide/testing" },
             { text: "Deployment", link: "/guide/deployment" },
           ],
@@ -203,6 +231,16 @@ export default defineConfig({
         {
           text: "Contributing",
           items: [{ text: "Style Guide", link: "/guide/style-guide" }],
+        },
+      ],
+      "/plugins/": [
+        {
+          text: "First-Party Plugins",
+          items: [
+            { text: "Overview", link: "/plugins/" },
+            { text: "Observability", link: "/plugins/observability" },
+            { text: "Resque Admin", link: "/plugins/resque-admin" },
+          ],
         },
       ],
       "/reference/": [

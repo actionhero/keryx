@@ -1,5 +1,5 @@
 ---
-description: How Keryx makes your API automatically available to AI agents via MCP — zero-config tool registration, OAuth 2.1, and typed errors.
+description: Getting started with AI agents — why MCP matters, quick-start walkthrough, Claude Desktop configuration, and what Keryx provides out of the box.
 ---
 
 # Building for AI Agents

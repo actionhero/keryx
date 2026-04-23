@@ -4,7 +4,7 @@ import { config } from "../config";
 
 const namespace = "process";
 
-declare module "../classes/API" {
+declare module "keryx" {
   export interface API {
     [namespace]: Awaited<ReturnType<Process["initialize"]>>;
   }
@@ -13,7 +13,6 @@ declare module "../classes/API" {
 export class Process extends Initializer {
   constructor() {
     super(namespace);
-    this.loadPriority = 2;
   }
 
   async initialize() {

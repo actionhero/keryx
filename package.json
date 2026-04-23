@@ -9,6 +9,7 @@
   "workspaces": [
     "packages/keryx",
     "packages/plugins/observability",
+    "packages/resque-admin",
     "example/backend",
     "example/frontend",
     "docs"
@@ -17,32 +18,39 @@
     "dev": "bun run --parallel dev:example-backend dev:example-frontend",
     "dev:example-backend": "cd example/backend && bun run dev",
     "dev:example-frontend": "cd example/frontend && bun run dev",
-    "tests": "bun test-package && bun test-example-backend && bun test-example-frontend",
+    "dev:resque-admin": "cd packages/resque-admin && bun run dev",
+    "tests": "bun test-package && bun test-plugin-observability && bun test-plugin-resque-admin && bun test-example-backend && bun test-example-frontend",
     "test-package": "cd packages/keryx && bun test",
     "test-plugin-observability": "cd packages/plugins/observability && bun test",
+    "test-plugin-resque-admin": "cd packages/resque-admin && bun test",
     "test-example-backend": "cd example/backend && bun test",
     "test-example-frontend": "cd example/frontend && bun test",
     "lint-package": "cd packages/keryx && bun lint",
     "lint-plugin-observability": "cd packages/plugins/observability && bun lint",
+    "lint-resque-admin": "cd packages/resque-admin && bun lint",
     "lint-example-backend": "cd example/backend && bun lint",
     "lint-example-frontend": "cd example/frontend && bun lint",
     "lint-docs": "cd docs && bun lint",
-    "lint": "bun lint-package && bun lint-plugin-observability && bun lint-example-backend && bun lint-example-frontend && bun lint-docs",
+    "lint": "bun lint-package && bun lint-plugin-observability && bun lint-resque-admin && bun lint-example-backend && bun lint-example-frontend && bun lint-docs",
     "format-package": "cd packages/keryx && bun format",
     "format-plugin-observability": "cd packages/plugins/observability && bun format",
+    "format-resque-admin": "cd packages/resque-admin && bun format",
     "format-example-backend": "cd example/backend && bun format",
     "format-example-frontend": "cd example/frontend && bun format",
     "format-docs": "cd docs && bun format",
-    "format": "bun format-package && bun format-plugin-observability && bun format-example-backend && bun format-example-frontend && bun format-docs",
+    "format": "bun format-package && bun format-plugin-observability && bun format-resque-admin && bun format-example-backend && bun format-example-frontend && bun format-docs",
     "test-docs": "cd docs && bun run test",
     "benchmark": "cd example/backend && bun benchmark",
     "ci": "bun lint && bun tests && bun test-docs",
     "docs:dev": "cd docs && bun run dev",
     "docs:build": "cd docs && bun run build"
   },
+  "overrides": {
+    "ioredis": "^5.10.1"
+  },
   "dependencies": {},
   "devDependencies": {
-    "@biomejs/biome": "^2.4.8",
-    "@types/bun": "^1.1.8"
+    "@biomejs/biome": "^2.4.12",
+    "@types/bun": "^1.3.12"
   }
 }
