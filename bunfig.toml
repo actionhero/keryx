@@ -1,6 +1,11 @@
 [install]
 # Enable workspace support
 workspaces = true
+# Hoist transitive deps so workspace packages can import peer-provided libs
+# (zod, @modelcontextprotocol/sdk, @opentelemetry/api, bun-types) without
+# redeclaring them in every package.json. Bun 1.3 defaults to "isolated",
+# which breaks workspace tests that rely on transitive visibility.
+linker = "hoisted"
 
 [install.scopes]
 # Configure workspace scopes if needed
