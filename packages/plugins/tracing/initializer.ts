@@ -350,12 +350,17 @@ export class TracingPlugin extends Initializer {
   }
 
   async stop() {
-    // Reset tracing to no-ops and flush pending spans
+    // Reset tracing to no-ops and flush pending spans. `api.tracing` may be
+    // undefined if initialize() didn't run (e.g., test fixtures that reload
+    // the api singleton between files) — stop() must still flush pending
+    // spans from a previous start().
     const ns = api.tracing;
-    ns.enabled = false;
-    ns.tracer = createNoopTracer();
-    ns.extractContext = () => context.active();
-    ns.injectContext = () => {};
+    if (ns) {
+      ns.enabled = false;
+      ns.tracer = createNoopTracer();
+      ns.extractContext = () => context.active();
+      ns.injectContext = () => {};
+    }
 
     if (this.tracerProvider) {
       try {
