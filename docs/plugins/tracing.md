@@ -27,6 +27,36 @@ Enable tracing and point at an OTLP HTTP receiver:
 OTEL_TRACING_ENABLED=true OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 bun run start
 ```
 
+## Local Testing with Jaeger
+
+The repo ships a one-container OTLP receiver + UI for local development. Jaeger's `all-in-one` image accepts OTLP/HTTP on port `4318` (matching the plugin's default endpoint) and serves its web UI on port `16686` — no OTel Collector needed.
+
+Run all commands below from the repo root.
+
+Start Jaeger:
+
+```bash
+docker compose -f packages/plugins/tracing/docker-compose.tracing.yaml up -d
+```
+
+Run the example backend with tracing enabled:
+
+```bash
+OTEL_TRACING_ENABLED=true bun dev
+```
+
+Open the UI at [http://localhost:16686](http://localhost:16686), pick `keryx-example-backend` (or whatever `OTEL_SERVICE_NAME` resolves to) in the service dropdown, and click **Find Traces**. A request to `/api/status` will show an HTTP span parenting an `action:*` span; actions that touch Redis or Postgres will show `redis.*` and `drizzle.*` children.
+
+![Jaeger trace for PUT session:create showing the HTTP span parenting an action:session:create span, with redis.get/set/incr/expire and drizzle.select spans nested as children](/images/tracing-jaeger-session-create.png)
+
+Tear it down when you're done:
+
+```bash
+docker compose -f packages/plugins/tracing/docker-compose.tracing.yaml down
+```
+
+Jaeger `all-in-one` is memory-backed — traces are lost on container restart. This is intentional for dev; don't use it for production trace storage.
+
 ## Configuration
 
 The plugin adds its own `config.tracing.*` namespace. All keys can be set via env vars at startup.
