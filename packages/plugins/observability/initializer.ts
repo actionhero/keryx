@@ -1,11 +1,15 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import path from "node:path";
+import { instrumentDrizzleClient } from "@kubiks/otel-drizzle";
 import {
   type Context,
   context,
   metrics,
   propagation,
   type Span,
+  SpanKind,
   type SpanOptions,
+  SpanStatusCode,
   trace,
 } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
@@ -24,12 +28,26 @@ import {
   TraceIdRatioBasedSampler,
 } from "@opentelemetry/sdk-trace-base";
 import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
+import { Redis as RedisClient } from "ioredis";
 import { api, config, Initializer, logger } from "keryx";
+
+/**
+ * Per-request state used to link HTTP spans with their child action spans
+ * and to update the HTTP span name/attributes once the action is resolved.
+ */
+interface RequestState {
+  httpSpan: Span;
+  method: string;
+  parentCtx: Context;
+}
 
 /**
  * OpenTelemetry observability plugin initializer. Provides Prometheus-format
  * metrics and OTLP distributed tracing for HTTP requests, WebSocket connections,
- * action executions, and background tasks.
+ * action executions, background tasks, Redis commands, and Drizzle DB queries.
+ *
+ * All tracing integrations are wired via framework hooks (`api.hooks.*`) —
+ * no direct core modifications required.
  *
  * Register via `config/plugins.ts`:
  * ```ts
@@ -43,9 +61,31 @@ import { api, config, Initializer, logger } from "keryx";
 export class ObservabilityPlugin extends Initializer {
   private tracerProvider?: BasicTracerProvider;
 
+  /**
+   * Plugin-owned AsyncLocalStorage for per-request trace context state. Set in
+   * `beforeRequest` and `beforeJob` via `enterWith` so that `beforeAct` can parent
+   * its action span under the right HTTP/task span without needing to wrap the
+   * remainder of the call with `context.with`.
+   */
+  private requestALS = new AsyncLocalStorage<RequestState>();
+
+  /**
+   * Plugin-owned AsyncLocalStorage for the parent trace context to use when
+   * creating action spans (and their descendants: Redis, Drizzle). Set in
+   * `beforeRequest` (to the HTTP span's context) and `beforeJob` (to the
+   * extracted task trace context).
+   */
+  private parentCtxALS = new AsyncLocalStorage<Context>();
+
   constructor() {
     super("@keryxjs/observability");
-    this.dependsOn = ["observability", "actions", "connections", "servers"];
+    this.dependsOn = [
+      "observability",
+      "actions",
+      "connections",
+      "servers",
+      "hooks",
+    ];
     this.declaresAPIProperty = false;
   }
 
@@ -72,6 +112,9 @@ export class ObservabilityPlugin extends Initializer {
 
     if (config.observability.tracingEnabled) {
       this.startTracing(serviceName);
+      this.registerTracingHooks();
+      this.instrumentRedis();
+      this.instrumentDrizzle();
     }
   }
 
@@ -237,6 +280,189 @@ export class ObservabilityPlugin extends Initializer {
     };
 
     logger.info(`Observability tracing initialized (service: ${serviceName})`);
+  }
+
+  /**
+   * Wire up distributed tracing end-to-end via framework hooks:
+   *  - `web.beforeRequest` / `web.afterRequest`: root HTTP span per request
+   *  - `actions.beforeAct` / `actions.afterAct`: child action span
+   *  - `actions.onEnqueue`: inject W3C trace headers into task params
+   *  - `resque.beforeJob`: extract trace context from task params, establish as parent
+   */
+  private registerTracingHooks() {
+    const tracing = api.observability.tracing;
+
+    api.hooks.web.beforeRequest((req, ctx) => {
+      const method = req.method?.toUpperCase() ?? "";
+      const parentCtx = tracing.extractContext(req.headers);
+      const httpSpan = tracing.tracer.startSpan(
+        method || "HTTP",
+        {
+          kind: SpanKind.SERVER,
+          attributes: {
+            "http.request.method": method,
+            "url.full": req.url,
+          },
+        },
+        parentCtx,
+      );
+      const httpCtx = trace.setSpan(parentCtx, httpSpan);
+      ctx.metadata.otelSpan = httpSpan;
+      ctx.metadata.otelStartCtx = httpCtx;
+      // enterWith persists the store for the remainder of this async task,
+      // so beforeAct (downstream) can read it without an enclosing callback.
+      this.requestALS.enterWith({ httpSpan, method, parentCtx: httpCtx });
+      this.parentCtxALS.enterWith(httpCtx);
+    });
+
+    api.hooks.web.afterRequest((_req, res, ctx) => {
+      const httpSpan = ctx.metadata.otelSpan as Span | undefined;
+      if (!httpSpan) return;
+      httpSpan.setAttribute("http.response.status_code", res.status);
+      if (res.status >= 400) {
+        httpSpan.setStatus({ code: SpanStatusCode.ERROR });
+      } else {
+        httpSpan.setStatus({ code: SpanStatusCode.OK });
+      }
+      httpSpan.end();
+    });
+
+    api.hooks.actions.beforeAct((actionName, _params, connection, actCtx) => {
+      const parentCtx = this.parentCtxALS.getStore() ?? context.active();
+
+      // For web requests, update the HTTP span with route info once the action
+      // is resolved. The request state (with HTTP span ref) was stashed in ALS
+      // by beforeRequest.
+      if (connection.type === "web") {
+        const state = this.requestALS.getStore();
+        if (state) {
+          state.httpSpan.updateName(
+            `${state.method} ${actionName ?? "unknown"}`,
+          );
+          state.httpSpan.setAttribute("http.route", actionName ?? "unknown");
+        }
+      }
+
+      const actionSpan = tracing.tracer.startSpan(
+        `action:${actionName ?? "unknown"}`,
+        {
+          kind: SpanKind.INTERNAL,
+          attributes: {
+            "keryx.action": actionName ?? "unknown",
+            "keryx.connection.type": connection.type,
+          },
+        },
+        parentCtx,
+      );
+      actCtx.metadata.otelSpan = actionSpan;
+      actCtx.metadata.otelStartTime = Date.now();
+      // Make the action span the active parent so Redis/DB spans emitted
+      // during the action become children of it.
+      this.parentCtxALS.enterWith(trace.setSpan(parentCtx, actionSpan));
+    });
+
+    api.hooks.actions.afterAct(
+      (_actionName, _params, _connection, actCtx, outcome) => {
+        const span = actCtx.metadata.otelSpan as Span | undefined;
+        if (!span) return;
+        span.setAttribute("keryx.action.duration_ms", outcome.duration);
+        if (!outcome.success) {
+          const err = outcome.error;
+          if (err instanceof Error) span.recordException(err);
+          span.setStatus({
+            code: SpanStatusCode.ERROR,
+            message: err instanceof Error ? err.message : String(err),
+          });
+        } else {
+          span.setStatus({ code: SpanStatusCode.OK });
+        }
+        span.end();
+      },
+    );
+
+    api.hooks.actions.onEnqueue((_actionName, inputs) => {
+      if (!tracing.enabled) return;
+      const carrier: Record<string, string> = {};
+      tracing.injectContext(carrier);
+      if (!carrier.traceparent) return;
+      const next: Record<string, unknown> = { ...inputs };
+      next._traceParent = carrier.traceparent;
+      if (carrier.tracestate) next._traceState = carrier.tracestate;
+      return next;
+    });
+
+    api.hooks.resque.beforeJob((_actionName, params, _ctx) => {
+      const p = params as Record<string, unknown>;
+      const traceParent = p._traceParent as string | undefined;
+      if (!traceParent) return;
+      const traceState = p._traceState as string | undefined;
+      const headers = new Headers();
+      headers.set("traceparent", traceParent);
+      if (traceState) headers.set("tracestate", traceState);
+      const extractedCtx = tracing.extractContext(headers);
+      // Strip internal framework trace-propagation fields so they don't leak
+      // into the action's validated params.
+      delete p._traceParent;
+      delete p._traceState;
+      this.parentCtxALS.enterWith(extractedCtx);
+    });
+  }
+
+  /**
+   * Wrap ioredis `sendCommand` on the main Redis client to emit a span per
+   * command. Only the general-purpose client is instrumented; the subscription
+   * client uses a different command flow for SUBSCRIBE/PSUBSCRIBE.
+   */
+  private instrumentRedis() {
+    const client = api.redis?.redis as RedisClient | undefined;
+    if (!client) return;
+    const tracer = api.observability.tracing.tracer;
+    const originalSendCommand = client.sendCommand.bind(client);
+    client.sendCommand = function (
+      ...args: Parameters<typeof originalSendCommand>
+    ) {
+      const [command] = args;
+      const commandName = (command as { name?: string }).name ?? "unknown";
+      const span = tracer.startSpan(`redis.${commandName}`, {
+        kind: SpanKind.CLIENT,
+        attributes: {
+          "db.system.name": "redis",
+          "db.operation.name": commandName,
+        },
+      });
+
+      const result: unknown = originalSendCommand(...args);
+      if (result && typeof (result as Promise<unknown>).then === "function") {
+        (result as Promise<unknown>).then(
+          () => span.end(),
+          (e: Error) => {
+            span.recordException(e);
+            span.setStatus({ code: SpanStatusCode.ERROR, message: e.message });
+            span.end();
+          },
+        );
+      } else {
+        span.end();
+      }
+      return result;
+    } as typeof client.sendCommand;
+  }
+
+  /**
+   * Attach `@kubiks/otel-drizzle` instrumentation to the Drizzle client if
+   * the `db` initializer has established one.
+   */
+  private instrumentDrizzle() {
+    const db = (api as { db?: { db?: unknown } }).db?.db;
+    if (!db) return;
+    instrumentDrizzleClient(
+      db as Parameters<typeof instrumentDrizzleClient>[0],
+      {
+        dbSystem: "postgresql",
+        captureQueryText: true,
+        maxQueryTextLength: 1000,
+      },
+    );
   }
 
   async stop() {

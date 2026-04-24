@@ -17,7 +17,7 @@ import { ObservabilityPlugin } from "./initializer";
  */
 export const observabilityPlugin: KeryxPlugin = {
   name: "@keryxjs/observability",
-  version: "0.1.0",
+  version: "0.2.0",
   initializers: [ObservabilityPlugin],
 };
 

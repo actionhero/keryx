@@ -1,6 +1,6 @@
 {
   "name": "@keryxjs/observability",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "module": "index.ts",
   "type": "module",
   "license": "MIT",
@@ -39,6 +39,7 @@
     "format": "tsc && biome check --write ."
   },
   "dependencies": {
+    "@kubiks/otel-drizzle": "^2.1.0",
     "@opentelemetry/context-async-hooks": "^2.0.0",
     "@opentelemetry/core": "^1.30.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.200.0",
@@ -49,7 +50,7 @@
   },
   "peerDependencies": {
     "@opentelemetry/api": "^1.9.0",
-    "keryx": ">=0.25.0"
+    "keryx": ">=0.26.0"
   },
   "publishConfig": {
     "access": "public"
