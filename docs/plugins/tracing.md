@@ -47,7 +47,7 @@ OTEL_TRACING_ENABLED=true bun dev
 
 Open the UI at [http://localhost:16686](http://localhost:16686), pick `keryx-example-backend` (or whatever `OTEL_SERVICE_NAME` resolves to) in the service dropdown, and click **Find Traces**. A request to `/api/status` will show an HTTP span parenting an `action:*` span; actions that touch Redis or Postgres will show `redis.*` and `drizzle.*` children.
 
-![Jaeger trace for PUT session:create showing the HTTP span parenting an action:session:create span, with redis.get/set/incr/expire and drizzle.select spans nested as children](/images/tracing-jaeger-session-create.png)
+![Jaeger trace for PUT session:create: the HTTP span parents action:session:create, which in turn parents redis.get/set/incr/expire and drizzle.select child spans. The detail pane shows redis.set with db.query.text "set session:1aa34179-…" — the key is captured, the value is not.](/images/tracing-jaeger-session-create.png)
 
 Tear it down when you're done:
 
