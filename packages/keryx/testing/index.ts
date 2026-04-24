@@ -16,11 +16,15 @@ export {
 } from "./websocket";
 
 /**
- * Generous lifecycle hook timeout (15s) for `beforeAll` / `afterAll`.
+ * Generous lifecycle hook timeout (60s) for `beforeAll` / `afterAll`.
  *
  * `api.start()` and `api.stop()` connect to Redis, Postgres, run migrations,
- * etc. — slower than a unit test, especially in CI. Pass this as the second
- * argument to `beforeAll` / `afterAll` so hooks don't time out.
+ * load plugins, bring up workers, and start servers. That can comfortably
+ * exceed 15s on a fresh CI runner with Docker service containers, especially
+ * with plugins loaded. If it times out Bun aborts the hook and `api.stop()`
+ * runs against partially-initialized state, which cascades into confusing
+ * "api.mcp is undefined" style errors during cleanup — always prefer a higher
+ * hook timeout over adding null guards to every initializer's `stop()`.
  *
  * Note: `bun:test`'s `setDefaultTimeout` and `bunfig.toml [test].timeout` only
  * apply to `test()` blocks, not lifecycle hooks.
