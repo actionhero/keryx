@@ -320,3 +320,74 @@ describe("onEnqueue hook", () => {
     expect(jobs[0].args[0]).toEqual({ val: "chain", a: 1, b: 2 });
   });
 });
+
+describe("Redis disconnect during enqueue (issue #385)", () => {
+  // Each test disconnects the primary client to simulate a Redis outage during
+  // enqueue. We MUST reconnect before the test ends — the shared `beforeEach`
+  // flushdb call on the primary client would otherwise fail for the next test.
+  afterEach(async () => {
+    if (api.redis.redis.status !== "ready") {
+      try {
+        await api.redis.redis.connect();
+      } catch {
+        // already connecting or connected — fall through to waitFor
+      }
+      await waitFor(() => api.redis.redis.status === "ready");
+    }
+  });
+
+  test("rejects and leaves no phantom task when Redis is unreachable", async () => {
+    api.redis.redis.disconnect(false);
+    await waitFor(() => api.redis.redis.status === "end");
+
+    await expect(
+      api.actions.enqueue("test_action", { val: "x" }),
+    ).rejects.toThrow(/Connection is closed/);
+
+    // Reconnect so we can inspect queue state for a phantom task.
+    await api.redis.redis.connect();
+    await waitFor(() => api.redis.redis.status === "ready");
+
+    const jobs = await api.actions.queued();
+    expect(jobs.filter((j) => j.class === "test_action")).toHaveLength(0);
+
+    const delayed = await api.actions.allDelayed();
+    expect(delayed).toEqual({});
+  });
+
+  test("subsequent enqueue succeeds after the primary client reconnects", async () => {
+    api.redis.redis.disconnect(false);
+    await waitFor(() => api.redis.redis.status === "end");
+
+    await api.redis.redis.connect();
+    await waitFor(() => api.redis.redis.status === "ready");
+
+    const ok = await api.actions.enqueue("test_action", {
+      val: "after-reconnect",
+    });
+    expect(ok).toBe(true);
+
+    const jobs = await api.actions.queued();
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].class).toBe("test_action");
+    expect(jobs[0].args[0].val).toBe("after-reconnect");
+  });
+
+  test("retry after a failed enqueue does not double-enqueue", async () => {
+    api.redis.redis.disconnect(false);
+    await waitFor(() => api.redis.redis.status === "end");
+
+    await expect(
+      api.actions.enqueue("test_action", { val: "retry" }),
+    ).rejects.toThrow(/Connection is closed/);
+
+    await api.redis.redis.connect();
+    await waitFor(() => api.redis.redis.status === "ready");
+
+    const ok = await api.actions.enqueue("test_action", { val: "retry" });
+    expect(ok).toBe(true);
+
+    const jobs = await api.actions.queued();
+    expect(jobs.filter((j) => j.class === "test_action")).toHaveLength(1);
+  });
+});
