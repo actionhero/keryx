@@ -130,10 +130,6 @@ export class Actions extends Initializer {
     }
     queue = queue ?? action?.task?.queue ?? DEFAULT_QUEUE;
     const finalInputs = await this.runOnEnqueueHooks(actionName, inputs, queue);
-    api.observability.task.enqueuedTotal.add(1, {
-      action: actionName,
-      queue,
-    });
     return api.resque.queue.enqueue(queue, actionName, [finalInputs]);
   };
 

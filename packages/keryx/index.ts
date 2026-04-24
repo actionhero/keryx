@@ -37,6 +37,11 @@ export { ErrorStatusCodes, ErrorType, TypedError } from "./classes/TypedError";
 export type { KeryxConfig } from "./config";
 export type { OnEnqueueHook } from "./initializers/actionts";
 export type {
+  OnMcpConnectHook,
+  OnMcpDisconnectHook,
+  OnMcpMessageHook,
+} from "./initializers/mcp";
+export type {
   AfterJobHook,
   BeforeJobHook,
   JobContext,
@@ -48,7 +53,11 @@ export { TransactionMiddleware } from "./middleware/transaction";
 export type {
   AfterRequestHook,
   BeforeRequestHook,
+  OnConnectHook,
+  OnDisconnectHook,
+  OnMessageHook,
   RequestContext,
+  RequestOutcome,
   WebServer,
 } from "./servers/web";
 export { buildProgram } from "./util/cli";

@@ -70,22 +70,23 @@ The return type of `initialize()` becomes `api[namespace]` — autocomplete, typ
 
 Each framework initializer declares what it depends on:
 
-| Initializer     | `dependsOn`                                     |
-| --------------- | ----------------------------------------------- |
-| `connections`   | `[]`                                            |
-| `signals`       | `[]`                                            |
-| `process`       | `[]`                                            |
-| `db`            | `[]`                                            |
-| `redis`         | `[]`                                            |
-| `actions`       | `[]`                                            |
-| `observability` | `["actions", "connections"]`                    |
-| `swagger`       | `["actions"]`                                   |
-| `session`       | `["redis"]`                                     |
-| `oauth`         | `["redis", "actions"]`                          |
-| `pubsub`        | `["redis", "connections"]`                      |
-| `channels`      | `["redis", "pubsub"]`                           |
-| `servers`       | `["actions"]`                                   |
-| `mcp`           | `["actions", "oauth", "connections", "pubsub"]` |
-| `resque`        | `["redis", "actions", "process"]`               |
+| Initializer     | `dependsOn`                                              |
+| --------------- | -------------------------------------------------------- |
+| `connections`   | `[]`                                                     |
+| `signals`       | `[]`                                                     |
+| `process`       | `[]`                                                     |
+| `db`            | `[]`                                                     |
+| `redis`         | `[]`                                                     |
+| `hooks`         | `[]`                                                     |
+| `actions`       | `["hooks"]`                                              |
+| `observability` | `["hooks", "actions", "connections"]`                    |
+| `swagger`       | `["actions"]`                                            |
+| `session`       | `["redis"]`                                              |
+| `oauth`         | `["redis", "actions"]`                                   |
+| `pubsub`        | `["redis", "connections"]`                               |
+| `channels`      | `["redis", "pubsub"]`                                    |
+| `servers`       | `["actions", "hooks"]`                                   |
+| `mcp`           | `["hooks", "actions", "oauth", "connections", "pubsub"]` |
+| `resque`        | `["redis", "actions", "process", "hooks"]`               |
 
 The resolved graph is rendered to the logs at startup. See the [initializers guide](../guide/initializers.md) for sample output.
