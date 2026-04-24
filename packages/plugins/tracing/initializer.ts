@@ -91,7 +91,7 @@ export class TracingPlugin extends Initializer {
   }
 
   async start() {
-    if (!config.observability.tracingEnabled) return;
+    if (!config.tracing.enabled) return;
 
     // Resolve service name: env var > app package.json name > "keryx"
     let appPkgName: string | undefined;
@@ -118,21 +118,19 @@ export class TracingPlugin extends Initializer {
     });
 
     const exporter = new OTLPTraceExporter({
-      url: `${config.observability.otlpEndpoint}/v1/traces`,
+      url: `${config.tracing.otlpEndpoint}/v1/traces`,
     });
 
-    const sampler = new TraceIdRatioBasedSampler(
-      config.observability.tracingSampleRate,
-    );
+    const sampler = new TraceIdRatioBasedSampler(config.tracing.sampleRate);
 
     this.tracerProvider = new BasicTracerProvider({
       resource,
       sampler,
       spanProcessors: [
         new BatchSpanProcessor(exporter, {
-          maxQueueSize: config.observability.spanQueueSize,
-          maxExportBatchSize: config.observability.spanBatchSize,
-          scheduledDelayMillis: config.observability.spanExportDelayMs,
+          maxQueueSize: config.tracing.spanQueueSize,
+          maxExportBatchSize: config.tracing.spanBatchSize,
+          scheduledDelayMillis: config.tracing.spanExportDelayMs,
         }),
       ],
     });
@@ -366,7 +364,7 @@ export class TracingPlugin extends Initializer {
           new Promise<void>((_, reject) =>
             setTimeout(
               () => reject(new Error("Span export timed out on shutdown")),
-              config.observability.spanShutdownTimeoutMs,
+              config.tracing.spanShutdownTimeoutMs,
             ),
           ),
         ]);

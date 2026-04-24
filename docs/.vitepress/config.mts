@@ -49,6 +49,7 @@ For example: \`/guide/actions.md\`, \`/reference/config.md\`
 - Caching: /guide/caching.md
 - Security: /guide/security.md
 - Advanced Patterns: /guide/advanced-patterns.md
+- Observability: /guide/observability.md
 - Testing: /guide/testing.md
 - Deployment: /guide/deployment.md
 - Coming from ActionHero: /guide/from-actionhero.md
@@ -66,6 +67,7 @@ For example: \`/guide/actions.md\`, \`/reference/config.md\`
 ## Plugins
 
 - Plugins Overview: /plugins/index.md
+- Tracing: /plugins/tracing.md
 - Resque Admin: /plugins/resque-admin.md
 `;
 

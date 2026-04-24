@@ -23,10 +23,10 @@ Install the plugin package, then add it to your config:
 
 ```ts
 // config/plugins.ts
-import { tracingPlugin } from "@keryxjs/tracing";
+import { resqueAdminPlugin } from "@keryxjs/resque-admin";
 
 export default {
-  plugins: [tracingPlugin],
+  plugins: [resqueAdminPlugin],
 };
 ```
 

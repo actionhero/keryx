@@ -27,13 +27,13 @@ propagation.setGlobalPropagator(new W3CTraceContextPropagator());
 trace.setGlobalTracerProvider(testProvider);
 
 beforeAll(async () => {
-  config.observability.tracingEnabled = true;
+  config.tracing.enabled = true;
   await api.start();
 }, HOOK_TIMEOUT);
 
 afterAll(async () => {
   await api.stop();
-  config.observability.tracingEnabled = false;
+  config.tracing.enabled = false;
   await testProvider.shutdown();
 }, HOOK_TIMEOUT);
 

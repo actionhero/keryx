@@ -29,16 +29,18 @@ OTEL_TRACING_ENABLED=true OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 bun 
 
 ## Configuration
 
-| Config Key              | Env Var                          | Default                   | Description                                             |
-| ----------------------- | -------------------------------- | ------------------------- | ------------------------------------------------------- |
-| `tracingEnabled`        | `OTEL_TRACING_ENABLED`           | `false`                   | Master toggle for tracing                               |
-| `otlpEndpoint`          | `OTEL_EXPORTER_OTLP_ENDPOINT`    | `"http://localhost:4318"` | OTLP HTTP receiver (Jaeger, Tempo, Honeycomb, Datadog…) |
-| `tracingSampleRate`     | `OTEL_TRACING_SAMPLE_RATE`       | `1.0`                     | Head-based sampling ratio (0–1)                         |
-| `serviceName`           | `OTEL_SERVICE_NAME`              | _(app name)_              | Service name set on all spans                           |
-| `spanQueueSize`         | `OTEL_SPAN_QUEUE_SIZE`           | `2048`                    | Max spans buffered before dropping                      |
-| `spanBatchSize`         | `OTEL_SPAN_BATCH_SIZE`           | `512`                     | Max spans per export batch                              |
-| `spanExportDelayMs`     | `OTEL_SPAN_EXPORT_DELAY_MS`      | `5000`                    | Delay between scheduled batch exports                   |
-| `spanShutdownTimeoutMs` | `OTEL_SPAN_SHUTDOWN_TIMEOUT_MS`  | `5000`                    | Timeout for flushing pending spans on shutdown          |
+The plugin adds its own `config.tracing.*` namespace. All keys can be set via env vars at startup.
+
+| Config Key                      | Env Var                          | Default                   | Description                                             |
+| ------------------------------- | -------------------------------- | ------------------------- | ------------------------------------------------------- |
+| `tracing.enabled`               | `OTEL_TRACING_ENABLED`           | `false`                   | Master toggle for tracing                               |
+| `tracing.otlpEndpoint`          | `OTEL_EXPORTER_OTLP_ENDPOINT`    | `"http://localhost:4318"` | OTLP HTTP receiver (Jaeger, Tempo, Honeycomb, Datadog…) |
+| `tracing.sampleRate`            | `OTEL_TRACING_SAMPLE_RATE`       | `1.0`                     | Head-based sampling ratio (0–1)                         |
+| `tracing.spanQueueSize`         | `OTEL_SPAN_QUEUE_SIZE`           | `2048`                    | Max spans buffered before dropping                      |
+| `tracing.spanBatchSize`         | `OTEL_SPAN_BATCH_SIZE`           | `512`                     | Max spans per export batch                              |
+| `tracing.spanExportDelayMs`     | `OTEL_SPAN_EXPORT_DELAY_MS`      | `5000`                    | Delay between scheduled batch exports                   |
+| `tracing.spanShutdownTimeoutMs` | `OTEL_SPAN_SHUTDOWN_TIMEOUT_MS`  | `5000`                    | Timeout for flushing pending spans on shutdown          |
+| `observability.serviceName`     | `OTEL_SERVICE_NAME`              | _(app name)_              | Service name set on all spans (shared with core metrics) |
 
 ## What Gets Instrumented
 
