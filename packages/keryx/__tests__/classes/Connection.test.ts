@@ -540,3 +540,160 @@ describe("Action timeouts", () => {
     );
   });
 });
+
+describe("action lifecycle hooks (api.hooks.actions.beforeAct / afterAct)", () => {
+  const resetHooks = () => {
+    const hooksInitializer = api.initializers.find((i) => i.name === "hooks");
+    (hooksInitializer as any).actionsBeforeAct.length = 0;
+    (hooksInitializer as any).actionsAfterAct.length = 0;
+  };
+
+  class EchoAction extends Action {
+    constructor() {
+      super({
+        name: "test:echo",
+        description: "Echoes params back",
+        inputs: z.object({ val: z.string() }),
+      });
+    }
+    async run(params: { val: string }) {
+      return { echoed: params.val };
+    }
+  }
+
+  class ExplodeAction extends Action {
+    constructor() {
+      super({
+        name: "test:explode",
+        description: "Throws",
+        inputs: z.object({}),
+      });
+    }
+    async run(): Promise<unknown> {
+      throw new Error("boom");
+    }
+  }
+
+  beforeAll(() => {
+    api.actions.actions.push(new EchoAction());
+    api.actions.actions.push(new ExplodeAction());
+  });
+
+  afterAll(() => {
+    api.actions.actions = api.actions.actions.filter(
+      (a: Action) => a.name !== "test:echo" && a.name !== "test:explode",
+    );
+    resetHooks();
+  });
+
+  test("beforeAct fires with connection, actionName, and params", async () => {
+    resetHooks();
+    const seen: Array<{
+      actionName: string;
+      params: any;
+      type: string;
+    }> = [];
+    api.hooks.actions.beforeAct((actionName, params, connection) => {
+      seen.push({ actionName, params, type: connection.type });
+    });
+
+    const conn = new Connection("cli", "hook-test-cli");
+    await conn.act("test:echo", { val: "hi" });
+
+    expect(seen).toEqual([
+      { actionName: "test:echo", params: { val: "hi" }, type: "cli" },
+    ]);
+  });
+
+  test("afterAct receives success outcome with response", async () => {
+    resetHooks();
+    const outcomes: Array<{
+      success: boolean;
+      response?: unknown;
+      duration: number;
+    }> = [];
+    api.hooks.actions.afterAct((_name, _params, _conn, _ctx, outcome) => {
+      outcomes.push({
+        success: outcome.success,
+        response: outcome.success ? outcome.response : undefined,
+        duration: outcome.duration,
+      });
+    });
+
+    const conn = new Connection("task", "hook-test-task");
+    await conn.act("test:echo", { val: "ok" });
+
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0].success).toBe(true);
+    expect(outcomes[0].response).toEqual({ echoed: "ok" });
+    expect(outcomes[0].duration).toBeGreaterThanOrEqual(0);
+  });
+
+  test("afterAct receives failure outcome when action throws", async () => {
+    resetHooks();
+    const outcomes: Array<{ success: boolean; errorMessage?: string }> = [];
+    api.hooks.actions.afterAct((_name, _params, _conn, _ctx, outcome) => {
+      outcomes.push({
+        success: outcome.success,
+        errorMessage: outcome.success
+          ? undefined
+          : (outcome.error as { message?: string })?.message,
+      });
+    });
+
+    const conn = new Connection("websocket", "hook-test-ws");
+    await conn.act("test:explode", {});
+
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0].success).toBe(false);
+    expect(outcomes[0].errorMessage).toContain("boom");
+  });
+
+  test("ctx.metadata flows from beforeAct to afterAct", async () => {
+    resetHooks();
+    let carried: unknown;
+    api.hooks.actions.beforeAct((_name, _params, _conn, ctx) => {
+      ctx.metadata.marker = "threaded";
+    });
+    api.hooks.actions.afterAct((_name, _params, _conn, ctx) => {
+      carried = ctx.metadata.marker;
+    });
+
+    const conn = new Connection("cli", "hook-test-ctx");
+    await conn.act("test:echo", { val: "x" });
+
+    expect(carried).toBe("threaded");
+  });
+
+  test("hooks do not fire when the action is not found", async () => {
+    resetHooks();
+    let fired = 0;
+    api.hooks.actions.beforeAct(() => {
+      fired++;
+    });
+    api.hooks.actions.afterAct(() => {
+      fired++;
+    });
+
+    const conn = new Connection("cli", "hook-test-missing");
+    const { error } = await conn.act("test:not-a-real-action", {});
+    expect(error?.type).toBe(ErrorType.CONNECTION_ACTION_NOT_FOUND);
+    expect(fired).toBe(0);
+  });
+
+  test("hooks do not fire when param validation fails", async () => {
+    resetHooks();
+    let fired = 0;
+    api.hooks.actions.beforeAct(() => {
+      fired++;
+    });
+    api.hooks.actions.afterAct(() => {
+      fired++;
+    });
+
+    const conn = new Connection("cli", "hook-test-bad-params");
+    const { error } = await conn.act("test:echo", {}); // missing required `val`
+    expect(error).toBeDefined();
+    expect(fired).toBe(0);
+  });
+});

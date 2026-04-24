@@ -5,6 +5,7 @@ import "./initializers/actionts";
 import "./initializers/channels";
 import "./initializers/connections";
 import "./initializers/db";
+import "./initializers/hooks";
 import "./initializers/mcp";
 import "./initializers/oauth";
 import "./initializers/observability";
@@ -22,16 +23,34 @@ export type { ActionMiddleware } from "./classes/Action";
 export { HTTP_METHOD, MCP_RESPONSE_FORMAT } from "./classes/Action";
 export type { ChannelMiddleware } from "./classes/Channel";
 export { CHANNEL_NAME_PATTERN } from "./classes/Channel";
+export type {
+  ActContext,
+  ActOutcome,
+  AfterActHook,
+  BeforeActHook,
+} from "./classes/Connection";
 export { Connection } from "./classes/Connection";
 export { LogLevel } from "./classes/Logger";
 export type { KeryxPlugin, PluginGenerator } from "./classes/Plugin";
 export { SSEResponse, StreamingResponse } from "./classes/StreamingResponse";
 export { ErrorStatusCodes, ErrorType, TypedError } from "./classes/TypedError";
 export type { KeryxConfig } from "./config";
+export type { OnEnqueueHook } from "./initializers/actionts";
+export type {
+  AfterJobHook,
+  BeforeJobHook,
+  JobContext,
+  JobOutcome,
+} from "./initializers/resque";
 export type { SessionData } from "./initializers/session";
 export { checkRateLimit, RateLimitMiddleware } from "./middleware/rateLimit";
 export { TransactionMiddleware } from "./middleware/transaction";
-export type { WebServer } from "./servers/web";
+export type {
+  AfterRequestHook,
+  BeforeRequestHook,
+  RequestContext,
+  WebServer,
+} from "./servers/web";
 export { buildProgram } from "./util/cli";
 export { deepMerge, deepMergeDefaults, loadFromEnvIfSet } from "./util/config";
 export { getValidTypes } from "./util/generate";
