@@ -4,7 +4,6 @@ import { instrumentDrizzleClient } from "@kubiks/otel-drizzle";
 import {
   type Context,
   context,
-  metrics,
   propagation,
   type Span,
   SpanKind,
@@ -17,19 +16,20 @@ import { W3CTraceContextPropagator } from "@opentelemetry/core";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import {
-  InstrumentType,
-  MeterProvider,
-  PeriodicExportingMetricReader,
-  type ResourceMetrics,
-} from "@opentelemetry/sdk-metrics";
-import {
   BasicTracerProvider,
   BatchSpanProcessor,
   TraceIdRatioBasedSampler,
 } from "@opentelemetry/sdk-trace-base";
 import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
-import { Redis as RedisClient } from "ioredis";
 import { api, config, Initializer, logger } from "keryx";
+
+const namespace = "tracing";
+
+declare module "keryx" {
+  export interface API {
+    [namespace]: Awaited<ReturnType<ObservabilityPlugin["initialize"]>>;
+  }
+}
 
 /**
  * Per-request state used to link HTTP spans with their child action spans
@@ -42,12 +42,12 @@ interface RequestState {
 }
 
 /**
- * OpenTelemetry observability plugin initializer. Provides Prometheus-format
- * metrics and OTLP distributed tracing for HTTP requests, WebSocket connections,
- * action executions, background tasks, Redis commands, and Drizzle DB queries.
+ * OpenTelemetry tracing plugin for Keryx. Provides OTLP distributed tracing for
+ * HTTP requests, actions, background tasks, Redis commands, and Drizzle DB
+ * queries via framework hooks (`api.hooks.*`) — no direct core modifications.
  *
- * All tracing integrations are wired via framework hooks (`api.hooks.*`) —
- * no direct core modifications required.
+ * Exposes `api.tracing` (no-op by default). Metrics are handled by the core
+ * `Observability` initializer; this plugin is tracing-only.
  *
  * Register via `config/plugins.ts`:
  * ```ts
@@ -55,17 +55,16 @@ interface RequestState {
  * export default { plugins: [observabilityPlugin] };
  * ```
  *
- * Enable metrics: `OTEL_METRICS_ENABLED=true`
- * Enable tracing: `OTEL_TRACING_ENABLED=true`
+ * Enable with `OTEL_TRACING_ENABLED=true`.
  */
 export class ObservabilityPlugin extends Initializer {
   private tracerProvider?: BasicTracerProvider;
 
   /**
    * Plugin-owned AsyncLocalStorage for per-request trace context state. Set in
-   * `beforeRequest` and `beforeJob` via `enterWith` so that `beforeAct` can parent
-   * its action span under the right HTTP/task span without needing to wrap the
-   * remainder of the call with `context.with`.
+   * `beforeRequest` via `enterWith` so that `beforeAct` can update the HTTP span's
+   * name with the resolved action route without needing to wrap subsequent hook
+   * calls with `context.with`.
    */
   private requestALS = new AsyncLocalStorage<RequestState>();
 
@@ -78,21 +77,22 @@ export class ObservabilityPlugin extends Initializer {
   private parentCtxALS = new AsyncLocalStorage<Context>();
 
   constructor() {
-    super("@keryxjs/observability");
-    this.dependsOn = [
-      "observability",
-      "actions",
-      "connections",
-      "servers",
-      "hooks",
-    ];
-    this.declaresAPIProperty = false;
+    super(namespace);
+    this.dependsOn = ["hooks", "actions", "connections", "servers"];
   }
 
-  // initialize() is intentionally omitted — the core Observability stub
-  // already establishes api.observability with no-op defaults.
+  async initialize() {
+    return {
+      enabled: false,
+      tracer: createNoopTracer(),
+      extractContext: (_headers: Headers): Context => context.active(),
+      injectContext: (_carrier: Record<string, string>): void => {},
+    };
+  }
 
   async start() {
+    if (!config.observability.tracingEnabled) return;
+
     // Resolve service name: env var > app package.json name > "keryx"
     let appPkgName: string | undefined;
     try {
@@ -106,124 +106,10 @@ export class ObservabilityPlugin extends Initializer {
     const serviceName =
       config.observability.serviceName || appPkgName || "keryx";
 
-    if (config.observability.enabled) {
-      this.startMetrics(serviceName);
-    }
-
-    if (config.observability.tracingEnabled) {
-      this.startTracing(serviceName);
-      this.registerTracingHooks();
-      this.instrumentRedis();
-      this.instrumentDrizzle();
-    }
-  }
-
-  private startMetrics(serviceName: string) {
-    // Validate no action route conflicts with the metrics route
-    const metricsRoute = config.observability.metricsRoute;
-    const apiRoute = config.server.web.apiRoute;
-    for (const action of api.actions.actions) {
-      if (!action.web?.route) continue;
-      const route = action.web.route;
-
-      if (route instanceof RegExp) {
-        const metricsPathWithoutApi = metricsRoute.startsWith(apiRoute)
-          ? metricsRoute.slice(apiRoute.length)
-          : null;
-        if (
-          metricsPathWithoutApi !== null &&
-          route.test(metricsPathWithoutApi)
-        ) {
-          throw new Error(
-            `Metrics route "${metricsRoute}" conflicts with action "${action.name}" route pattern ${route}`,
-          );
-        }
-      } else {
-        const fullRoute = apiRoute + route;
-        if (fullRoute === metricsRoute) {
-          throw new Error(
-            `Metrics route "${metricsRoute}" conflicts with action "${action.name}" route "${fullRoute}"`,
-          );
-        }
-      }
-    }
-
-    // Create a MetricReader so we can collect on demand for the /metrics endpoint
-    const reader = new PeriodicExportingMetricReader({
-      exporter: new NoopMetricExporter(),
-      exportIntervalMillis: 60_000, // we mostly collect on demand
-      exportTimeoutMillis: 10_000,
-    });
-
-    const meterProvider = new MeterProvider({ readers: [reader] });
-    metrics.setGlobalMeterProvider(meterProvider);
-    const meter = meterProvider.getMeter(serviceName);
-
-    const ns = api.observability;
-    ns.enabled = true;
-
-    // --- HTTP Metrics ---
-    ns.http.requestsTotal = meter.createCounter("keryx.http.requests", {
-      description: "Total number of HTTP requests received",
-    });
-    ns.http.requestDuration = meter.createHistogram(
-      "keryx.http.request.duration",
-      { description: "HTTP request duration in milliseconds", unit: "ms" },
-    );
-    ns.http.activeConnections = meter.createUpDownCounter(
-      "keryx.http.active_connections",
-      { description: "Number of active HTTP connections" },
-    );
-
-    // --- WebSocket Metrics ---
-    ns.ws.connections = meter.createUpDownCounter("keryx.ws.connections", {
-      description: "Number of active WebSocket connections",
-    });
-    ns.ws.messagesTotal = meter.createCounter("keryx.ws.messages", {
-      description: "Total WebSocket messages received",
-    });
-
-    // --- Action Metrics ---
-    ns.action.executionsTotal = meter.createCounter("keryx.action.executions", {
-      description: "Total action executions",
-    });
-    ns.action.duration = meter.createHistogram("keryx.action.duration", {
-      description: "Action execution duration in milliseconds",
-      unit: "ms",
-    });
-
-    // --- Task Metrics ---
-    ns.task.enqueuedTotal = meter.createCounter("keryx.task.enqueued", {
-      description: "Total tasks enqueued",
-    });
-    ns.task.executedTotal = meter.createCounter("keryx.task.executed", {
-      description: "Total tasks executed by workers",
-    });
-    ns.task.duration = meter.createHistogram("keryx.task.duration", {
-      description: "Task execution duration in milliseconds",
-      unit: "ms",
-    });
-
-    // --- System Metrics (observable gauges) ---
-    meter
-      .createObservableGauge("keryx.system.connections", {
-        description: "Current number of connections",
-      })
-      .addCallback((result) => {
-        if (api.connections?.connections) {
-          result.observe(api.connections.connections.size);
-        }
-      });
-
-    ns.collectMetrics = async () => {
-      const { resourceMetrics, errors } = await reader.collect();
-      if (errors?.length) {
-        logger.warn(`Metrics collection errors: ${errors.join(", ")}`);
-      }
-      return serializeToPrometheus(resourceMetrics);
-    };
-
-    logger.info(`Observability metrics initialized (service: ${serviceName})`);
+    this.startTracing(serviceName);
+    this.registerTracingHooks();
+    this.instrumentRedis();
+    this.instrumentDrizzle();
   }
 
   private startTracing(serviceName: string) {
@@ -260,7 +146,7 @@ export class ObservabilityPlugin extends Initializer {
     propagation.setGlobalPropagator(new W3CTraceContextPropagator());
     trace.setGlobalTracerProvider(this.tracerProvider);
 
-    const ns = api.observability.tracing;
+    const ns = api.tracing;
     ns.enabled = true;
     ns.tracer = trace.getTracer(serviceName);
 
@@ -290,7 +176,7 @@ export class ObservabilityPlugin extends Initializer {
    *  - `resque.beforeJob`: extract trace context from task params, establish as parent
    */
   private registerTracingHooks() {
-    const tracing = api.observability.tracing;
+    const tracing = api.tracing;
 
     api.hooks.web.beforeRequest((req, ctx) => {
       const method = req.method?.toUpperCase() ?? "";
@@ -308,18 +194,20 @@ export class ObservabilityPlugin extends Initializer {
       );
       const httpCtx = trace.setSpan(parentCtx, httpSpan);
       ctx.metadata.otelSpan = httpSpan;
-      ctx.metadata.otelStartCtx = httpCtx;
       // enterWith persists the store for the remainder of this async task,
       // so beforeAct (downstream) can read it without an enclosing callback.
       this.requestALS.enterWith({ httpSpan, method, parentCtx: httpCtx });
       this.parentCtxALS.enterWith(httpCtx);
     });
 
-    api.hooks.web.afterRequest((_req, res, ctx) => {
+    api.hooks.web.afterRequest((_req, _res, ctx, outcome) => {
       const httpSpan = ctx.metadata.otelSpan as Span | undefined;
       if (!httpSpan) return;
-      httpSpan.setAttribute("http.response.status_code", res.status);
-      if (res.status >= 400) {
+      httpSpan.setAttribute("http.response.status_code", outcome.status);
+      if (outcome.actionName) {
+        httpSpan.setAttribute("http.route", outcome.actionName);
+      }
+      if (outcome.status >= 400) {
         httpSpan.setStatus({ code: SpanStatusCode.ERROR });
       } else {
         httpSpan.setStatus({ code: SpanStatusCode.OK });
@@ -330,16 +218,15 @@ export class ObservabilityPlugin extends Initializer {
     api.hooks.actions.beforeAct((actionName, _params, connection, actCtx) => {
       const parentCtx = this.parentCtxALS.getStore() ?? context.active();
 
-      // For web requests, update the HTTP span with route info once the action
-      // is resolved. The request state (with HTTP span ref) was stashed in ALS
-      // by beforeRequest.
+      // For web requests, update the HTTP span's name with the resolved route
+      // once we know it. The request state (with HTTP span ref) was stashed
+      // in ALS by beforeRequest.
       if (connection.type === "web") {
         const state = this.requestALS.getStore();
         if (state) {
           state.httpSpan.updateName(
             `${state.method} ${actionName ?? "unknown"}`,
           );
-          state.httpSpan.setAttribute("http.route", actionName ?? "unknown");
         }
       }
 
@@ -355,7 +242,6 @@ export class ObservabilityPlugin extends Initializer {
         parentCtx,
       );
       actCtx.metadata.otelSpan = actionSpan;
-      actCtx.metadata.otelStartTime = Date.now();
       // Make the action span the active parent so Redis/DB spans emitted
       // during the action become children of it.
       this.parentCtxALS.enterWith(trace.setSpan(parentCtx, actionSpan));
@@ -414,9 +300,9 @@ export class ObservabilityPlugin extends Initializer {
    * client uses a different command flow for SUBSCRIBE/PSUBSCRIBE.
    */
   private instrumentRedis() {
-    const client = api.redis?.redis as RedisClient | undefined;
+    const client = api.redis?.redis;
     if (!client) return;
-    const tracer = api.observability.tracing.tracer;
+    const tracer = api.tracing.tracer;
     const originalSendCommand = client.sendCommand.bind(client);
     client.sendCommand = function (
       ...args: Parameters<typeof originalSendCommand>
@@ -466,34 +352,12 @@ export class ObservabilityPlugin extends Initializer {
   }
 
   async stop() {
-    // Reset metrics to no-ops
-    const noopAdd = (
-      _value: number,
-      _attributes?: Record<string, string>,
-    ) => {};
-    const noopRecord = (
-      _value: number,
-      _attributes?: Record<string, string>,
-    ) => {};
-    const ns = api.observability;
-    ns.enabled = false;
-    ns.http.requestsTotal = { add: noopAdd };
-    ns.http.requestDuration = { record: noopRecord };
-    ns.http.activeConnections = { add: noopAdd };
-    ns.ws.connections = { add: noopAdd };
-    ns.ws.messagesTotal = { add: noopAdd };
-    ns.action.executionsTotal = { add: noopAdd };
-    ns.action.duration = { record: noopRecord };
-    ns.task.enqueuedTotal = { add: noopAdd };
-    ns.task.executedTotal = { add: noopAdd };
-    ns.task.duration = { record: noopRecord };
-    ns.collectMetrics = async () => "";
-
     // Reset tracing to no-ops and flush pending spans
-    ns.tracing.enabled = false;
-    ns.tracing.tracer = createNoopTracer();
-    ns.tracing.extractContext = () => context.active();
-    ns.tracing.injectContext = () => {};
+    const ns = api.tracing;
+    ns.enabled = false;
+    ns.tracer = createNoopTracer();
+    ns.extractContext = () => context.active();
+    ns.injectContext = () => {};
 
     if (this.tracerProvider) {
       try {
@@ -514,7 +378,7 @@ export class ObservabilityPlugin extends Initializer {
   }
 }
 
-// --- No-op helpers used in stop() to reset tracing state ---
+// --- No-op helpers used when tracing is disabled or stopped ---
 
 /** No-op span that satisfies the OTel Span interface with zero overhead. */
 const noopSpan: Span = {
@@ -552,122 +416,4 @@ function createNoopTracer() {
       return fn(noopSpan) as ReturnType<F>;
     },
   };
-}
-
-/**
- * A no-op exporter that discards all data. We use PeriodicExportingMetricReader
- * only for its `collect()` method — actual export happens via our `/metrics` route.
- */
-class NoopMetricExporter {
-  export(
-    _metrics: ResourceMetrics,
-    resultCallback: (result: { code: number }) => void,
-  ) {
-    resultCallback({ code: 0 });
-  }
-  async shutdown() {}
-  async forceFlush() {}
-}
-
-// --- Prometheus text format serialization ---
-
-/**
- * Serialize OTel ResourceMetrics to Prometheus exposition format.
- * Supports Counter, Histogram, Gauge, and UpDownCounter metric types.
- */
-function serializeToPrometheus(resourceMetrics: ResourceMetrics): string {
-  const lines: string[] = [];
-
-  for (const scopeMetrics of resourceMetrics?.scopeMetrics ?? []) {
-    for (const metric of scopeMetrics.metrics ?? []) {
-      const name = sanitizeMetricName(metric.descriptor.name);
-      const help = metric.descriptor.description || "";
-      const type = otelTypeToPrometheus(metric.descriptor.type);
-
-      lines.push(`# HELP ${name} ${help}`);
-      lines.push(`# TYPE ${name} ${type}`);
-
-      for (const dp of metric.dataPoints ?? []) {
-        const labels = formatLabels(dp.attributes ?? {});
-
-        if (type === "histogram") {
-          serializeHistogramDataPoint(
-            lines,
-            name,
-            labels,
-            dp as unknown as HistogramDataPoint,
-          );
-        } else {
-          const value =
-            typeof dp.value === "number" ? dp.value : Number(dp.value);
-          lines.push(`${name}${labels} ${value}`);
-        }
-      }
-    }
-  }
-
-  return lines.join("\n") + "\n";
-}
-
-function sanitizeMetricName(name: string): string {
-  return name.replace(/[^a-zA-Z0-9_:]/g, "_");
-}
-
-function otelTypeToPrometheus(type: InstrumentType): string {
-  switch (type) {
-    case InstrumentType.HISTOGRAM:
-      return "histogram";
-    case InstrumentType.GAUGE:
-    case InstrumentType.OBSERVABLE_GAUGE:
-      return "gauge";
-    default:
-      return "gauge"; // counters/up-down counters exported as gauges; real distinction via _total suffix
-  }
-}
-
-function formatLabels(attributes: Record<string, unknown>): string {
-  const entries = Object.entries(attributes);
-  if (entries.length === 0) return "";
-  const parts = entries.map(
-    ([k, v]) =>
-      `${sanitizeMetricName(k)}="${String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`,
-  );
-  return `{${parts.join(",")}}`;
-}
-
-interface HistogramDataPoint {
-  value?: {
-    buckets?: { boundaries?: number[]; counts?: number[] };
-    sum?: number;
-    count?: number;
-  };
-}
-
-function serializeHistogramDataPoint(
-  lines: string[],
-  name: string,
-  labels: string,
-  dp: HistogramDataPoint,
-): void {
-  const boundaries: number[] = dp.value?.buckets?.boundaries ?? [];
-  const counts: number[] = dp.value?.buckets?.counts ?? [];
-  let cumulative = 0;
-
-  for (let i = 0; i < boundaries.length; i++) {
-    cumulative += counts[i] ?? 0;
-    const le = boundaries[i];
-    const bucketLabels = labels
-      ? labels.slice(0, -1) + `,le="${le}"}`
-      : `{le="${le}"}`;
-    lines.push(`${name}_bucket${bucketLabels} ${cumulative}`);
-  }
-
-  // +Inf bucket
-  cumulative += counts[boundaries.length] ?? 0;
-  const infLabels = labels
-    ? labels.slice(0, -1) + `,le="+Inf"}`
-    : `{le="+Inf"}`;
-  lines.push(`${name}_bucket${infLabels} ${cumulative}`);
-  lines.push(`${name}_sum${labels} ${dp.value?.sum ?? 0}`);
-  lines.push(`${name}_count${labels} ${dp.value?.count ?? 0}`);
 }

@@ -38,10 +38,10 @@ afterAll(async () => {
 }, HOOK_TIMEOUT);
 
 describe("tracing", () => {
-  test("api.observability.tracing namespace exists and is enabled", () => {
-    expect(api.observability.tracing).toBeDefined();
-    expect(api.observability.tracing.enabled).toBe(true);
-    expect(api.observability.tracing.tracer).toBeDefined();
+  test("api.tracing namespace exists and is enabled", () => {
+    expect(api.tracing).toBeDefined();
+    expect(api.tracing.enabled).toBe(true);
+    expect(api.tracing.tracer).toBeDefined();
   });
 
   test("action execution creates spans", async () => {
@@ -137,7 +137,7 @@ describe("tracing", () => {
 
   test("tracing and metrics flags are independent", () => {
     // Tracing is enabled but metrics is not in this test suite
-    expect(api.observability.tracing.enabled).toBe(true);
+    expect(api.tracing.enabled).toBe(true);
     expect(api.observability.enabled).toBe(false);
   });
 

@@ -1,6 +1,6 @@
 {
   "name": "@keryxjs/observability",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "module": "index.ts",
   "type": "module",
   "license": "MIT",
@@ -50,7 +50,7 @@
   },
   "peerDependencies": {
     "@opentelemetry/api": "^1.9.0",
-    "keryx": ">=0.26.0"
+    "keryx": ">=0.29.0"
   },
   "publishConfig": {
     "access": "public"
