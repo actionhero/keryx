@@ -172,4 +172,4 @@ LOG_FORMAT=json bun run start
 
 This outputs NDJSON with correlated fields (timestamp, level, correlation ID) that can be ingested by Elasticsearch, Datadog, Loki, or any structured log system.
 
-See the [Observability guide](/guide/observability) for the full list of available metrics and custom exporter setup.
+See the [Observability guide](/guide/observability) for the full list of available metrics and custom exporter setup, or the [Tracing plugin](/plugins/tracing) for distributed tracing.

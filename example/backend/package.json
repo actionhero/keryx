@@ -18,6 +18,8 @@
     "format": "tsc && biome check --write ."
   },
   "dependencies": {
+    "@keryxjs/resque-admin": "workspace:*",
+    "@keryxjs/tracing": "workspace:*",
     "keryx": "workspace:*",
     "commander": "^14.0.3",
     "drizzle-orm": "^0.45.2",
@@ -25,7 +27,14 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/context-async-hooks": "^2.0.0",
+    "@opentelemetry/core": "^1.30.0",
+    "@opentelemetry/resources": "^2.0.0",
+    "@opentelemetry/sdk-trace-base": "^2.0.0",
     "@types/bun": "^1.3.12",
-    "drizzle-kit": "^0.31.10"
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^6.0.3"
   }
 }

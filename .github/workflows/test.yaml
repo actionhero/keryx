@@ -144,6 +144,38 @@ jobs:
         env:
           DATABASE_URL_TEST: postgres://postgres:postgres@localhost:5432/keryx-test
 
+  test-plugin-tracing:
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis
+        ports:
+          - 6379:6379
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: keryx-test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: cp packages/keryx/.env.example packages/keryx/.env
+      - run: cp packages/plugins/tracing/.env.example packages/plugins/tracing/.env
+      - name: Run tracing tests
+        run: cd packages/plugins/tracing && bun test
+        env:
+          DATABASE_URL_TEST: postgres://postgres:postgres@localhost:5432/keryx-test
+
   test-example-frontend:
     runs-on: ubuntu-latest
     steps:
@@ -209,7 +241,7 @@ jobs:
   complete:
     runs-on: ubuntu-latest
     if: always()
-    needs: [compile, lint, test-package, test-plugin-resque-admin, test-example-backend, test-example-frontend, test-docs, benchmark, docker-build-backend, docker-build-frontend]
+    needs: [compile, lint, test-package, test-plugin-tracing, test-plugin-resque-admin, test-example-backend, test-example-frontend, test-docs, benchmark, docker-build-backend, docker-build-frontend]
     steps:
       - run: |
           if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then

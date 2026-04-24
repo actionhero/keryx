@@ -10,6 +10,13 @@ See the [Plugins catalog](/plugins/) for ready-to-use plugins maintained by the 
 
 Plugins package reusable functionality — initializers, actions, channels, servers, and config defaults — into npm modules that any Keryx app can install and register. If you've built an initializer or a set of actions that would be useful across projects, a plugin is how you distribute it.
 
+## First-Party Plugins
+
+| Package | Description |
+|---------|-------------|
+| [`@keryxjs/tracing`](/plugins/tracing) | OpenTelemetry distributed tracing (OTLP) for HTTP, actions, tasks, Redis, and Drizzle |
+| [`@keryxjs/resque-admin`](/plugins/resque-admin) | Web dashboard and API for monitoring Redis, queues, workers, failed jobs, and locks |
+
 ## Using a Plugin
 
 Install the plugin package, then add it to your config:

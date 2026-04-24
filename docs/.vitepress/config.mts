@@ -67,6 +67,7 @@ For example: \`/guide/actions.md\`, \`/reference/config.md\`
 ## Plugins
 
 - Plugins Overview: /plugins/index.md
+- Tracing: /plugins/tracing.md
 - Resque Admin: /plugins/resque-admin.md
 `;
 
@@ -240,6 +241,7 @@ export default defineConfig({
           text: "First-Party Plugins",
           items: [
             { text: "Overview", link: "/plugins/" },
+            { text: "Tracing", link: "/plugins/tracing" },
             { text: "Resque Admin", link: "/plugins/resque-admin" },
           ],
         },

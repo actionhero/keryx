@@ -2,6 +2,7 @@ import { Redis as RedisClient } from "ioredis";
 import { api, logger } from "../api";
 import { Initializer } from "../classes/Initializer";
 import { config } from "../config";
+
 import {
   formatConnectionStringForLogging,
   throwConnectionError,
