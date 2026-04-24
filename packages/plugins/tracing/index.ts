@@ -1,5 +1,6 @@
 import type { KeryxPlugin } from "keryx";
 import { TracingPlugin } from "./initializer";
+import pkg from "./package.json" with { type: "json" };
 
 /**
  * The `@keryxjs/tracing` plugin — OpenTelemetry distributed tracing for Keryx
@@ -19,8 +20,8 @@ import { TracingPlugin } from "./initializer";
  * - `OTEL_TRACING_ENABLED=true` — OTLP span export to `OTEL_EXPORTER_OTLP_ENDPOINT`
  */
 export const tracingPlugin: KeryxPlugin = {
-  name: "@keryxjs/tracing",
-  version: "0.3.0",
+  name: pkg.name,
+  version: pkg.version,
   initializers: [TracingPlugin],
 };
 

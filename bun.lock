@@ -36,8 +36,15 @@
         "zod": "^4.3.6",
       },
       "devDependencies": {
+        "@modelcontextprotocol/sdk": "^1.29.0",
+        "@opentelemetry/api": "^1.9.1",
+        "@opentelemetry/context-async-hooks": "^2.0.0",
+        "@opentelemetry/core": "^1.30.0",
+        "@opentelemetry/resources": "^2.0.0",
+        "@opentelemetry/sdk-trace-base": "^2.0.0",
         "@types/bun": "^1.3.12",
         "drizzle-kit": "^0.31.10",
+        "typescript": "^6.0.3",
       },
     },
     "example/frontend": {
@@ -105,6 +112,12 @@
         "@opentelemetry/sdk-trace-base": "^2.0.0",
         "@opentelemetry/semantic-conventions": "^1.34.0",
       },
+      "devDependencies": {
+        "@opentelemetry/api": "^1.9.1",
+        "@types/bun": "^1.3.12",
+        "ioredis": "^5.10.1",
+        "typescript": "^6.0.3",
+      },
       "peerDependencies": {
         "@opentelemetry/api": "^1.9.0",
         "keryx": ">=0.29.0",
@@ -115,9 +128,12 @@
       "version": "0.1.2",
       "devDependencies": {
         "@types/bun": "^1.3.12",
+        "typescript": "^6.0.3",
+        "zod": "^4.3.6",
       },
       "peerDependencies": {
         "keryx": ">=0.21.0",
+        "zod": "^4.3.6",
       },
     },
   },

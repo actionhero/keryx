@@ -12,6 +12,7 @@ import { ResqueAdminRemoveAllFailed } from "./actions/removeAllFailed";
 import { ResqueAdminRemoveFailed } from "./actions/removeFailed";
 import { ResqueAdminRetryFailed } from "./actions/retryFailed";
 import { ResqueAdminUI } from "./actions/ui";
+import pkg from "./package.json" with { type: "json" };
 
 export { ResqueAdminPasswordMiddleware } from "./middleware/password";
 
@@ -29,8 +30,8 @@ export { ResqueAdminPasswordMiddleware } from "./middleware/password";
  * Then set `config.resqueAdmin.password` to a strong password.
  */
 export const resqueAdminPlugin: KeryxPlugin = {
-  name: "resque-admin",
-  version: "0.1.0",
+  name: pkg.name,
+  version: pkg.version,
   actions: [
     ResqueAdminUI,
     ResqueAdminOverview,

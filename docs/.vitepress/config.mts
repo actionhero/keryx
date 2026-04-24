@@ -206,6 +206,7 @@ export default defineConfig({
             { text: "Caching", link: "/guide/caching" },
             { text: "Security", link: "/guide/security" },
             { text: "Advanced Patterns", link: "/guide/advanced-patterns" },
+            { text: "Observability", link: "/guide/observability" },
             { text: "Testing", link: "/guide/testing" },
             { text: "Deployment", link: "/guide/deployment" },
           ],
