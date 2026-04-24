@@ -148,12 +148,9 @@ export class API {
   /**
    * Gracefully shut down the framework: disconnect from services, close server ports, stop workers.
    * Calls each initializer's `stop()` method in reverse dependency order (dependents stop before
-   * their dependencies). No-ops if already stopped. One initializer's failure does not prevent
-   * subsequent stops from running — all errors are collected and thrown together at the end so
-   * resources still get released on the happy-path initializers.
+   * their dependencies). No-ops if already stopped.
    *
-   * @throws {TypedError} With `ErrorType.SERVER_STOP` listing every initializer whose `stop()`
-   *   threw.
+   * @throws {TypedError} With `ErrorType.SERVER_STOP` if any initializer fails to stop.
    */
   async stop() {
     if (this.stopped) {
@@ -163,31 +160,23 @@ export class API {
 
     this.logger.warn("--- 🔽  Stopping process ---");
 
-    const errors: { name: string; error: unknown }[] = [];
     for (const initializer of [...this.initializers].reverse()) {
       try {
         this.logger.debug(`Stopping initializer ${initializer.name}`);
         await initializer.stop?.();
         this.logger.debug(`Stopped initializer ${initializer.name}`);
       } catch (e) {
-        this.logger.error(
-          `Failed to stop initializer "${initializer.name}": ${e instanceof Error ? e.message : e}`,
-        );
-        errors.push({ name: initializer.name, error: e });
+        throw new TypedError({
+          message: `Failed to stop initializer "${initializer.name}": ${e instanceof Error ? e.message : e}`,
+          type: ErrorType.SERVER_STOP,
+          cause: e,
+        });
       }
     }
 
     this.stopped = true;
     this.started = false;
     this.logger.warn("--- 🔽  Stopping complete ---");
-
-    if (errors.length > 0) {
-      throw new TypedError({
-        message: `Failed to stop ${errors.length} initializer(s): ${errors.map((e) => `"${e.name}" (${e.error instanceof Error ? e.error.message : e.error})`).join(", ")}`,
-        type: ErrorType.SERVER_STOP,
-        cause: errors[0].error,
-      });
-    }
   }
 
   /**

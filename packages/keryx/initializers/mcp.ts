@@ -274,10 +274,6 @@ export class McpInitializer extends Initializer {
 
   async stop() {
     if (!config.server.mcp.enabled) return;
-    // Guard against partial initialization (e.g. test fixtures where
-    // api.start() was aborted mid-way). Without this, stop() crashes on
-    // undefined before the other initializers get a chance to clean up.
-    if (!api.mcp) return;
 
     // Close all transports
     for (const transport of api.mcp.transports.values()) {
