@@ -180,6 +180,33 @@ describe("tracing", () => {
     }
   });
 
+  test("Redis spans capture command + keys in db.query.text (no values)", async () => {
+    spanExporter.reset();
+    const url = serverUrl();
+    await fetch(`${url}/api/status`);
+
+    await Bun.sleep(100);
+
+    const spans = spanExporter.getFinishedSpans();
+
+    // PING takes no key — db.query.text should be just the command.
+    const pingSpan = spans.find((s) => s.name === "redis.ping");
+    expect(pingSpan).toBeDefined();
+    expect(pingSpan!.attributes["db.query.text"]).toBe("ping");
+
+    // At least one span (e.g. the session load's GET) should include a key
+    // after the command — proves ioredis's getKeys() lookup is wired up.
+    const withKey = spans.some((s) => {
+      const t = s.attributes["db.query.text"];
+      return (
+        s.name.startsWith("redis.") &&
+        typeof t === "string" &&
+        t.split(" ").length >= 2
+      );
+    });
+    expect(withKey).toBe(true);
+  });
+
   test("Redis spans exist alongside action spans in the same request", async () => {
     spanExporter.reset();
     const url = serverUrl();

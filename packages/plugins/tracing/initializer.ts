@@ -90,6 +90,25 @@ export class KeryxContextManager implements ContextManager {
 }
 
 /**
+ * Build the `db.query.text` attribute for a Redis span: `"<command> <key>..."`
+ * with keys-only (values never captured). Uses ioredis `Command.getKeys()`
+ * to determine which args are keys; falls back to the command name alone if
+ * the command isn't in `@ioredis/commands` or `getKeys()` throws.
+ */
+function buildRedisQueryText(command: unknown, commandName: string): string {
+  try {
+    const getKeys = (command as { getKeys?: () => Array<string | Buffer> })
+      .getKeys;
+    if (typeof getKeys !== "function") return commandName;
+    const keys = getKeys.call(command);
+    if (!Array.isArray(keys) || keys.length === 0) return commandName;
+    return `${commandName} ${keys.map((k) => String(k)).join(" ")}`;
+  } catch {
+    return commandName;
+  }
+}
+
+/**
  * OpenTelemetry tracing plugin for Keryx. Provides OTLP distributed tracing for
  * HTTP requests, actions, background tasks, Redis commands, and Drizzle DB
  * queries via framework hooks (`api.hooks.*`) — no direct core modifications.
@@ -350,6 +369,14 @@ export class TracingPlugin extends Initializer {
    * Wrap ioredis `sendCommand` on the main Redis client to emit a span per
    * command. Only the general-purpose client is instrumented; the subscription
    * client uses a different command flow for SUBSCRIBE/PSUBSCRIBE.
+   *
+   * Span `db.query.text` captures `<command> <key1> <key2>...` — keys only,
+   * never values. ioredis's `Command.getKeys()` uses `@ioredis/commands`
+   * metadata to pick out arg positions that are keys (e.g. for `MSET k1 v1
+   * k2 v2` it returns `[k1, k2]`, and for `AUTH password` it returns `[]`).
+   * That keeps secrets (AUTH passwords, SET values, session payloads) out of
+   * trace attributes while preserving the key structure that makes Redis
+   * traces useful for debugging.
    */
   private instrumentRedis() {
     const client = api.redis?.redis;
@@ -361,11 +388,13 @@ export class TracingPlugin extends Initializer {
     ) {
       const [command] = args;
       const commandName = (command as { name?: string }).name ?? "unknown";
+      const queryText = buildRedisQueryText(command, commandName);
       const span = tracer.startSpan(`redis.${commandName}`, {
         kind: SpanKind.CLIENT,
         attributes: {
           "db.system.name": "redis",
           "db.operation.name": commandName,
+          "db.query.text": queryText,
         },
       });
 

@@ -78,7 +78,7 @@ The plugin adds its own `config.tracing.*` namespace. All keys can be set via en
 | ------------------------- | -------- | --------------------------------------------------------------- | ------------------------------------------------------------- |
 | `<METHOD>` / `GET status` | SERVER   | `http.request.method`, `http.response.status_code`, `http.route`, `url.full` | Renamed to `<METHOD> <route>` once the action resolves        |
 | `action:<name>`           | INTERNAL | `keryx.action`, `keryx.connection.type`, `keryx.action.duration_ms` | Fires for every action across all transports (HTTP, WS, task, CLI, MCP) |
-| `redis.<command>`         | CLIENT   | `db.system.name="redis"`, `db.operation.name`                   | Emitted for commands on `api.redis.redis` (not the subscription client) |
+| `redis.<command>`         | CLIENT   | `db.system.name="redis"`, `db.operation.name`, `db.query.text`  | `db.query.text` is `<command> <key1> <key2>…` — keys only, values are never captured (so AUTH passwords, SET values, etc. stay out of traces) |
 | `drizzle.*`               | CLIENT   | `db.system="postgresql"`, `db.statement` (up to 1000 chars)     | Provided by `@kubiks/otel-drizzle`                            |
 
 Spans nest naturally: the HTTP span is the parent of the action span, which is the parent of any Redis / Drizzle spans emitted during the action.
