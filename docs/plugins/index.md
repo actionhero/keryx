@@ -10,7 +10,7 @@ The Keryx team maintains a set of first-party plugins under the `@keryxjs` npm s
 
 | Plugin | Package | Description |
 |--------|---------|-------------|
-| [Observability](/plugins/observability) | `@keryxjs/observability` | OpenTelemetry metrics (Prometheus) and distributed tracing (OTLP) for HTTP, WebSocket, actions, and tasks |
+| [Tracing](/plugins/tracing) | `@keryxjs/tracing` | OpenTelemetry distributed tracing (OTLP) for HTTP, actions, tasks, Redis, and Drizzle |
 | [Resque Admin](/plugins/resque-admin) | `@keryxjs/resque-admin` | Web dashboard and API for monitoring Redis, queues, workers, failed jobs, and locks |
 
 ## Using a Plugin

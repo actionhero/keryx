@@ -14,7 +14,7 @@ Plugins package reusable functionality — initializers, actions, channels, serv
 
 | Package | Description |
 |---------|-------------|
-| [`@keryxjs/observability`](/plugins/observability) | OpenTelemetry metrics (Prometheus) and distributed tracing |
+| [`@keryxjs/tracing`](/plugins/tracing) | OpenTelemetry distributed tracing (OTLP) for HTTP, actions, tasks, Redis, and Drizzle |
 | [`@keryxjs/resque-admin`](/plugins/resque-admin) | Web dashboard and API for monitoring Redis, queues, workers, failed jobs, and locks |
 
 ## Using a Plugin
@@ -23,10 +23,10 @@ Install the plugin package, then add it to your config:
 
 ```ts
 // config/plugins.ts
-import { observabilityPlugin } from "@keryxjs/observability";
+import { tracingPlugin } from "@keryxjs/tracing";
 
 export default {
-  plugins: [observabilityPlugin],
+  plugins: [tracingPlugin],
 };
 ```
 

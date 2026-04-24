@@ -27,7 +27,7 @@ const namespace = "tracing";
 
 declare module "keryx" {
   export interface API {
-    [namespace]: Awaited<ReturnType<ObservabilityPlugin["initialize"]>>;
+    [namespace]: Awaited<ReturnType<TracingPlugin["initialize"]>>;
   }
 }
 
@@ -51,13 +51,13 @@ interface RequestState {
  *
  * Register via `config/plugins.ts`:
  * ```ts
- * import { observabilityPlugin } from "@keryxjs/observability";
- * export default { plugins: [observabilityPlugin] };
+ * import { tracingPlugin } from "@keryxjs/tracing";
+ * export default { plugins: [tracingPlugin] };
  * ```
  *
  * Enable with `OTEL_TRACING_ENABLED=true`.
  */
-export class ObservabilityPlugin extends Initializer {
+export class TracingPlugin extends Initializer {
   private tracerProvider?: BasicTracerProvider;
 
   /**

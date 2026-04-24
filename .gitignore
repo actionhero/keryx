@@ -7,7 +7,7 @@ packages/keryx/.env
 packages/keryx/drizzle
 packages/keryx/README.md
 packages/keryx/assets/
-packages/plugins/observability/.env
+packages/plugins/tracing/.env
 packages/resque-admin/.env
 example/backend/.env
 example/frontend/.env

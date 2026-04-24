@@ -238,7 +238,7 @@ export default defineConfig({
           text: "First-Party Plugins",
           items: [
             { text: "Overview", link: "/plugins/" },
-            { text: "Observability", link: "/plugins/observability" },
+            { text: "Tracing", link: "/plugins/tracing" },
             { text: "Resque Admin", link: "/plugins/resque-admin" },
           ],
         },

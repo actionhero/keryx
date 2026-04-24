@@ -18,8 +18,8 @@
     "format": "tsc && biome check --write ."
   },
   "dependencies": {
-    "@keryxjs/observability": "workspace:*",
     "@keryxjs/resque-admin": "workspace:*",
+    "@keryxjs/tracing": "workspace:*",
     "keryx": "workspace:*",
     "commander": "^14.0.3",
     "drizzle-orm": "^0.45.2",

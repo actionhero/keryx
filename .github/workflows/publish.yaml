@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - packages/keryx/package.json
-      - packages/plugins/observability/package.json
+      - packages/plugins/tracing/package.json
       - packages/resque-admin/package.json
 
 jobs:
@@ -20,9 +20,9 @@ jobs:
           - package: keryx
             dir: packages/keryx
             npm_name: keryx
-          - package: observability
-            dir: packages/plugins/observability
-            npm_name: "@keryxjs/observability"
+          - package: tracing
+            dir: packages/plugins/tracing
+            npm_name: "@keryxjs/tracing"
           - package: resque-admin
             dir: packages/resque-admin
             npm_name: "@keryxjs/resque-admin"

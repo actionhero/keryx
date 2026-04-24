@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { api, config } from "keryx";
-import { observabilityPlugin } from "..";
+import { tracingPlugin } from "..";
 import { HOOK_TIMEOUT } from "./setup";
 
 beforeAll(async () => {
-  config.plugins = [observabilityPlugin];
+  config.plugins = [tracingPlugin];
   await api.initialize();
   await api.start();
 }, HOOK_TIMEOUT);
@@ -14,7 +14,7 @@ afterAll(async () => {
   config.plugins = [];
 }, HOOK_TIMEOUT);
 
-describe("observability plugin (tracing)", () => {
+describe("tracing plugin", () => {
   test("api.tracing namespace exists with no-op defaults (tracing disabled)", () => {
     expect(api.tracing).toBeDefined();
     expect(api.tracing.enabled).toBe(false);
