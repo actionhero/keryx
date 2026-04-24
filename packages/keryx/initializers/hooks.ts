@@ -1,7 +1,18 @@
 import type { AfterActHook, BeforeActHook } from "../classes/Connection";
 import { Initializer } from "../classes/Initializer";
-import type { AfterRequestHook, BeforeRequestHook } from "../servers/web";
+import type {
+  AfterRequestHook,
+  BeforeRequestHook,
+  OnConnectHook,
+  OnDisconnectHook,
+  OnMessageHook,
+} from "../servers/web";
 import type { OnEnqueueHook } from "./actionts";
+import type {
+  OnMcpConnectHook,
+  OnMcpDisconnectHook,
+  OnMcpMessageHook,
+} from "./mcp";
 import type { AfterJobHook, BeforeJobHook } from "./resque";
 
 const namespace = "hooks";
@@ -17,13 +28,20 @@ declare module "keryx" {
  * from their initializer's `initialize()`; the framework iterates the registered
  * hooks at runtime.
  *
- * Public surface: `api.hooks.web`, `api.hooks.actions`, `api.hooks.resque`. See
- * the respective hook type definitions for semantics (in `servers/web.ts`,
+ * Public surface: `api.hooks.web`, `api.hooks.ws`, `api.hooks.mcp`,
+ * `api.hooks.actions`, `api.hooks.resque`. See the respective hook type
+ * definitions for semantics (in `servers/web.ts`, `initializers/mcp.ts`,
  * `initializers/actionts.ts`, `initializers/resque.ts`).
  */
 export class Hooks extends Initializer {
   private webBeforeRequest: BeforeRequestHook[] = [];
   private webAfterRequest: AfterRequestHook[] = [];
+  private wsOnConnect: OnConnectHook[] = [];
+  private wsOnMessage: OnMessageHook[] = [];
+  private wsOnDisconnect: OnDisconnectHook[] = [];
+  private mcpOnConnect: OnMcpConnectHook[] = [];
+  private mcpOnMessage: OnMcpMessageHook[] = [];
+  private mcpOnDisconnect: OnMcpDisconnectHook[] = [];
   private actionsOnEnqueue: OnEnqueueHook[] = [];
   private actionsBeforeAct: BeforeActHook[] = [];
   private actionsAfterAct: AfterActHook[] = [];
@@ -60,6 +78,67 @@ export class Hooks extends Initializer {
         /** @internal Iterated by `WebServer.handleIncomingConnection`. */
         afterRequestHooks:
           self.webAfterRequest as ReadonlyArray<AfterRequestHook>,
+      },
+      ws: {
+        /**
+         * Register a hook to run when a new WebSocket connection is accepted,
+         * after the `Connection` has been constructed and registered.
+         */
+        onConnect(hook: OnConnectHook): void {
+          self.wsOnConnect.push(hook);
+        },
+        /**
+         * Register a hook to run for each inbound WebSocket message, after
+         * rate-limiting but before message parsing / dispatch.
+         */
+        onMessage(hook: OnMessageHook): void {
+          self.wsOnMessage.push(hook);
+        },
+        /**
+         * Register a hook to run when a WebSocket connection closes, before
+         * channel presence is cleaned up and the connection is destroyed.
+         */
+        onDisconnect(hook: OnDisconnectHook): void {
+          self.wsOnDisconnect.push(hook);
+        },
+        /** @internal Iterated by `WebServer.handleWebSocketConnectionOpen`. */
+        onConnectHooks: self.wsOnConnect as ReadonlyArray<OnConnectHook>,
+        /** @internal Iterated by `WebServer.handleWebSocketConnectionMessage`. */
+        onMessageHooks: self.wsOnMessage as ReadonlyArray<OnMessageHook>,
+        /** @internal Iterated by `WebServer.handleWebSocketConnectionClose`. */
+        onDisconnectHooks:
+          self.wsOnDisconnect as ReadonlyArray<OnDisconnectHook>,
+      },
+      mcp: {
+        /**
+         * Register a hook to run when a new MCP session is initialized (after
+         * the MCP initialize handshake completes).
+         */
+        onConnect(hook: OnMcpConnectHook): void {
+          self.mcpOnConnect.push(hook);
+        },
+        /**
+         * Register a hook to run for each inbound MCP request (POST/GET/DELETE
+         * to the MCP route). Fires before the transport dispatches the request.
+         * `sessionId` is `undefined` for the very first POST that creates a
+         * session.
+         */
+        onMessage(hook: OnMcpMessageHook): void {
+          self.mcpOnMessage.push(hook);
+        },
+        /**
+         * Register a hook to run when an MCP session's transport closes.
+         */
+        onDisconnect(hook: OnMcpDisconnectHook): void {
+          self.mcpOnDisconnect.push(hook);
+        },
+        /** @internal Iterated by the MCP handler on session init. */
+        onConnectHooks: self.mcpOnConnect as ReadonlyArray<OnMcpConnectHook>,
+        /** @internal Iterated by the MCP handler before dispatching a request. */
+        onMessageHooks: self.mcpOnMessage as ReadonlyArray<OnMcpMessageHook>,
+        /** @internal Iterated by the MCP handler on transport close. */
+        onDisconnectHooks:
+          self.mcpOnDisconnect as ReadonlyArray<OnMcpDisconnectHook>,
       },
       actions: {
         /**

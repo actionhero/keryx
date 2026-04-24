@@ -184,7 +184,7 @@ export class MyAction extends Action {
 
 ### Lifecycle Hooks
 
-Plugins can observe or wrap three framework-wide lifecycle events: HTTP requests, task enqueue, and task execution. All hooks are registered via the `api.hooks` namespace from code (not the plugin manifest), typically inside a plugin initializer's `initialize()`.
+Plugins can observe or wrap framework-wide lifecycle events across five namespaces: HTTP requests, WebSocket connections, MCP sessions, actions, and background tasks. All hooks are registered via the `api.hooks` namespace from code (not the plugin manifest), typically inside a plugin initializer's `initialize()`.
 
 Use lifecycle hooks when action middleware (`runBefore` / `runAfter`) isn't enough — for example, to wrap an entire HTTP request in a tracing span, inject trace headers into every enqueued job, or restore distributed trace context before a worker runs an action.
 
@@ -198,7 +198,13 @@ class MyTracer extends Initializer {
   }
   async initialize() {
     api.hooks.web.beforeRequest((req, ctx) => { /* ... */ });
-    api.hooks.web.afterRequest((req, res, ctx) => { /* ... */ });
+    api.hooks.web.afterRequest((req, res, ctx, outcome) => { /* ... */ });
+    api.hooks.ws.onConnect((connection) => { /* ... */ });
+    api.hooks.ws.onMessage((connection, message) => { /* ... */ });
+    api.hooks.ws.onDisconnect((connection) => { /* ... */ });
+    api.hooks.mcp.onConnect((sessionId) => { /* ... */ });
+    api.hooks.mcp.onMessage((sessionId) => { /* ... */ });
+    api.hooks.mcp.onDisconnect((sessionId) => { /* ... */ });
     api.hooks.actions.onEnqueue((name, inputs, queue) => { /* ... */ });
     api.hooks.actions.beforeAct((name, params, connection, ctx) => { /* ... */ });
     api.hooks.actions.afterAct((name, params, connection, ctx, outcome) => { /* ... */ });
@@ -208,15 +214,34 @@ class MyTracer extends Initializer {
 }
 ```
 
-**HTTP request hooks** — `api.hooks.web.beforeRequest` fires at the start of every HTTP request before routing (covers static files, OAuth, MCP, metrics, and actions); `api.hooks.web.afterRequest` fires after the `Response` is built, before compression. WebSocket upgrades do not fire these hooks. A shared `RequestContext` passes from `beforeRequest` to `afterRequest` so state can be threaded through `ctx.metadata`:
+**HTTP request hooks** — `api.hooks.web.beforeRequest` fires at the start of every HTTP request before routing (covers static files, OAuth, MCP, metrics, and actions); `api.hooks.web.afterRequest` fires after the `Response` is built, before compression. WebSocket upgrades do not fire these hooks. A shared `RequestContext` passes from `beforeRequest` to `afterRequest` so state can be threaded through `ctx.metadata`; `afterRequest` additionally receives a `RequestOutcome` with `{ method, status, actionName?, durationMs }` describing the resolved routing decision:
 
 ```ts
 api.hooks.web.beforeRequest((req, ctx) => {
   ctx.metadata.startedAt = Date.now();
 });
-api.hooks.web.afterRequest((_req, _res, ctx) => {
-  const elapsed = Date.now() - (ctx.metadata.startedAt as number);
-  // record span, log, etc.
+api.hooks.web.afterRequest((_req, _res, _ctx, outcome) => {
+  // outcome.actionName is undefined for static/oauth/mcp/metrics/404 paths
+  recordSpan(outcome.actionName ?? "unknown", outcome.durationMs, outcome.status);
+});
+```
+
+**WebSocket hooks** — `api.hooks.ws.onConnect` fires when a WebSocket is accepted (after the `Connection` is constructed); `onMessage` fires for each inbound message before parsing; `onDisconnect` fires when the socket closes, before channel presence cleanup. All three receive the persistent per-session `Connection` instance:
+
+```ts
+api.hooks.ws.onConnect((connection) => {
+  logger.info(`ws connected: ${connection.id}`);
+});
+api.hooks.ws.onMessage((connection, _message) => {
+  recordActivity(connection.id);
+});
+```
+
+**MCP session hooks** — `api.hooks.mcp.onConnect` fires when an MCP session finishes initializing; `onMessage` fires before each inbound MCP request is dispatched to the transport (`sessionId` is `undefined` on the very first POST that creates a new session); `onDisconnect` fires when the transport closes. Unlike WebSocket, MCP has no persistent `Connection` per session — a fresh transient one is created per tool call — so hooks receive the stable `sessionId` string instead:
+
+```ts
+api.hooks.mcp.onConnect((sessionId) => {
+  logger.info(`mcp session opened: ${sessionId}`);
 });
 ```
 
@@ -258,7 +283,7 @@ api.hooks.resque.afterJob((_name, _params, ctx, outcome) => {
 });
 ```
 
-All hook types (`RequestContext`, `BeforeRequestHook`, `AfterRequestHook`, `OnEnqueueHook`, `ActContext`, `ActOutcome`, `BeforeActHook`, `AfterActHook`, `JobContext`, `JobOutcome`, `BeforeJobHook`, `AfterJobHook`) are exported from `"keryx"`. Hooks run sequentially in registration order; thrown errors propagate (a throw in `beforeRequest` aborts the request, a throw in `beforeAct` fails the action, a throw in `beforeJob` fails the job).
+All hook types (`RequestContext`, `RequestOutcome`, `BeforeRequestHook`, `AfterRequestHook`, `OnConnectHook`, `OnMessageHook`, `OnDisconnectHook`, `OnMcpConnectHook`, `OnMcpMessageHook`, `OnMcpDisconnectHook`, `OnEnqueueHook`, `ActContext`, `ActOutcome`, `BeforeActHook`, `AfterActHook`, `JobContext`, `JobOutcome`, `BeforeJobHook`, `AfterJobHook`) are exported from `"keryx"`. Hooks run sequentially in registration order; thrown errors propagate (a throw in `beforeRequest` aborts the request, a throw in `beforeAct` fails the action, a throw in `beforeJob` fails the job).
 
 ### Custom Generators
 

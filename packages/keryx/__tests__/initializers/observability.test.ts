@@ -1,53 +1,87 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { api } from "../../api";
+import { Action, HTTP_METHOD } from "../../classes/Action";
+import type { Connection } from "../../classes/Connection";
+import { config } from "../../config";
 import { HOOK_TIMEOUT } from "../setup";
 
 beforeAll(async () => {
+  config.observability.enabled = true;
   await api.initialize();
-  await api.start();
 }, HOOK_TIMEOUT);
 
 afterAll(async () => {
   await api.stop();
+  config.observability.enabled = false;
 }, HOOK_TIMEOUT);
 
-describe("observability no-op stub (without plugin)", () => {
-  test("api.observability is defined with no-op defaults", () => {
-    expect(api.observability).toBeDefined();
-    expect(api.observability.enabled).toBe(false);
-    expect(api.observability.tracing.enabled).toBe(false);
+describe("observability route validation", () => {
+  test("start() throws when an action route conflicts with the metrics route", async () => {
+    // Temporarily set metricsRoute under apiRoute so the conflict can occur
+    const originalMetricsRoute = config.observability.metricsRoute;
+    config.observability.metricsRoute =
+      config.server.web.apiRoute + "/test-metrics-conflict";
+
+    class ConflictingAction extends Action {
+      constructor() {
+        super({
+          name: "test:metrics-conflict",
+          web: {
+            route: "/test-metrics-conflict",
+            method: HTTP_METHOD.GET,
+          },
+        });
+      }
+      async run(_params: unknown, _connection: Connection) {
+        return {};
+      }
+    }
+
+    const fakeAction = new ConflictingAction();
+    api.actions.actions.push(fakeAction);
+
+    try {
+      await expect(api.start()).rejects.toThrow(/conflicts with action/);
+    } finally {
+      const idx = api.actions.actions.indexOf(fakeAction);
+      if (idx !== -1) api.actions.actions.splice(idx, 1);
+      config.observability.metricsRoute = originalMetricsRoute;
+    }
   });
 
-  test("no-op metric instruments do not throw", () => {
-    expect(() => api.observability.http.requestsTotal.add(1)).not.toThrow();
-    expect(() =>
-      api.observability.http.requestDuration.record(100),
-    ).not.toThrow();
-    expect(() => api.observability.http.activeConnections.add(1)).not.toThrow();
-    expect(() => api.observability.ws.connections.add(1)).not.toThrow();
-    expect(() => api.observability.ws.messagesTotal.add(1)).not.toThrow();
-    expect(() => api.observability.action.executionsTotal.add(1)).not.toThrow();
-    expect(() => api.observability.action.duration.record(10)).not.toThrow();
-    expect(() => api.observability.task.enqueuedTotal.add(1)).not.toThrow();
-    expect(() => api.observability.task.executedTotal.add(1)).not.toThrow();
-    expect(() => api.observability.task.duration.record(10)).not.toThrow();
+  test("start() throws when a regex action route matches the metrics route", async () => {
+    const originalMetricsRoute = config.observability.metricsRoute;
+    config.observability.metricsRoute =
+      config.server.web.apiRoute + "/regex-conflict";
+
+    class RegexConflictAction extends Action {
+      constructor() {
+        super({
+          name: "test:regex-metrics-conflict",
+          web: {
+            route: new RegExp("^/regex-conflict$"),
+            method: HTTP_METHOD.GET,
+          },
+        });
+      }
+      async run(_params: unknown, _connection: Connection) {
+        return {};
+      }
+    }
+
+    const fakeAction = new RegexConflictAction();
+    api.actions.actions.push(fakeAction);
+
+    try {
+      await expect(api.start()).rejects.toThrow(/conflicts with action/);
+    } finally {
+      const idx = api.actions.actions.indexOf(fakeAction);
+      if (idx !== -1) api.actions.actions.splice(idx, 1);
+      config.observability.metricsRoute = originalMetricsRoute;
+    }
   });
 
-  test("collectMetrics() returns empty string without plugin", async () => {
-    const result = await api.observability.collectMetrics();
-    expect(result).toBe("");
-  });
-
-  test("tracing no-ops return safe values", () => {
-    const ctx = api.observability.tracing.extractContext(new Headers());
-    expect(ctx).toBeDefined();
-    // injectContext should not throw
-    expect(() =>
-      api.observability.tracing.injectContext({ key: "value" }),
-    ).not.toThrow();
-    // no-op tracer should return a span that doesn't throw
-    const span = api.observability.tracing.tracer.startSpan("test");
-    expect(span).toBeDefined();
-    expect(() => span.end()).not.toThrow();
+  test("start() succeeds when no action routes conflict with the metrics route", async () => {
+    await api.start();
   });
 });
