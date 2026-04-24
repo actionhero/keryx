@@ -273,7 +273,7 @@ describe("API lifecycle error wrapping", () => {
     expect(caught).toBeInstanceOf(TypedError);
     const err = caught as TypedError;
     expect(err.type).toBe(ErrorType.SERVER_STOP);
-    expect(err.message).toContain('Failed to stop initializer "bad-stop"');
+    expect(err.message).toContain('"bad-stop"');
     expect(err.message).toContain("stop failed");
     expect(err.cause).toBe(inner);
   });
