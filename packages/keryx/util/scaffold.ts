@@ -9,6 +9,12 @@ import { loadScaffoldTemplate as loadTemplate } from "./componentRegistry";
 export interface ScaffoldOptions {
   includeDb: boolean;
   includeExample: boolean;
+  /**
+   * When true, scaffold into an existing directory instead of refusing.
+   * Files that already exist on disk are left untouched (merge-skip); only
+   * missing files are created. User files are never overwritten.
+   */
+  force?: boolean;
 }
 
 async function prompt(question: string, defaultValue: string): Promise<string> {
@@ -263,8 +269,14 @@ export async function scaffoldProject(
   const keryxVersion = pkg.version;
   const createdFiles: string[] = [];
 
-  if (fs.existsSync(targetDir)) {
+  const dirExists = fs.existsSync(targetDir);
+  if (dirExists && !options.force) {
     throw new Error(`Directory "${projectName}" already exists`);
+  }
+  if (dirExists && options.force) {
+    console.log(
+      `  ⚠ scaffolding into existing directory — existing files will be preserved`,
+    );
   }
 
   fs.mkdirSync(targetDir, { recursive: true });
@@ -273,6 +285,10 @@ export async function scaffoldProject(
 
   const write = async (filePath: string, content: string) => {
     const fullPath = path.join(targetDir, filePath);
+    if (options.force && fs.existsSync(fullPath)) {
+      console.log(`  ⊘ skipped  ${filePath}`);
+      return;
+    }
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
     await Bun.write(fullPath, content);
     createdFiles.push(filePath);

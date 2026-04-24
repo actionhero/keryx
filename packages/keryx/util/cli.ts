@@ -41,6 +41,10 @@ export async function buildProgram(opts: {
     .option("--no-interactive", "Skip prompts and use defaults")
     .option("--no-db", "Skip database setup files")
     .option("--no-example", "Skip example action")
+    .option(
+      "--force",
+      "Scaffold into an existing directory (skips files that already exist)",
+    )
     .action(async (projectName: string | undefined, cmdOpts) => {
       let options: ScaffoldOptions;
 
@@ -49,11 +53,12 @@ export async function buildProgram(opts: {
         options = {
           includeDb: cmdOpts.db !== false,
           includeExample: cmdOpts.example !== false,
+          force: cmdOpts.force === true,
         };
       } else {
         const result = await interactiveScaffold(projectName);
         projectName = result.projectName;
-        options = result.options;
+        options = { ...result.options, force: cmdOpts.force === true };
       }
 
       const targetDir = path.resolve(process.cwd(), projectName);
