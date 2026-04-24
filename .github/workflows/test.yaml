@@ -143,6 +143,11 @@ jobs:
           bun test $shard_files
         env:
           DATABASE_URL_TEST: postgres://postgres:postgres@localhost:5432/keryx-test
+          # Temporary: diagnose CI-only startup slowness — surface the framework's
+          # per-initializer "Initializing / Starting / Stopping" debug lines so we
+          # can see which initializer blocks api.start() in CI. Remove once the
+          # root cause is found.
+          LOG_LEVEL_TEST: debug
 
   test-plugin-tracing:
     runs-on: ubuntu-latest

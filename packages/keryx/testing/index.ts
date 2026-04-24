@@ -25,7 +25,7 @@ export {
  * Note: `bun:test`'s `setDefaultTimeout` and `bunfig.toml [test].timeout` only
  * apply to `test()` blocks, not lifecycle hooks.
  */
-export const HOOK_TIMEOUT = 15_000;
+export const HOOK_TIMEOUT = 60_000;
 
 /**
  * Return the actual URL the web server bound to (with resolved port).
