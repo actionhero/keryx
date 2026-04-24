@@ -20,6 +20,29 @@ import type { PubSubMessage } from "./pubsub";
 
 type McpHandleRequest = (req: Request, ip: string) => Promise<Response>;
 
+/**
+ * Runs when a new MCP session is initialized (after the initialize JSON-RPC
+ * handshake). `sessionId` is the server-assigned session id.
+ * Register via `api.hooks.mcp.onConnect(...)`.
+ */
+export type OnMcpConnectHook = (sessionId: string) => Promise<void> | void;
+
+/**
+ * Runs for each inbound MCP HTTP request (POST/GET/DELETE to the MCP route),
+ * before it's dispatched to the transport. `sessionId` is `undefined` for the
+ * very first POST that creates a new session. Register via
+ * `api.hooks.mcp.onMessage(...)`.
+ */
+export type OnMcpMessageHook = (
+  sessionId: string | undefined,
+) => Promise<void> | void;
+
+/**
+ * Runs when an MCP session's transport closes and the session is torn down.
+ * Register via `api.hooks.mcp.onDisconnect(...)`.
+ */
+export type OnMcpDisconnectHook = (sessionId: string) => Promise<void> | void;
+
 const namespace = "mcp";
 
 declare module "keryx" {
@@ -31,7 +54,7 @@ declare module "keryx" {
 export class McpInitializer extends Initializer {
   constructor() {
     super(namespace);
-    this.dependsOn = ["actions", "oauth", "connections", "pubsub"];
+    this.dependsOn = ["hooks", "actions", "oauth", "connections", "pubsub"];
   }
 
   async initialize() {
@@ -187,8 +210,11 @@ export class McpInitializer extends Initializer {
         const transport = new WebStandardStreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           enableJsonResponse: true,
-          onsessioninitialized: (sid) => {
+          onsessioninitialized: async (sid) => {
             transports.set(sid, transport);
+            for (const hook of api.hooks.mcp.onConnectHooks) {
+              await hook(sid);
+            }
           },
           onsessionclosed: (sid) => {
             transports.delete(sid);
@@ -197,10 +223,13 @@ export class McpInitializer extends Initializer {
           },
         });
 
-        transport.onclose = () => {
+        transport.onclose = async () => {
           const sid = transport.sessionId;
           if (sid) {
             transports.delete(sid);
+            for (const hook of api.hooks.mcp.onDisconnectHooks) {
+              await hook(sid);
+            }
           }
           const idx = mcpServers.indexOf(mcpServer);
           if (idx !== -1) mcpServers.splice(idx, 1);
@@ -208,6 +237,9 @@ export class McpInitializer extends Initializer {
 
         await mcpServer.connect(transport);
 
+        for (const hook of api.hooks.mcp.onMessageHooks) {
+          await hook(undefined);
+        }
         return handleTransportRequest(transport, req, authInfo, corsHeaders);
       }
 
@@ -221,6 +253,9 @@ export class McpInitializer extends Initializer {
           );
         }
 
+        for (const hook of api.hooks.mcp.onMessageHooks) {
+          await hook(sessionId);
+        }
         return handleTransportRequest(transport, req, authInfo, corsHeaders);
       }
 

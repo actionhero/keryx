@@ -17,6 +17,55 @@ declare module "keryx" {
   }
 }
 
+type MeterAdd = (value: number, attributes?: Record<string, string>) => void;
+type MeterRecord = (value: number, attributes?: Record<string, string>) => void;
+
+interface HttpMeters {
+  requestsTotal: { add: MeterAdd };
+  requestDuration: { record: MeterRecord };
+}
+interface WsMeters {
+  connections: { add: MeterAdd };
+  messagesTotal: { add: MeterAdd };
+}
+interface McpMeters {
+  sessions: { add: MeterAdd };
+  messagesTotal: { add: MeterAdd };
+}
+interface ActionMeters {
+  executionsTotal: { add: MeterAdd };
+  duration: { record: MeterRecord };
+}
+interface TaskMeters {
+  enqueuedTotal: { add: MeterAdd };
+  executedTotal: { add: MeterAdd };
+  duration: { record: MeterRecord };
+}
+
+const noopAdd: MeterAdd = () => {};
+const noopRecord: MeterRecord = () => {};
+const noopHttp = (): HttpMeters => ({
+  requestsTotal: { add: noopAdd },
+  requestDuration: { record: noopRecord },
+});
+const noopWs = (): WsMeters => ({
+  connections: { add: noopAdd },
+  messagesTotal: { add: noopAdd },
+});
+const noopMcp = (): McpMeters => ({
+  sessions: { add: noopAdd },
+  messagesTotal: { add: noopAdd },
+});
+const noopAction = (): ActionMeters => ({
+  executionsTotal: { add: noopAdd },
+  duration: { record: noopRecord },
+});
+const noopTask = (): TaskMeters => ({
+  enqueuedTotal: { add: noopAdd },
+  executedTotal: { add: noopAdd },
+  duration: { record: noopRecord },
+});
+
 /**
  * Observability initializer — provides OpenTelemetry-based metrics for HTTP requests,
  * WebSocket connections, action executions, and background tasks.
@@ -24,41 +73,86 @@ declare module "keryx" {
  * Enable via `OTEL_METRICS_ENABLED=true`. The built-in Prometheus scrape endpoint is
  * served at `config.observability.metricsRoute` (default `/metrics`) on the existing
  * web server.
+ *
+ * All emission is wired through `api.hooks.*` — call sites elsewhere in the framework
+ * do not reference `api.observability` directly. Meter instruments are private to the
+ * initializer; apps that need custom metrics should create their own `Meter` off the
+ * global OTel `MeterProvider` that this initializer installs.
  */
 export class Observability extends Initializer {
+  private httpMeters: HttpMeters = noopHttp();
+  private wsMeters: WsMeters = noopWs();
+  private mcpMeters: McpMeters = noopMcp();
+  private actionMeters: ActionMeters = noopAction();
+  private taskMeters: TaskMeters = noopTask();
+
   constructor() {
     super(namespace);
-    this.dependsOn = ["actions", "connections"];
+    this.dependsOn = ["hooks", "actions", "connections"];
   }
 
   async initialize() {
-    const noopAdd = (
-      _value: number,
-      _attributes?: Record<string, string>,
-    ) => {};
-    const noopRecord = (
-      _value: number,
-      _attributes?: Record<string, string>,
-    ) => {};
-    return {
+    const ns = {
       enabled: false,
-      http: {
-        requestsTotal: { add: noopAdd },
-        requestDuration: { record: noopRecord },
-        activeConnections: { add: noopAdd },
-      },
-      ws: { connections: { add: noopAdd }, messagesTotal: { add: noopAdd } },
-      action: {
-        executionsTotal: { add: noopAdd },
-        duration: { record: noopRecord },
-      },
-      task: {
-        enqueuedTotal: { add: noopAdd },
-        executedTotal: { add: noopAdd },
-        duration: { record: noopRecord },
-      },
       collectMetrics: async () => "" as string,
     };
+
+    api.hooks.actions.afterAct((actionName, _params, _conn, _ctx, outcome) => {
+      this.actionMeters.executionsTotal.add(1, {
+        action: actionName,
+        status: outcome.success ? "success" : "error",
+      });
+      this.actionMeters.duration.record(outcome.duration, {
+        action: actionName,
+      });
+    });
+
+    api.hooks.actions.onEnqueue((actionName, _inputs, queue) => {
+      this.taskMeters.enqueuedTotal.add(1, { action: actionName, queue });
+    });
+
+    api.hooks.resque.afterJob((actionName, _params, ctx, outcome) => {
+      this.taskMeters.executedTotal.add(1, {
+        action: actionName,
+        queue: ctx.queue,
+        status: outcome.success ? "success" : "failure",
+      });
+      this.taskMeters.duration.record(outcome.duration, {
+        action: actionName,
+      });
+    });
+
+    api.hooks.web.afterRequest((_req, _res, _ctx, outcome) => {
+      const labels = {
+        method: outcome.method,
+        route: outcome.actionName ?? "unknown",
+        status: String(outcome.status),
+      };
+      this.httpMeters.requestsTotal.add(1, labels);
+      this.httpMeters.requestDuration.record(outcome.durationMs, labels);
+    });
+
+    api.hooks.ws.onConnect(() => {
+      this.wsMeters.connections.add(1);
+    });
+    api.hooks.ws.onMessage(() => {
+      this.wsMeters.messagesTotal.add(1);
+    });
+    api.hooks.ws.onDisconnect(() => {
+      this.wsMeters.connections.add(-1);
+    });
+
+    api.hooks.mcp.onConnect(() => {
+      this.mcpMeters.sessions.add(1);
+    });
+    api.hooks.mcp.onMessage(() => {
+      this.mcpMeters.messagesTotal.add(1);
+    });
+    api.hooks.mcp.onDisconnect(() => {
+      this.mcpMeters.sessions.add(-1);
+    });
+
+    return ns;
   }
 
   async start() {
@@ -118,52 +212,58 @@ export class Observability extends Initializer {
     metrics.setGlobalMeterProvider(meterProvider);
     const meter = meterProvider.getMeter(serviceName);
 
-    const ns = api.observability;
-    ns.enabled = true;
+    this.httpMeters = {
+      requestsTotal: meter.createCounter("keryx.http.requests", {
+        description: "Total number of HTTP requests received",
+      }),
+      requestDuration: meter.createHistogram("keryx.http.request.duration", {
+        description: "HTTP request duration in milliseconds",
+        unit: "ms",
+      }),
+    };
 
-    // --- HTTP Metrics ---
-    ns.http.requestsTotal = meter.createCounter("keryx.http.requests", {
-      description: "Total number of HTTP requests received",
-    });
-    ns.http.requestDuration = meter.createHistogram(
-      "keryx.http.request.duration",
-      { description: "HTTP request duration in milliseconds", unit: "ms" },
-    );
-    ns.http.activeConnections = meter.createUpDownCounter(
-      "keryx.http.active_connections",
-      { description: "Number of active HTTP connections" },
-    );
+    this.wsMeters = {
+      connections: meter.createUpDownCounter("keryx.ws.connections", {
+        description: "Number of active WebSocket connections",
+      }),
+      messagesTotal: meter.createCounter("keryx.ws.messages", {
+        description: "Total WebSocket messages received",
+      }),
+    };
 
-    // --- WebSocket Metrics ---
-    ns.ws.connections = meter.createUpDownCounter("keryx.ws.connections", {
-      description: "Number of active WebSocket connections",
-    });
-    ns.ws.messagesTotal = meter.createCounter("keryx.ws.messages", {
-      description: "Total WebSocket messages received",
-    });
+    this.mcpMeters = {
+      sessions: meter.createUpDownCounter("keryx.mcp.sessions", {
+        description: "Number of active MCP sessions",
+      }),
+      messagesTotal: meter.createCounter("keryx.mcp.messages", {
+        description: "Total MCP requests received",
+      }),
+    };
 
-    // --- Action Metrics ---
-    ns.action.executionsTotal = meter.createCounter("keryx.action.executions", {
-      description: "Total action executions",
-    });
-    ns.action.duration = meter.createHistogram("keryx.action.duration", {
-      description: "Action execution duration in milliseconds",
-      unit: "ms",
-    });
+    this.actionMeters = {
+      executionsTotal: meter.createCounter("keryx.action.executions", {
+        description: "Total action executions",
+      }),
+      duration: meter.createHistogram("keryx.action.duration", {
+        description: "Action execution duration in milliseconds",
+        unit: "ms",
+      }),
+    };
 
-    // --- Task Metrics ---
-    ns.task.enqueuedTotal = meter.createCounter("keryx.task.enqueued", {
-      description: "Total tasks enqueued",
-    });
-    ns.task.executedTotal = meter.createCounter("keryx.task.executed", {
-      description: "Total tasks executed by workers",
-    });
-    ns.task.duration = meter.createHistogram("keryx.task.duration", {
-      description: "Task execution duration in milliseconds",
-      unit: "ms",
-    });
+    this.taskMeters = {
+      enqueuedTotal: meter.createCounter("keryx.task.enqueued", {
+        description: "Total tasks enqueued",
+      }),
+      executedTotal: meter.createCounter("keryx.task.executed", {
+        description: "Total tasks executed by workers",
+      }),
+      duration: meter.createHistogram("keryx.task.duration", {
+        description: "Task execution duration in milliseconds",
+        unit: "ms",
+      }),
+    };
 
-    // --- System Metrics (observable gauges) ---
+    // System gauge — reads directly from api.connections at scrape time
     meter
       .createObservableGauge("keryx.system.connections", {
         description: "Current number of connections",
@@ -174,43 +274,30 @@ export class Observability extends Initializer {
         }
       });
 
-    ns.collectMetrics = async () => {
+    api.observability.collectMetrics = async () => {
       const { resourceMetrics, errors } = await reader.collect();
       if (errors?.length) {
         logger.warn(`Metrics collection errors: ${errors.join(", ")}`);
       }
       return serializeToPrometheus(resourceMetrics);
     };
+    api.observability.enabled = true;
 
     logger.info(`Observability initialized (service: ${serviceName})`);
   }
 
   async stop() {
-    // Reset to no-ops so the next start() cycle can re-initialize cleanly.
+    // Reset meters to no-ops so the next start() cycle can re-initialize cleanly.
     // MeterProvider is intentionally NOT shut down — shutting it down would
     // make the reader unable to collect, but start() may create a new one.
     // In production stop() is called right before process exit.
-    const noopAdd = (
-      _value: number,
-      _attributes?: Record<string, string>,
-    ) => {};
-    const noopRecord = (
-      _value: number,
-      _attributes?: Record<string, string>,
-    ) => {};
-    const ns = api.observability;
-    ns.enabled = false;
-    ns.http.requestsTotal = { add: noopAdd };
-    ns.http.requestDuration = { record: noopRecord };
-    ns.http.activeConnections = { add: noopAdd };
-    ns.ws.connections = { add: noopAdd };
-    ns.ws.messagesTotal = { add: noopAdd };
-    ns.action.executionsTotal = { add: noopAdd };
-    ns.action.duration = { record: noopRecord };
-    ns.task.enqueuedTotal = { add: noopAdd };
-    ns.task.executedTotal = { add: noopAdd };
-    ns.task.duration = { record: noopRecord };
-    ns.collectMetrics = async () => "";
+    this.httpMeters = noopHttp();
+    this.wsMeters = noopWs();
+    this.mcpMeters = noopMcp();
+    this.actionMeters = noopAction();
+    this.taskMeters = noopTask();
+    api.observability.collectMetrics = async () => "";
+    api.observability.enabled = false;
   }
 }
 

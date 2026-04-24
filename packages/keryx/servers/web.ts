@@ -41,6 +41,22 @@ export interface RequestContext {
 }
 
 /**
+ * Outcome payload passed to {@link AfterRequestHook} describing the routed request.
+ * `actionName` is `undefined` for paths that don't resolve to an action (static files,
+ * OAuth/MCP endpoints, `/metrics`, 404s).
+ */
+export interface RequestOutcome {
+  /** HTTP method (uppercased). */
+  method: string;
+  /** Response status code. */
+  status: number;
+  /** Resolved action name, if the request routed to an action. */
+  actionName?: string;
+  /** End-to-end handling time in milliseconds (measured at hook-fire time). */
+  durationMs: number;
+}
+
+/**
  * Runs at the start of every HTTP request, before any routing or static file handling.
  * WebSocket upgrades do not fire this hook. Throwing an error propagates out of the
  * request handler. Hooks run sequentially in registration order.
@@ -52,14 +68,37 @@ export type BeforeRequestHook = (
 
 /**
  * Runs after the `Response` is built and before compression. Receives the same `ctx`
- * object that was passed to the matching `beforeRequest`. Hooks run sequentially in
- * registration order.
+ * object that was passed to the matching `beforeRequest`, plus a {@link RequestOutcome}
+ * with the resolved routing decision (action name, status, duration). Hooks run
+ * sequentially in registration order.
  */
 export type AfterRequestHook = (
   req: Request,
   res: Response,
   ctx: RequestContext,
+  outcome: RequestOutcome,
 ) => Promise<void> | void;
+
+/**
+ * Runs when a new WebSocket connection is accepted, after the {@link Connection}
+ * has been constructed and registered. Register via `api.hooks.ws.onConnect(...)`.
+ */
+export type OnConnectHook = (connection: Connection) => Promise<void> | void;
+
+/**
+ * Runs for each inbound WebSocket message, after rate-limiting but before parsing.
+ * Register via `api.hooks.ws.onMessage(...)`.
+ */
+export type OnMessageHook = (
+  connection: Connection,
+  message: string | Buffer,
+) => Promise<void> | void;
+
+/**
+ * Runs when a WebSocket connection closes, before channel presence is cleaned up
+ * and the connection is destroyed. Register via `api.hooks.ws.onDisconnect(...)`.
+ */
+export type OnDisconnectHook = (connection: Connection) => Promise<void> | void;
 
 /**
  * HTTP + WebSocket server built on `Bun.serve`. Handles REST action routing (with path params),
@@ -209,14 +248,26 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
       return; // upgrade the request to a WebSocket
 
     const ctx: RequestContext = { ip, id, metadata: {} };
+    const requestStart = Date.now();
     for (const hook of api.hooks.web.beforeRequestHooks) {
       await hook(req, ctx);
     }
 
-    const response = await this.handleHttpRequest(req, server, ip, id);
+    const { response, actionName } = await this.handleHttpRequest(
+      req,
+      server,
+      ip,
+      id,
+    );
 
+    const outcome: RequestOutcome = {
+      method: req.method.toUpperCase(),
+      status: response.status,
+      actionName,
+      durationMs: Date.now() - requestStart,
+    };
     for (const hook of api.hooks.web.afterRequestHooks) {
-      await hook(req, response, ctx);
+      await hook(req, response, ctx, outcome);
     }
 
     // SSE and other streaming responses: disable idle timeout and skip compression
@@ -231,25 +282,27 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
   /**
    * Routes an HTTP request to the appropriate handler (static files, OAuth, MCP, metrics, or actions).
    * Called after WebSocket upgrade handling; the returned Response is compressed by the caller.
+   * Returns `actionName` alongside the response so `afterRequest` hooks can receive a
+   * {@link RequestOutcome} without snooping on internal routing state.
    */
   private async handleHttpRequest(
     req: Request,
     server: ReturnType<typeof Bun.serve>,
     ip: string,
     id: string,
-  ): Promise<Response> {
+  ): Promise<{ response: Response; actionName?: string }> {
     const parsedUrl = parse(req.url!, true);
 
     // Handle static file serving
     if (config.server.web.staticFiles.enabled && req.method === "GET") {
       const staticResponse = await handleStaticFile(req, parsedUrl);
-      if (staticResponse) return staticResponse;
+      if (staticResponse) return { response: staticResponse };
     }
 
     // OAuth route interception (must come before MCP route check)
     if (config.server.mcp.enabled && api.oauth?.handleRequest) {
       const oauthResponse = await api.oauth.handleRequest(req, ip);
-      if (oauthResponse) return oauthResponse;
+      if (oauthResponse) return { response: oauthResponse };
     }
 
     // MCP route interception
@@ -259,7 +312,7 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
         api.mcp?.handleRequest
       ) {
         server.timeout(req, 0); // disable idle timeout for long-lived MCP SSE streams
-        return api.mcp.handleRequest(req, ip);
+        return { response: await api.mcp.handleRequest(req, ip) };
       }
     }
 
@@ -269,32 +322,36 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
       parsedUrl.pathname === config.observability.metricsRoute
     ) {
       const body = await api.observability.collectMetrics();
-      return new Response(body || "", {
-        status: 200,
-        headers: {
-          "Content-Type": "text/plain; version=0.0.4; charset=utf-8",
-        },
-      });
+      return {
+        response: new Response(body || "", {
+          status: 200,
+          headers: {
+            "Content-Type": "text/plain; version=0.0.4; charset=utf-8",
+          },
+        }),
+      };
     }
 
     // Don't route .well-known paths to actions (covers both root and
     // sub-path variants like /mcp/.well-known/openid-configuration)
     if (parsedUrl.pathname?.includes("/.well-known/")) {
-      return new Response(null, { status: 404 });
+      return { response: new Response(null, { status: 404 }) };
     }
 
     return this.handleWebAction(req, parsedUrl, ip, id);
   }
 
   /** Called when a new WebSocket connection opens. Creates a `Connection` and wires up broadcast delivery. */
-  handleWebSocketConnectionOpen(ws: ServerWebSocket) {
+  async handleWebSocketConnectionOpen(ws: ServerWebSocket) {
     //@ts-expect-error (ws.data is not defined in the bun types)
     const { ip, id, wsConnectionId } = ws.data;
     const connection = new Connection("websocket", ip, wsConnectionId, ws, id);
     connection.onBroadcastMessageReceived = function (payload: PubSubMessage) {
       ws.send(JSON.stringify({ message: payload }));
     };
-    api.observability.ws.connections.add(1);
+    for (const hook of api.hooks.ws.onConnectHooks) {
+      await hook(connection);
+    }
     logger.info(
       `New websocket connection from ${connection.identifier} (${connection.id})`,
     );
@@ -348,7 +405,9 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
       }
     }
 
-    api.observability.ws.messagesTotal.add(1);
+    for (const hook of api.hooks.ws.onMessageHooks) {
+      await hook(connection, message);
+    }
 
     try {
       const parsedMessage = JSON.parse(message.toString());
@@ -389,7 +448,9 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
     );
     if (!connection) return;
 
-    api.observability.ws.connections.add(-1);
+    for (const hook of api.hooks.ws.onDisconnectHooks) {
+      await hook(connection);
+    }
     this.wsRateMap.delete(connection.id);
 
     try {
@@ -416,7 +477,7 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
     url: ReturnType<typeof parse>,
     ip: string,
     id: string,
-  ) {
+  ): Promise<{ response: Response; actionName?: string }> {
     if (!this.server) {
       throw new TypedError({
         message: "Server server not started",
@@ -424,11 +485,9 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
       });
     }
 
-    const httpStartTime = Date.now();
     let errorStatusCode = 500;
     const httpMethod = req.method?.toUpperCase() as HTTP_METHOD;
 
-    api.observability.http.activeConnections.add(1);
     const connection = new Connection("web", ip, id);
 
     if (
@@ -445,8 +504,9 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
 
     // Handle OPTIONS requests.
     // As we don't really know what action the client wants (HTTP Method is always OPTIONS), we just return a 200 response.
-    if (httpMethod === "OPTIONS")
-      return buildResponse(connection, {}, 200, requestOrigin);
+    if (httpMethod === "OPTIONS") {
+      return { response: buildResponse(connection, {}, 200, requestOrigin) };
+    }
 
     const { actionName, pathParams } = await determineActionName(
       url,
@@ -467,39 +527,24 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
     if (response instanceof StreamingResponse) {
       response.onClose = () => {
         connection.destroy();
-        api.observability.http.activeConnections.add(-1);
       };
-
-      api.observability.http.requestsTotal.add(1, {
-        method: httpMethod,
-        route: actionName ?? "unknown",
-        status: "200",
-      });
-
-      return buildResponse(connection, response, 200, requestOrigin);
+      return {
+        response: buildResponse(connection, response, 200, requestOrigin),
+        actionName: actionName ?? undefined,
+      };
     }
 
     connection.destroy();
-    api.observability.http.activeConnections.add(-1);
 
     if (error && ErrorStatusCodes[error.type]) {
       errorStatusCode = ErrorStatusCodes[error.type];
     }
 
-    const statusCode = error ? errorStatusCode : 200;
-    api.observability.http.requestsTotal.add(1, {
-      method: httpMethod,
-      route: actionName ?? "unknown",
-      status: String(statusCode),
-    });
-    api.observability.http.requestDuration.record(Date.now() - httpStartTime, {
-      method: httpMethod,
-      route: actionName ?? "unknown",
-      status: String(statusCode),
-    });
-
-    return error
-      ? buildError(connection, error, errorStatusCode, requestOrigin)
-      : buildResponse(connection, response, 200, requestOrigin);
+    return {
+      response: error
+        ? buildError(connection, error, errorStatusCode, requestOrigin)
+        : buildResponse(connection, response, 200, requestOrigin),
+      actionName: actionName ?? undefined,
+    };
   }
 }

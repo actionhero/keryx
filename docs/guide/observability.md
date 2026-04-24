@@ -28,11 +28,10 @@ OTEL_METRICS_ENABLED=true bun run start
 
 ### HTTP
 
-| Metric                          | Type           | Attributes            | Description                       |
-| ------------------------------- | -------------- | --------------------- | --------------------------------- |
-| `keryx.http.requests`           | Counter        | method, route, status | Total HTTP requests received      |
-| `keryx.http.request.duration`   | Histogram (ms) | method, route, status | HTTP request duration             |
-| `keryx.http.active_connections` | UpDownCounter  | —                     | Currently active HTTP connections |
+| Metric                        | Type           | Attributes            | Description                  |
+| ----------------------------- | -------------- | --------------------- | ---------------------------- |
+| `keryx.http.requests`         | Counter        | method, route, status | Total HTTP requests received |
+| `keryx.http.request.duration` | Histogram (ms) | method, route, status | HTTP request duration        |
 
 ### WebSocket
 
@@ -40,6 +39,13 @@ OTEL_METRICS_ENABLED=true bun run start
 | ---------------------- | ------------- | ---------- | -------------------------------------- |
 | `keryx.ws.connections` | UpDownCounter | —          | Currently active WebSocket connections |
 | `keryx.ws.messages`    | Counter       | —          | Total WebSocket messages received      |
+
+### MCP
+
+| Metric                | Type          | Attributes | Description                                          |
+| --------------------- | ------------- | ---------- | ---------------------------------------------------- |
+| `keryx.mcp.sessions`  | UpDownCounter | —          | Currently active MCP sessions                        |
+| `keryx.mcp.messages`  | Counter       | —          | Total MCP requests received (POST/GET/DELETE)        |
 
 ### Actions
 
@@ -119,19 +125,25 @@ import { api } from "keryx";
 const prometheusText = await api.observability.collectMetrics();
 ```
 
-The instruments are also available directly for custom recording:
+## Custom Metrics
+
+The built-in meter instruments are private to the observability initializer — framework emission is wired through `api.hooks.*`, and no direct `api.observability.*.add/record` surface is exposed. To record your own metrics, create a `Meter` off the global OTel `MeterProvider` that Keryx installs at `start()`:
 
 ```ts
-api.observability.http.requestsTotal.add(1, {
-  method: "GET",
-  route: "/custom",
-  status: "200",
+import { metrics } from "@opentelemetry/api";
+
+const meter = metrics.getMeter("my-app");
+const signupsTotal = meter.createCounter("my_app.signups", {
+  description: "Total user signups",
 });
-api.observability.action.duration.record(42, { action: "myAction" });
+
+signupsTotal.add(1, { plan: "pro" });
 ```
+
+Your custom metrics will be exported alongside Keryx's built-in metrics on the same `/metrics` endpoint.
 
 ## Cardinality & Memory
 
 All built-in metric attributes have bounded cardinality — they use action names, HTTP methods, status codes, and queue names, all of which are known at startup. This means the number of unique time series stays proportional to your action count and memory usage remains constant regardless of traffic volume.
 
-If you record custom metrics via `api.observability`, avoid using unbounded values (user IDs, request paths, timestamps, etc.) as attributes. Unbounded cardinality causes the OTel SDK to allocate a new time series per unique combination, which can lead to unbounded memory growth.
+If you record custom metrics via your own `Meter`, avoid using unbounded values (user IDs, request paths, timestamps, etc.) as attributes. Unbounded cardinality causes the OTel SDK to allocate a new time series per unique combination, which can lead to unbounded memory growth.

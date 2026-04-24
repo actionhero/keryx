@@ -35,23 +35,24 @@ export class Session extends Initializer {
 
 Unknown dependency names or cycles cause a startup failure with a clear, actionable error message.
 
-| Initializer     | `dependsOn`                                  | What it does                                       |
-| --------------- | -------------------------------------------- | -------------------------------------------------- |
-| `connections`   | `[]`                                         | Connection pool management                         |
-| `signals`       | `[]`                                         | SIGINT/SIGTERM graceful shutdown handlers          |
-| `process`       | `[]`                                         | Process metadata (name, boot time)                 |
-| `db`            | `[]`                                         | Sets up Drizzle ORM + connection pool              |
-| `redis`         | `[]`                                         | Redis client connection                            |
-| `actions`       | `[]`                                         | Discovers and registers all actions                |
-| `observability` | `["actions", "connections"]`                 | OpenTelemetry metrics + Prometheus scrape endpoint |
-| `swagger`       | `["actions"]`                                | Parses source code for OpenAPI schemas             |
-| `session`       | `["redis"]`                                  | Redis-backed session management                    |
-| `oauth`         | `["redis", "actions"]`                       | OAuth 2.1 provider for MCP auth                    |
-| `pubsub`        | `["redis", "connections"]`                   | Redis PubSub for real-time messaging               |
-| `channels`      | `["redis", "pubsub"]`                        | Discovers and registers PubSub channels            |
-| `servers`       | `["actions"]`                                | Auto-discovers and loads transport servers         |
-| `mcp`           | `["actions", "oauth", "connections", "pubsub"]` | MCP server — exposes actions as tools           |
-| `resque`        | `["redis", "actions", "process"]`            | Background task queue                              |
+| Initializer     | `dependsOn`                                              | What it does                                       |
+| --------------- | -------------------------------------------------------- | -------------------------------------------------- |
+| `connections`   | `[]`                                                     | Connection pool management                         |
+| `signals`       | `[]`                                                     | SIGINT/SIGTERM graceful shutdown handlers          |
+| `process`       | `[]`                                                     | Process metadata (name, boot time)                 |
+| `db`            | `[]`                                                     | Sets up Drizzle ORM + connection pool              |
+| `redis`         | `[]`                                                     | Redis client connection                            |
+| `hooks`         | `[]`                                                     | Central registry for framework lifecycle hooks     |
+| `actions`       | `["hooks"]`                                              | Discovers and registers all actions                |
+| `observability` | `["hooks", "actions", "connections"]`                    | OpenTelemetry metrics + Prometheus scrape endpoint |
+| `swagger`       | `["actions"]`                                            | Parses source code for OpenAPI schemas             |
+| `session`       | `["redis"]`                                              | Redis-backed session management                    |
+| `oauth`         | `["redis", "actions"]`                                   | OAuth 2.1 provider for MCP auth                    |
+| `pubsub`        | `["redis", "connections"]`                               | Redis PubSub for real-time messaging               |
+| `channels`      | `["redis", "pubsub"]`                                    | Discovers and registers PubSub channels            |
+| `servers`       | `["actions", "hooks"]`                                   | Auto-discovers and loads transport servers         |
+| `mcp`           | `["hooks", "actions", "oauth", "connections", "pubsub"]` | MCP server — exposes actions as tools              |
+| `resque`        | `["redis", "actions", "process", "hooks"]`               | Background task queue                              |
 
 When the server starts, it renders the resolved graph to the logs so the order is visible at a glance:
 
@@ -62,16 +63,17 @@ When the server starts, it renders the resolved graph to the logs so the order i
   03  process
   04  db
   05  redis
-  06  actions
-  07  observability  ← actions, connections
-  08  swagger        ← actions
-  09  session        ← redis
-  10  oauth          ← redis, actions
-  11  pubsub         ← redis, connections
-  12  channels       ← redis, pubsub
-  13  servers        ← actions
-  14  mcp            ← actions, oauth, connections, pubsub
-  15  resque         ← redis, actions, process
+  06  hooks
+  07  actions        ← hooks
+  08  observability  ← hooks, actions, connections
+  09  swagger        ← actions
+  10  session        ← redis
+  11  oauth          ← redis, actions
+  12  pubsub         ← redis, connections
+  13  channels       ← redis, pubsub
+  14  servers        ← actions, hooks
+  15  mcp            ← hooks, actions, oauth, connections, pubsub
+  16  resque         ← redis, actions, process, hooks
 ```
 
 ## The Module Augmentation Pattern

@@ -28,6 +28,8 @@ const namespace = "resque";
  * stash span refs, timing data, or any other state in `metadata`.
  */
 export interface JobContext {
+  /** The queue this job was pulled from. Populated from the node-resque worker. */
+  queue: string;
   /** Mutable scratch space shared between `beforeJob` and `afterJob`. */
   metadata: Record<string, unknown>;
 }
@@ -212,14 +214,6 @@ export class Resque extends Initializer {
       });
 
       worker.on("failure", (queue, job, failure, duration) => {
-        api.observability.task.executedTotal.add(1, {
-          action: job.class,
-          queue,
-          status: "failure",
-        });
-        api.observability.task.duration.record(duration, {
-          action: job.class,
-        });
         logResqueEvent(
           "warn",
           `[resque:${worker.name}] job failed, ${queue}, ${job.class}, ${JSON.stringify(job?.args[0] ?? {})}: ${failure} (${duration}ms)`,
@@ -250,14 +244,6 @@ export class Resque extends Initializer {
       });
 
       worker.on("success", (queue, job: ParsedJob, result, duration) => {
-        api.observability.task.executedTotal.add(1, {
-          action: job.class,
-          queue,
-          status: "success",
-        });
-        api.observability.task.duration.record(duration, {
-          action: job.class,
-        });
         logResqueEvent(
           "info",
           `[resque:${worker.name}] job success ${queue}, ${job.class}, ${JSON.stringify(job.args[0])} | ${JSON.stringify(result)} (${duration}ms)`,
@@ -367,16 +353,25 @@ export class Resque extends Initializer {
 
         const fanOutId = plainParams._fanOutId as string | undefined;
 
-        const jobCtx: JobContext = { metadata: {} };
+        // node-resque invokes `perform` via `.apply(worker, args)`, so `this`
+        // is the Worker and `Worker.queue` is the queue the current job was
+        // pulled from. TypeScript infers `this` as the Job here because
+        // `perform` lives inside the Job literal, so cast through `unknown` to
+        // read the runtime binding. Exposed on JobContext so hooks (e.g.
+        // observability) can label per-job metrics.
+        const runtimeThis = this as unknown as { queue?: unknown };
+        const currentQueue =
+          typeof runtimeThis?.queue === "string" ? runtimeThis.queue : "";
+        const jobCtx: JobContext = { queue: currentQueue, metadata: {} };
         const jobStartTime = Date.now();
-        for (const hook of api.hooks.resque.beforeJobHooks) {
-          await hook(action.name, plainParams, jobCtx);
-        }
 
         let response: Awaited<ReturnType<(typeof action)["run"]>>;
         let error: TypedError | undefined;
         let outcome: JobOutcome | undefined;
         try {
+          for (const hook of api.hooks.resque.beforeJobHooks) {
+            await hook(action.name, plainParams, jobCtx);
+          }
           const payload = await connection.act(action.name, plainParams);
           response = payload.response;
           error = payload.error;
