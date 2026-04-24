@@ -3,15 +3,16 @@ import path from "node:path";
 import { instrumentDrizzleClient } from "@kubiks/otel-drizzle";
 import {
   type Context,
+  type ContextManager,
   context,
   propagation,
+  ROOT_CONTEXT,
   type Span,
   SpanKind,
   type SpanOptions,
   SpanStatusCode,
   trace,
 } from "@opentelemetry/api";
-import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
@@ -32,13 +33,79 @@ declare module "keryx" {
 }
 
 /**
- * Per-request state used to link HTTP spans with their child action spans
- * and to update the HTTP span name/attributes once the action is resolved.
+ * Per-request state used to update the HTTP span's name/attributes once the
+ * action is resolved. The active OTel context (parent for child spans) lives
+ * in `KeryxContextManager`, not here.
  */
 interface RequestState {
   httpSpan: Span;
   method: string;
-  parentCtx: Context;
+}
+
+/**
+ * OTel `ContextManager` backed by a single `AsyncLocalStorage<Context>` that
+ * exposes a public `enterWith()`. This lets framework hooks (which have no
+ * enclosing callback to wrap with `context.with(...)`) set the active context
+ * for the remainder of the async task — so downstream Redis/Drizzle spans
+ * created via `context.active()` inherit the action span as parent.
+ *
+ * The default `@opentelemetry/context-async-hooks` manager keeps its ALS
+ * private and only exposes `with(ctx, fn)`, which is incompatible with a
+ * hook-style API. Using a single shared ALS (instead of a side-car) keeps
+ * `context.active()` and the plugin's own view of the active context in sync.
+ */
+export class KeryxContextManager implements ContextManager {
+  private als = new AsyncLocalStorage<Context>();
+
+  active(): Context {
+    return this.als.getStore() ?? ROOT_CONTEXT;
+  }
+
+  with<A extends unknown[], F extends (...args: A) => ReturnType<F>>(
+    ctx: Context,
+    fn: F,
+    thisArg?: ThisParameterType<F>,
+    ...args: A
+  ): ReturnType<F> {
+    const cb = thisArg == null ? fn : fn.bind(thisArg);
+    return this.als.run(ctx, cb as (...args: A) => ReturnType<F>, ...args);
+  }
+
+  bind<T>(_ctx: Context, target: T): T {
+    return target;
+  }
+
+  enable(): this {
+    return this;
+  }
+
+  disable(): this {
+    this.als.disable();
+    return this;
+  }
+
+  enterWith(ctx: Context): void {
+    this.als.enterWith(ctx);
+  }
+}
+
+/**
+ * Build the `db.query.text` attribute for a Redis span: `"<command> <key>..."`
+ * with keys-only (values never captured). Uses ioredis `Command.getKeys()`
+ * to determine which args are keys; falls back to the command name alone if
+ * the command isn't in `@ioredis/commands` or `getKeys()` throws.
+ */
+function buildRedisQueryText(command: unknown, commandName: string): string {
+  try {
+    const getKeys = (command as { getKeys?: () => Array<string | Buffer> })
+      .getKeys;
+    if (typeof getKeys !== "function") return commandName;
+    const keys = getKeys.call(command);
+    if (!Array.isArray(keys) || keys.length === 0) return commandName;
+    return `${commandName} ${keys.map((k) => String(k)).join(" ")}`;
+  } catch {
+    return commandName;
+  }
 }
 
 /**
@@ -59,6 +126,7 @@ interface RequestState {
  */
 export class TracingPlugin extends Initializer {
   private tracerProvider?: BasicTracerProvider;
+  private contextManager = new KeryxContextManager();
 
   /**
    * Plugin-owned AsyncLocalStorage for per-request trace context state. Set in
@@ -68,17 +136,17 @@ export class TracingPlugin extends Initializer {
    */
   private requestALS = new AsyncLocalStorage<RequestState>();
 
-  /**
-   * Plugin-owned AsyncLocalStorage for the parent trace context to use when
-   * creating action spans (and their descendants: Redis, Drizzle). Set in
-   * `beforeRequest` (to the HTTP span's context) and `beforeJob` (to the
-   * extracted task trace context).
-   */
-  private parentCtxALS = new AsyncLocalStorage<Context>();
-
   constructor() {
     super(namespace);
-    this.dependsOn = ["hooks", "actions", "connections", "servers"];
+    // "redis" and "db" ensure the clients exist before we instrument them.
+    this.dependsOn = [
+      "hooks",
+      "actions",
+      "connections",
+      "servers",
+      "redis",
+      "db",
+    ];
   }
 
   async initialize() {
@@ -135,11 +203,15 @@ export class TracingPlugin extends Initializer {
       ],
     });
 
-    // Register AsyncLocalStorage-based context manager so spans propagate
-    // across async boundaries (required for parent-child span relationships).
-    const contextManager = new AsyncLocalStorageContextManager();
-    contextManager.enable();
-    context.setGlobalContextManager(contextManager);
+    // Shared context manager — a single ALS that both framework hooks
+    // (via enterWith) and OTel (via context.active()) read from, so Redis
+    // and Drizzle spans inherit the action span as parent automatically.
+    // `context.disable()` first to force-override any manager already
+    // registered (e.g. a test harness's own default manager) — otherwise
+    // `setGlobalContextManager` no-ops and our enterWith writes go to an
+    // ALS the rest of OTel ignores.
+    context.disable();
+    context.setGlobalContextManager(this.contextManager);
 
     propagation.setGlobalPropagator(new W3CTraceContextPropagator());
     trace.setGlobalTracerProvider(this.tracerProvider);
@@ -192,10 +264,11 @@ export class TracingPlugin extends Initializer {
       );
       const httpCtx = trace.setSpan(parentCtx, httpSpan);
       ctx.metadata.otelSpan = httpSpan;
-      // enterWith persists the store for the remainder of this async task,
-      // so beforeAct (downstream) can read it without an enclosing callback.
-      this.requestALS.enterWith({ httpSpan, method, parentCtx: httpCtx });
-      this.parentCtxALS.enterWith(httpCtx);
+      // enterWith persists for the remainder of this async task, so beforeAct
+      // can read requestALS (for the HTTP span reference) and context.active()
+      // (for parent-context inheritance in child spans) without wrapping.
+      this.requestALS.enterWith({ httpSpan, method });
+      this.contextManager.enterWith(httpCtx);
     });
 
     api.hooks.web.afterRequest((_req, _res, ctx, outcome) => {
@@ -214,7 +287,7 @@ export class TracingPlugin extends Initializer {
     });
 
     api.hooks.actions.beforeAct((actionName, _params, connection, actCtx) => {
-      const parentCtx = this.parentCtxALS.getStore() ?? context.active();
+      const parentCtx = context.active();
 
       // For web requests, update the HTTP span's name with the resolved route
       // once we know it. The request state (with HTTP span ref) was stashed
@@ -240,9 +313,9 @@ export class TracingPlugin extends Initializer {
         parentCtx,
       );
       actCtx.metadata.otelSpan = actionSpan;
-      // Make the action span the active parent so Redis/DB spans emitted
-      // during the action become children of it.
-      this.parentCtxALS.enterWith(trace.setSpan(parentCtx, actionSpan));
+      // Make the action span the active parent so Redis/Drizzle spans emitted
+      // during the action (via context.active()) become children of it.
+      this.contextManager.enterWith(trace.setSpan(parentCtx, actionSpan));
     });
 
     api.hooks.actions.afterAct(
@@ -288,7 +361,7 @@ export class TracingPlugin extends Initializer {
       // into the action's validated params.
       delete p._traceParent;
       delete p._traceState;
-      this.parentCtxALS.enterWith(extractedCtx);
+      this.contextManager.enterWith(extractedCtx);
     });
   }
 
@@ -296,6 +369,14 @@ export class TracingPlugin extends Initializer {
    * Wrap ioredis `sendCommand` on the main Redis client to emit a span per
    * command. Only the general-purpose client is instrumented; the subscription
    * client uses a different command flow for SUBSCRIBE/PSUBSCRIBE.
+   *
+   * Span `db.query.text` captures `<command> <key1> <key2>...` — keys only,
+   * never values. ioredis's `Command.getKeys()` uses `@ioredis/commands`
+   * metadata to pick out arg positions that are keys (e.g. for `MSET k1 v1
+   * k2 v2` it returns `[k1, k2]`, and for `AUTH password` it returns `[]`).
+   * That keeps secrets (AUTH passwords, SET values, session payloads) out of
+   * trace attributes while preserving the key structure that makes Redis
+   * traces useful for debugging.
    */
   private instrumentRedis() {
     const client = api.redis?.redis;
@@ -307,11 +388,13 @@ export class TracingPlugin extends Initializer {
     ) {
       const [command] = args;
       const commandName = (command as { name?: string }).name ?? "unknown";
+      const queryText = buildRedisQueryText(command, commandName);
       const span = tracer.startSpan(`redis.${commandName}`, {
         kind: SpanKind.CLIENT,
         attributes: {
           "db.system.name": "redis",
           "db.operation.name": commandName,
+          "db.query.text": queryText,
         },
       });
 

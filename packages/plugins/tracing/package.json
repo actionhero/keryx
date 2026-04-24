@@ -1,6 +1,6 @@
 {
   "name": "@keryxjs/tracing",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "module": "index.ts",
   "type": "module",
   "license": "MIT",
@@ -39,7 +39,6 @@
   },
   "dependencies": {
     "@kubiks/otel-drizzle": "^2.1.0",
-    "@opentelemetry/context-async-hooks": "^2.0.0",
     "@opentelemetry/core": "^1.30.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.200.0",
     "@opentelemetry/resources": "^2.0.0",

@@ -27,6 +27,36 @@ Enable tracing and point at an OTLP HTTP receiver:
 OTEL_TRACING_ENABLED=true OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 bun run start
 ```
 
+## Local Testing with Jaeger
+
+The repo ships a one-container OTLP receiver + UI for local development. Jaeger's `all-in-one` image accepts OTLP/HTTP on port `4318` (matching the plugin's default endpoint) and serves its web UI on port `16686` — no OTel Collector needed.
+
+Run all commands below from the repo root.
+
+Start Jaeger:
+
+```bash
+docker compose -f packages/plugins/tracing/docker-compose.tracing.yaml up -d
+```
+
+Run the example backend with tracing enabled:
+
+```bash
+OTEL_TRACING_ENABLED=true bun dev
+```
+
+Open the UI at `http://localhost:16686`, pick `keryx-example-backend` (or whatever `OTEL_SERVICE_NAME` resolves to) in the service dropdown, and click **Find Traces**. A request to `/api/status` will show an HTTP span parenting an `action:*` span; actions that touch Redis or Postgres will show `redis.*` and `drizzle.*` children.
+
+![Jaeger trace for PUT session:create: the HTTP span parents action:session:create, which in turn parents redis.get/set/incr/expire and drizzle.select child spans. The detail pane shows redis.set with db.query.text "set session:1aa34179-…" — the key is captured, the value is not.](/images/tracing-jaeger-session-create.png)
+
+Tear it down when you're done:
+
+```bash
+docker compose -f packages/plugins/tracing/docker-compose.tracing.yaml down
+```
+
+Jaeger `all-in-one` is memory-backed — traces are lost on container restart. This is intentional for dev; don't use it for production trace storage.
+
 ## Configuration
 
 The plugin adds its own `config.tracing.*` namespace. All keys can be set via env vars at startup.
@@ -48,7 +78,7 @@ The plugin adds its own `config.tracing.*` namespace. All keys can be set via en
 | ------------------------- | -------- | --------------------------------------------------------------- | ------------------------------------------------------------- |
 | `<METHOD>` / `GET status` | SERVER   | `http.request.method`, `http.response.status_code`, `http.route`, `url.full` | Renamed to `<METHOD> <route>` once the action resolves        |
 | `action:<name>`           | INTERNAL | `keryx.action`, `keryx.connection.type`, `keryx.action.duration_ms` | Fires for every action across all transports (HTTP, WS, task, CLI, MCP) |
-| `redis.<command>`         | CLIENT   | `db.system.name="redis"`, `db.operation.name`                   | Emitted for commands on `api.redis.redis` (not the subscription client) |
+| `redis.<command>`         | CLIENT   | `db.system.name="redis"`, `db.operation.name`, `db.query.text`  | `db.query.text` is `<command> <key1> <key2>…` — keys only, values are never captured (so AUTH passwords, SET values, etc. stay out of traces) |
 | `drizzle.*`               | CLIENT   | `db.system="postgresql"`, `db.statement` (up to 1000 chars)     | Provided by `@kubiks/otel-drizzle`                            |
 
 Spans nest naturally: the HTTP span is the parent of the action span, which is the parent of any Redis / Drizzle spans emitted during the action.
