@@ -28,9 +28,48 @@ import {
 import { handleStaticFile } from "../util/webStaticFiles";
 
 /**
+ * Per-request context passed to {@link BeforeRequestHook} and {@link AfterRequestHook}.
+ * The same object instance is passed to both hooks for a given request, so `beforeRequest`
+ * implementations can stash state (e.g. span refs, start time) in `metadata` for
+ * `afterRequest` to pick up.
+ */
+export interface RequestContext {
+  /** Client IP address as reported by `server.requestIP()`, or `"unknown-IP"`. */
+  ip: string;
+  /** Session id from the session cookie, or a freshly minted UUID. */
+  id: string;
+  /** Mutable scratch space shared between `beforeRequest` and `afterRequest`. */
+  metadata: Record<string, unknown>;
+}
+
+/**
+ * Runs at the start of every HTTP request, before any routing or static file handling.
+ * WebSocket upgrades do not fire this hook. Throwing an error propagates out of the
+ * request handler. Hooks run sequentially in registration order.
+ */
+export type BeforeRequestHook = (
+  req: Request,
+  ctx: RequestContext,
+) => Promise<void> | void;
+
+/**
+ * Runs after the `Response` is built and before compression. Receives the same `ctx`
+ * object that was passed to the matching `beforeRequest`. Hooks run sequentially in
+ * registration order.
+ */
+export type AfterRequestHook = (
+  req: Request,
+  res: Response,
+  ctx: RequestContext,
+) => Promise<void> | void;
+
+/**
  * HTTP + WebSocket server built on `Bun.serve`. Handles REST action routing (with path params),
  * static file serving (with ETag/304 caching), WebSocket connections (actions, PubSub subscribe/unsubscribe),
- * OAuth endpoints, and MCP SSE streams. Exposes `api.servers.web`.
+ * OAuth endpoints, and MCP SSE streams.
+ *
+ * Plugins register HTTP lifecycle hooks via `api.hooks.web.beforeRequest` /
+ * `api.hooks.web.afterRequest`.
  */
 export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
   /** The actual port the server bound to (resolved after start, e.g. when config port is 0). */
@@ -171,7 +210,16 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
     )
       return; // upgrade the request to a WebSocket
 
+    const ctx: RequestContext = { ip, id, metadata: {} };
+    for (const hook of api.hooks.web.beforeRequestHooks) {
+      await hook(req, ctx);
+    }
+
     const response = await this.handleHttpRequest(req, server, ip, id);
+
+    for (const hook of api.hooks.web.afterRequestHooks) {
+      await hook(req, response, ctx);
+    }
 
     // SSE and other streaming responses: disable idle timeout and skip compression
     if (response.headers.get("Content-Type")?.includes("text/event-stream")) {

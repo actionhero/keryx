@@ -9,7 +9,6 @@ import { ErrorType, TypedError } from "../classes/TypedError";
 import { config } from "../config";
 import { formatLoadedMessage } from "../util/config";
 import { globLoader } from "../util/glob";
-import { injectTraceToParams } from "../util/tracing";
 
 const namespace = "actions";
 
@@ -69,10 +68,43 @@ declare module "keryx" {
 
 export type TaskInputs = Record<string, any>;
 
+/**
+ * Runs when any action is enqueued — via {@link Actions.enqueue}, {@link Actions.enqueueAt},
+ * {@link Actions.enqueueIn}, or the per-job calls inside {@link Actions.fanOut}. Fires after
+ * the queue has been resolved and before the job is placed in Redis.
+ *
+ * Return a new `TaskInputs` object to replace the payload (e.g. to inject trace headers),
+ * or return `void` / `undefined` to leave the payload unchanged. If multiple hooks are
+ * registered they run sequentially in registration order; each receives the output of
+ * the previous one.
+ *
+ * Register via `api.hooks.actions.onEnqueue(...)`.
+ */
+export type OnEnqueueHook = (
+  actionName: string,
+  inputs: TaskInputs,
+  queue: string,
+) => Promise<TaskInputs | void> | TaskInputs | void;
+
 export class Actions extends Initializer {
   constructor() {
     super(namespace);
+    this.dependsOn = ["hooks"];
   }
+
+  /** Run all registered `onEnqueue` hooks, threading inputs through each. */
+  private runOnEnqueueHooks = async (
+    actionName: string,
+    inputs: TaskInputs,
+    queue: string,
+  ): Promise<TaskInputs> => {
+    let current = inputs;
+    for (const hook of api.hooks.actions.onEnqueueHooks) {
+      const next = await hook(actionName, current, queue);
+      if (next !== undefined) current = next;
+    }
+    return current;
+  };
 
   /**
    * Enqueue an action to be performed in the background.
@@ -97,15 +129,12 @@ export class Actions extends Initializer {
       });
     }
     queue = queue ?? action?.task?.queue ?? DEFAULT_QUEUE;
-
-    // Propagate trace context into task params for distributed tracing
-    injectTraceToParams(inputs);
-
+    const finalInputs = await this.runOnEnqueueHooks(actionName, inputs, queue);
     api.observability.task.enqueuedTotal.add(1, {
       action: actionName,
       queue,
     });
-    return api.resque.queue.enqueue(queue, actionName, [inputs]);
+    return api.resque.queue.enqueue(queue, actionName, [finalInputs]);
   };
 
   /**
@@ -307,11 +336,12 @@ export class Actions extends Initializer {
     queue: string = DEFAULT_QUEUE,
     suppressDuplicateTaskError = false,
   ) => {
+    const finalInputs = await this.runOnEnqueueHooks(actionName, inputs, queue);
     return api.resque.queue.enqueueAt(
       timestamp,
       queue,
       actionName,
-      [inputs],
+      [finalInputs],
       suppressDuplicateTaskError,
     );
   };
@@ -333,11 +363,12 @@ export class Actions extends Initializer {
     queue: string = DEFAULT_QUEUE,
     suppressDuplicateTaskError = false,
   ) => {
+    const finalInputs = await this.runOnEnqueueHooks(actionName, inputs, queue);
     return api.resque.queue.enqueueIn(
       time,
       queue,
       actionName,
-      [inputs],
+      [finalInputs],
       suppressDuplicateTaskError,
     );
   };

@@ -182,6 +182,84 @@ export class MyAction extends Action {
 }
 ```
 
+### Lifecycle Hooks
+
+Plugins can observe or wrap three framework-wide lifecycle events: HTTP requests, task enqueue, and task execution. All hooks are registered via the `api.hooks` namespace from code (not the plugin manifest), typically inside a plugin initializer's `initialize()`.
+
+Use lifecycle hooks when action middleware (`runBefore` / `runAfter`) isn't enough — for example, to wrap an entire HTTP request in a tracing span, inject trace headers into every enqueued job, or restore distributed trace context before a worker runs an action.
+
+```ts
+import { api, Initializer } from "keryx";
+
+class MyTracer extends Initializer {
+  constructor() {
+    super("myTracer");
+    this.dependsOn = ["hooks"]; // ensure api.hooks is ready
+  }
+  async initialize() {
+    api.hooks.web.beforeRequest((req, ctx) => { /* ... */ });
+    api.hooks.web.afterRequest((req, res, ctx) => { /* ... */ });
+    api.hooks.actions.onEnqueue((name, inputs, queue) => { /* ... */ });
+    api.hooks.actions.beforeAct((name, params, connection, ctx) => { /* ... */ });
+    api.hooks.actions.afterAct((name, params, connection, ctx, outcome) => { /* ... */ });
+    api.hooks.resque.beforeJob((name, params, ctx) => { /* ... */ });
+    api.hooks.resque.afterJob((name, params, ctx, outcome) => { /* ... */ });
+  }
+}
+```
+
+**HTTP request hooks** — `api.hooks.web.beforeRequest` fires at the start of every HTTP request before routing (covers static files, OAuth, MCP, metrics, and actions); `api.hooks.web.afterRequest` fires after the `Response` is built, before compression. WebSocket upgrades do not fire these hooks. A shared `RequestContext` passes from `beforeRequest` to `afterRequest` so state can be threaded through `ctx.metadata`:
+
+```ts
+api.hooks.web.beforeRequest((req, ctx) => {
+  ctx.metadata.startedAt = Date.now();
+});
+api.hooks.web.afterRequest((_req, _res, ctx) => {
+  const elapsed = Date.now() - (ctx.metadata.startedAt as number);
+  // record span, log, etc.
+});
+```
+
+**Task enqueue hook** — `api.hooks.actions.onEnqueue` fires on every `api.actions.enqueue`, `enqueueAt`, `enqueueIn`, and each per-job call inside `fanOut`. Return a replacement `TaskInputs` object to mutate the payload before it hits Redis; return `void` to leave it unchanged:
+
+```ts
+api.hooks.actions.onEnqueue((actionName, inputs, queue) => {
+  return { ...inputs, _traceparent: currentTraceparent() };
+});
+```
+
+**Action lifecycle hooks (cross-transport)** — `api.hooks.actions.beforeAct` and `api.hooks.actions.afterAct` fire inside `Connection.act()` for every action invocation, regardless of transport (web, websocket, task, cli, mcp, …). The `Connection` is passed so handlers can branch on `connection.type`. Unlike `hooks.web.beforeRequest` (HTTP-only) and `hooks.resque.beforeJob` (task-only), these fire across all transports with one registration. They fire after params are validated and don't run if the action isn't found or validation fails.
+
+```ts
+api.hooks.actions.beforeAct((name, params, connection, ctx) => {
+  ctx.metadata.span = startSpan(`action:${name}`, {
+    transport: connection.type,
+  });
+});
+api.hooks.actions.afterAct((_name, _params, _connection, ctx, outcome) => {
+  const span = ctx.metadata.span as Span;
+  if (outcome.success) span.setStatus({ code: "OK" });
+  else span.recordException(outcome.error as Error);
+  span.end();
+});
+```
+
+**Task execution hooks** — `api.hooks.resque.beforeJob` and `api.hooks.resque.afterJob` fire inside the job wrapper, bracketing the action run. They have access to the decoded action name and params (unlike the underlying `worker.on("job")` event, which only sees raw `job.args`). `afterJob` receives a unified `JobOutcome` that discriminates success from failure via `outcome.success`, so both paths reach a single handler:
+
+```ts
+api.hooks.resque.beforeJob((name, params, ctx) => {
+  ctx.metadata.span = startSpan(name, params);
+});
+api.hooks.resque.afterJob((_name, _params, ctx, outcome) => {
+  const span = ctx.metadata.span as Span;
+  if (outcome.success) span.setStatus({ code: "OK" });
+  else span.recordException(outcome.error as Error);
+  span.end();
+});
+```
+
+All hook types (`RequestContext`, `BeforeRequestHook`, `AfterRequestHook`, `OnEnqueueHook`, `ActContext`, `ActOutcome`, `BeforeActHook`, `AfterActHook`, `JobContext`, `JobOutcome`, `BeforeJobHook`, `AfterJobHook`) are exported from `"keryx"`. Hooks run sequentially in registration order; thrown errors propagate (a throw in `beforeRequest` aborts the request, a throw in `beforeAct` fails the action, a throw in `beforeJob` fails the job).
+
 ### Custom Generators
 
 Plugins can register custom types for the `keryx generate` CLI command. Provide a Mustache template and an output directory:

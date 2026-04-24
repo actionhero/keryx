@@ -18,9 +18,53 @@ import {
 import { Initializer } from "../classes/Initializer";
 import { LogFormat } from "../classes/Logger";
 import { TypedError } from "../classes/TypedError";
-import { extractTraceFromParams } from "../util/tracing";
+import type { TaskInputs } from "./actionts";
 
 const namespace = "resque";
+
+/**
+ * Per-job context passed to {@link BeforeJobHook} and {@link AfterJobHook}.
+ * The same object instance is threaded from `beforeJob` to `afterJob`, so hooks can
+ * stash span refs, timing data, or any other state in `metadata`.
+ */
+export interface JobContext {
+  /** Mutable scratch space shared between `beforeJob` and `afterJob`. */
+  metadata: Record<string, unknown>;
+}
+
+/**
+ * Unified outcome passed to {@link AfterJobHook}. Discriminate via the `success` field.
+ * Covers both the worker `success` and `failure` paths in a single shape.
+ */
+export type JobOutcome =
+  | { success: true; result: unknown; duration: number }
+  | { success: false; error: unknown; duration: number };
+
+/**
+ * Runs inside the job wrapper immediately before the action executes (i.e. before
+ * `connection.act()`). Receives the action name and decoded params, giving plugins
+ * access to trace headers or other correlation data embedded in inputs. Hooks run
+ * sequentially in registration order. Throwing fails the job.
+ */
+export type BeforeJobHook = (
+  actionName: string,
+  params: TaskInputs,
+  ctx: JobContext,
+) => Promise<void> | void;
+
+/**
+ * Runs inside the job wrapper after the action executes, in a `finally` block so it
+ * fires for both success and failure. Receives the same `ctx` passed to `beforeJob`
+ * plus a {@link JobOutcome} describing what happened. Hooks run sequentially in
+ * registration order. Errors thrown by an `afterJob` hook do not mask an action
+ * error but may surface instead of it if the action succeeded.
+ */
+export type AfterJobHook = (
+  actionName: string,
+  params: TaskInputs,
+  ctx: JobContext,
+  outcome: JobOutcome,
+) => Promise<void> | void;
 
 function logResqueEvent(
   level: "info" | "warn",
@@ -50,7 +94,7 @@ let SERVER_JOB_COUNTER = 1;
 export class Resque extends Initializer {
   constructor() {
     super(namespace);
-    this.dependsOn = ["redis", "actions", "process"];
+    this.dependsOn = ["redis", "actions", "process", "hooks"];
   }
 
   /** Create and connect the resque `Queue` instance (used for enqueuing jobs). */
@@ -311,16 +355,6 @@ export class Resque extends Initializer {
         if (propagatedCorrelationId) {
           connection.correlationId = propagatedCorrelationId;
         }
-
-        // Restore trace context from propagated W3C headers so task spans
-        // participate in the parent request's distributed trace.
-        connection._traceContext = extractTraceFromParams(plainParams);
-
-        // Strip internal framework trace-propagation fields so they don't leak
-        // into the action's validated params.
-        delete plainParams._traceParent;
-        delete plainParams._traceState;
-
         // Synthesize an empty session in-memory — tasks are fresh starts; needed data
         // must come through action params, not session state.
         connection.session = {
@@ -333,15 +367,32 @@ export class Resque extends Initializer {
 
         const fanOutId = plainParams._fanOutId as string | undefined;
 
+        const jobCtx: JobContext = { metadata: {} };
+        const jobStartTime = Date.now();
+        for (const hook of api.hooks.resque.beforeJobHooks) {
+          await hook(action.name, plainParams, jobCtx);
+        }
+
         let response: Awaited<ReturnType<(typeof action)["run"]>>;
         let error: TypedError | undefined;
+        let outcome: JobOutcome | undefined;
         try {
           const payload = await connection.act(action.name, plainParams);
           response = payload.response;
           error = payload.error;
 
           if (error) throw error;
+          outcome = {
+            success: true,
+            result: response,
+            duration: Date.now() - jobStartTime,
+          };
         } catch (e) {
+          outcome = {
+            success: false,
+            error: e,
+            duration: Date.now() - jobStartTime,
+          };
           // Collect fan-out error before re-throwing
           if (fanOutId) {
             const metaKey = `fanout:${fanOutId}`;
@@ -362,6 +413,11 @@ export class Resque extends Initializer {
           }
           throw e;
         } finally {
+          if (outcome) {
+            for (const hook of api.hooks.resque.afterJobHooks) {
+              await hook(action.name, plainParams, jobCtx, outcome);
+            }
+          }
           if (
             action.task &&
             action.task.frequency &&

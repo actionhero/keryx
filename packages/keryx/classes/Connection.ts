@@ -1,4 +1,3 @@
-import { type Context, SpanKind } from "@opentelemetry/api";
 import { randomUUID } from "crypto";
 import { api, logger } from "../api";
 import { config } from "../config";
@@ -6,12 +5,59 @@ import type { PubSubMessage } from "../initializers/pubsub";
 import type { SessionData } from "../initializers/session";
 import type { RateLimitInfo } from "../middleware/rateLimit";
 import { ansi } from "../util/ansi";
-import { finalizeSpan, runWithSpan } from "../util/tracing";
 import { isSecret } from "../util/zodMixins";
 import type { Action, ActionParams } from "./Action";
 import { LogFormat } from "./Logger";
 import { StreamingResponse } from "./StreamingResponse";
 import { ErrorType, TypedError } from "./TypedError";
+
+/**
+ * Per-invocation context passed to {@link BeforeActHook} and {@link AfterActHook}.
+ * The same object instance threads from `beforeAct` to `afterAct` for a single
+ * action invocation, so hooks can stash span refs, timing data, etc.
+ */
+export interface ActContext {
+  /** Mutable scratch space shared between `beforeAct` and `afterAct`. */
+  metadata: Record<string, unknown>;
+}
+
+/**
+ * Unified outcome passed to {@link AfterActHook}. Discriminate via the `success` field.
+ * Covers both the happy-path and error paths of an action invocation.
+ */
+export type ActOutcome =
+  | { success: true; response: unknown; duration: number }
+  | { success: false; error: unknown; duration: number };
+
+/**
+ * Runs inside `Connection.act()` after params are validated and before the action's
+ * own `runBefore` middleware. Fires for every action invocation regardless of
+ * transport (web, websocket, task, cli, mcp, …) — inspect `connection.type` to
+ * discriminate. Throwing fails the action.
+ *
+ * Register via `api.hooks.actions.beforeAct(...)`.
+ */
+export type BeforeActHook = (
+  actionName: string,
+  params: Record<string, unknown>,
+  connection: Connection,
+  ctx: ActContext,
+) => Promise<void> | void;
+
+/**
+ * Runs inside `Connection.act()` after the action completes (success or failure),
+ * in a `finally` block so it always fires if the corresponding `beforeAct` fired.
+ * Receives the same `ctx` plus an {@link ActOutcome} describing what happened.
+ *
+ * Register via `api.hooks.actions.afterAct(...)`.
+ */
+export type AfterActHook = (
+  actionName: string,
+  params: Record<string, unknown>,
+  connection: Connection,
+  ctx: ActContext,
+  outcome: ActOutcome,
+) => Promise<void> | void;
 
 /**
  * Represents a client connection to the server — HTTP request, WebSocket, or internal caller.
@@ -45,8 +91,6 @@ export class Connection<
   rateLimitInfo?: RateLimitInfo;
   /** Request correlation ID for distributed tracing. Propagated from the incoming `X-Request-Id` header when `config.server.web.correlationId.trustProxy` is enabled. */
   correlationId?: string;
-  /** OpenTelemetry trace context extracted from incoming request headers or propagated from a parent task. Used to create child spans that participate in the same distributed trace. */
-  _traceContext?: Context;
   /** App-defined request-scoped metadata. Reset to `{}` at the start of each top-level `act()` call so that long-lived connections (e.g., WebSockets) don't leak state between actions. Preserved across nested `act()` calls so that middleware state (e.g., an open transaction) propagates to sub-actions. */
   metadata: Partial<TMeta>;
   /** @internal Tracks nested `act()` depth so metadata is only reset on the outermost call. */
@@ -100,135 +144,140 @@ export class Connection<
     method: Request["method"] = "",
     url: string = "",
   ): Promise<{ response: Object; error?: TypedError }> {
-    return runWithSpan(
-      `action:${actionName ?? "unknown"}`,
-      SpanKind.INTERNAL,
-      {
-        "keryx.action": actionName ?? "unknown",
-        "keryx.connection.type": this.type,
-      },
-      this._traceContext,
-      async (span) => {
-        // Only reset metadata on the outermost act() call. Nested calls (action
-        // chaining) preserve the parent's metadata so middleware state like an
-        // open database transaction propagates to sub-actions.
-        if (this._actDepth === 0) this.metadata = {};
-        this._actDepth++;
-        const reqStartTime = new Date().getTime();
-        let loggerResponsePrefix: "OK" | "ERROR" = "OK";
-        let response: Object = {};
-        let error: TypedError | undefined;
+    // Only reset metadata on the outermost act() call. Nested calls (action
+    // chaining) preserve the parent's metadata so middleware state like an
+    // open database transaction propagates to sub-actions.
+    if (this._actDepth === 0) this.metadata = {};
+    this._actDepth++;
+    const reqStartTime = new Date().getTime();
+    let loggerResponsePrefix: "OK" | "ERROR" = "OK";
+    let response: Object = {};
+    let error: TypedError | undefined;
 
-        let action: Action | undefined;
-        let formattedParams: Record<string, unknown> | undefined;
-        try {
-          action = this.findAction(actionName);
-          if (!action) {
-            throw new TypedError({
-              message: `Action not found${actionName ? `: ${actionName}` : ""}`,
-              type: ErrorType.CONNECTION_ACTION_NOT_FOUND,
+    let action: Action | undefined;
+    let formattedParams: Record<string, unknown> | undefined;
+    // Cross-transport action hooks (api.hooks.actions.beforeAct / afterAct).
+    // beforeActRan guards afterAct so we only fire after-hooks for invocations
+    // where before-hooks also fired (i.e. action found + params validated).
+    const actCtx: ActContext = { metadata: {} };
+    let beforeActRan = false;
+    try {
+      action = this.findAction(actionName);
+      if (!action) {
+        throw new TypedError({
+          message: `Action not found${actionName ? `: ${actionName}` : ""}`,
+          type: ErrorType.CONNECTION_ACTION_NOT_FOUND,
+        });
+      }
+
+      // load the session once, if it hasn't been loaded yet
+      if (!this.sessionLoaded) await this.loadSession();
+
+      formattedParams = await this.formatParams(params, action);
+
+      for (const hook of api.hooks.actions.beforeActHooks) {
+        await hook(action.name, formattedParams, this, actCtx);
+      }
+      beforeActRan = true;
+
+      for (const middleware of action.middleware ?? []) {
+        if (middleware.runBefore) {
+          const middlewareResponse = await middleware.runBefore(
+            formattedParams,
+            this,
+          );
+          if (middlewareResponse && middlewareResponse?.updatedParams)
+            formattedParams = middlewareResponse.updatedParams;
+        }
+      }
+
+      const timeoutMs = action.timeout ?? config.actions.timeout;
+      if (timeoutMs > 0) {
+        const controller = new AbortController();
+        const timeoutError = new TypedError({
+          message: `Action '${action.name}' timed out after ${timeoutMs}ms`,
+          type: ErrorType.CONNECTION_ACTION_TIMEOUT,
+        });
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            controller.abort();
+            reject(timeoutError);
+          }, timeoutMs);
+        });
+        response = await Promise.race([
+          action.run(formattedParams, this, controller.signal),
+          timeoutPromise,
+        ]);
+      } else {
+        response = await action.run(formattedParams, this);
+      }
+    } catch (e) {
+      loggerResponsePrefix = "ERROR";
+      error =
+        e instanceof TypedError
+          ? e
+          : new TypedError({
+              message: `${e}`,
+              type: ErrorType.CONNECTION_ACTION_RUN,
+              cause: e,
             });
-          }
-
-          // load the session once, if it hasn't been loaded yet
-          if (!this.sessionLoaded) await this.loadSession();
-
-          formattedParams = await this.formatParams(params, action);
-
-          for (const middleware of action.middleware ?? []) {
-            if (middleware.runBefore) {
-              const middlewareResponse = await middleware.runBefore(
-                formattedParams,
-                this,
-              );
-              if (middlewareResponse && middlewareResponse?.updatedParams)
-                formattedParams = middlewareResponse.updatedParams;
-            }
-          }
-
-          const timeoutMs = action.timeout ?? config.actions.timeout;
-          if (timeoutMs > 0) {
-            const controller = new AbortController();
-            const timeoutError = new TypedError({
-              message: `Action '${action.name}' timed out after ${timeoutMs}ms`,
-              type: ErrorType.CONNECTION_ACTION_TIMEOUT,
-            });
-            const timeoutPromise = new Promise<never>((_, reject) => {
-              setTimeout(() => {
-                controller.abort();
-                reject(timeoutError);
-              }, timeoutMs);
-            });
-            response = await Promise.race([
-              action.run(formattedParams, this, controller.signal),
-              timeoutPromise,
-            ]);
-          } else {
-            response = await action.run(formattedParams, this);
-          }
-        } catch (e) {
-          loggerResponsePrefix = "ERROR";
-          error =
-            e instanceof TypedError
-              ? e
-              : new TypedError({
-                  message: `${e}`,
-                  type: ErrorType.CONNECTION_ACTION_RUN,
-                  cause: e,
-                });
-        } finally {
-          if (action && formattedParams) {
-            for (const middleware of action.middleware ?? []) {
-              if (middleware.runAfter) {
-                const middlewareResponse = await middleware.runAfter(
-                  formattedParams,
-                  this,
-                  error,
+    } finally {
+      if (action && formattedParams) {
+        for (const middleware of action.middleware ?? []) {
+          if (middleware.runAfter) {
+            const middlewareResponse = await middleware.runAfter(
+              formattedParams,
+              this,
+              error,
+            );
+            if (middlewareResponse && middlewareResponse?.updatedResponse) {
+              if (response instanceof StreamingResponse) {
+                logger.warn(
+                  `Middleware cannot replace a StreamingResponse for action '${actionName}'`,
                 );
-                if (middlewareResponse && middlewareResponse?.updatedResponse) {
-                  if (response instanceof StreamingResponse) {
-                    logger.warn(
-                      `Middleware cannot replace a StreamingResponse for action '${actionName}'`,
-                    );
-                  } else {
-                    response = middlewareResponse.updatedResponse;
-                  }
-                }
+              } else {
+                response = middlewareResponse.updatedResponse;
               }
             }
           }
-          this._actDepth--;
         }
+      }
+      if (beforeActRan && action && formattedParams) {
+        const actDuration = new Date().getTime() - reqStartTime;
+        const outcome: ActOutcome = error
+          ? { success: false, error, duration: actDuration }
+          : { success: true, response, duration: actDuration };
+        for (const hook of api.hooks.actions.afterActHooks) {
+          await hook(action.name, formattedParams, this, actCtx, outcome);
+        }
+      }
+      this._actDepth--;
+    }
 
-        const duration = new Date().getTime() - reqStartTime;
+    const duration = new Date().getTime() - reqStartTime;
 
-        span.setAttribute("keryx.action.duration_ms", duration);
-        finalizeSpan(span, error);
+    api.observability.action.executionsTotal.add(1, {
+      action: actionName ?? "unknown",
+      status: loggerResponsePrefix === "OK" ? "success" : "error",
+    });
+    api.observability.action.duration.record(duration, {
+      action: actionName ?? "unknown",
+    });
 
-        api.observability.action.executionsTotal.add(1, {
-          action: actionName ?? "unknown",
-          status: loggerResponsePrefix === "OK" ? "success" : "error",
-        });
-        api.observability.action.duration.record(duration, {
-          action: actionName ?? "unknown",
-        });
+    logAction({
+      actionName,
+      connectionType: this.type,
+      status: loggerResponsePrefix,
+      duration,
+      params: sanitizeParams(params, action),
+      method,
+      url,
+      identifier: this.identifier,
+      correlationId: this.correlationId,
+      error,
+    });
 
-        logAction({
-          actionName,
-          connectionType: this.type,
-          status: loggerResponsePrefix,
-          duration,
-          params: sanitizeParams(params, action),
-          method,
-          url,
-          identifier: this.identifier,
-          correlationId: this.correlationId,
-          error,
-        });
-
-        return { response, error };
-      },
-    );
+    return { response, error };
   }
 
   /**

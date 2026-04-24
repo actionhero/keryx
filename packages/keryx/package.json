@@ -1,6 +1,6 @@
 {
   "name": "keryx",
-  "version": "0.25.6",
+  "version": "0.26.0",
   "module": "index.ts",
   "type": "module",
   "license": "MIT",
@@ -84,18 +84,18 @@
     "prepublishOnly": "cp ../../README.md ."
   },
   "dependencies": {
-    "@kubiks/otel-drizzle": "^2.1.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentelemetry/api": "^1.9.1",
-    "@types/mustache": "^4.2.6",
-    "@types/pg": "^8.20.0",
-    "commander": "^14.0.3",
+    "@opentelemetry/sdk-metrics": "^2.7.0",
     "ioredis": "^5.10.1",
     "mustache": "^4.2.0",
     "node-resque": "^9.5.2",
     "pg": "^8.20.0",
     "ts-morph": "^28.0.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "commander": "^14.0.3",
+    "@types/mustache": "^4.2.6",
+    "@types/pg": "^8.20.0"
   },
   "peerDependencies": {
     "drizzle-orm": "^0.45.2",

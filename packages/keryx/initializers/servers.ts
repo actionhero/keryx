@@ -17,7 +17,7 @@ declare module "keryx" {
 export class Servers extends Initializer {
   constructor() {
     super(namespace);
-    this.dependsOn = ["actions"];
+    this.dependsOn = ["actions", "hooks"];
     this.runModes = [RUN_MODE.SERVER];
   }
 
