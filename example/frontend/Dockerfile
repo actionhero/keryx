@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package.json bun.lock* ./
 COPY packages/keryx/package.json packages/keryx/
 COPY packages/plugins/tracing/package.json packages/plugins/tracing/
-COPY packages/resque-admin/package.json packages/resque-admin/
+COPY packages/plugins/resque-admin/package.json packages/plugins/resque-admin/
 COPY example/backend/package.json example/backend/
 COPY example/frontend/package.json example/frontend/
 COPY docs/package.json docs/

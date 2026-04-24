@@ -6,7 +6,7 @@ on:
     paths:
       - packages/keryx/package.json
       - packages/plugins/tracing/package.json
-      - packages/resque-admin/package.json
+      - packages/plugins/resque-admin/package.json
 
 jobs:
   publish:
@@ -24,7 +24,7 @@ jobs:
             dir: packages/plugins/tracing
             npm_name: "@keryxjs/tracing"
           - package: resque-admin
-            dir: packages/resque-admin
+            dir: packages/plugins/resque-admin
             npm_name: "@keryxjs/resque-admin"
     steps:
       - uses: actions/checkout@v4
