@@ -12,6 +12,54 @@ import { StreamingResponse } from "./StreamingResponse";
 import { ErrorType, TypedError } from "./TypedError";
 
 /**
+ * Per-invocation context passed to {@link BeforeActHook} and {@link AfterActHook}.
+ * The same object instance threads from `beforeAct` to `afterAct` for a single
+ * action invocation, so hooks can stash span refs, timing data, etc.
+ */
+export interface ActContext {
+  /** Mutable scratch space shared between `beforeAct` and `afterAct`. */
+  metadata: Record<string, unknown>;
+}
+
+/**
+ * Unified outcome passed to {@link AfterActHook}. Discriminate via the `success` field.
+ * Covers both the happy-path and error paths of an action invocation.
+ */
+export type ActOutcome =
+  | { success: true; response: unknown; duration: number }
+  | { success: false; error: unknown; duration: number };
+
+/**
+ * Runs inside `Connection.act()` after params are validated and before the action's
+ * own `runBefore` middleware. Fires for every action invocation regardless of
+ * transport (web, websocket, task, cli, mcp, …) — inspect `connection.type` to
+ * discriminate. Throwing fails the action.
+ *
+ * Register via `api.hooks.actions.beforeAct(...)`.
+ */
+export type BeforeActHook = (
+  actionName: string,
+  params: Record<string, unknown>,
+  connection: Connection,
+  ctx: ActContext,
+) => Promise<void> | void;
+
+/**
+ * Runs inside `Connection.act()` after the action completes (success or failure),
+ * in a `finally` block so it always fires if the corresponding `beforeAct` fired.
+ * Receives the same `ctx` plus an {@link ActOutcome} describing what happened.
+ *
+ * Register via `api.hooks.actions.afterAct(...)`.
+ */
+export type AfterActHook = (
+  actionName: string,
+  params: Record<string, unknown>,
+  connection: Connection,
+  ctx: ActContext,
+  outcome: ActOutcome,
+) => Promise<void> | void;
+
+/**
  * Represents a client connection to the server — HTTP request, WebSocket, or internal caller.
  * Each connection tracks its own session, channel subscriptions, and rate-limit state.
  *
@@ -108,6 +156,11 @@ export class Connection<
 
     let action: Action | undefined;
     let formattedParams: Record<string, unknown> | undefined;
+    // Cross-transport action hooks (api.hooks.actions.beforeAct / afterAct).
+    // beforeActRan guards afterAct so we only fire after-hooks for invocations
+    // where before-hooks also fired (i.e. action found + params validated).
+    const actCtx: ActContext = { metadata: {} };
+    let beforeActRan = false;
     try {
       action = this.findAction(actionName);
       if (!action) {
@@ -121,6 +174,11 @@ export class Connection<
       if (!this.sessionLoaded) await this.loadSession();
 
       formattedParams = await this.formatParams(params, action);
+
+      for (const hook of api.hooks.actions.beforeActHooks) {
+        await hook(action.name, formattedParams, this, actCtx);
+      }
+      beforeActRan = true;
 
       for (const middleware of action.middleware ?? []) {
         if (middleware.runBefore) {
@@ -182,6 +240,15 @@ export class Connection<
               }
             }
           }
+        }
+      }
+      if (beforeActRan && action && formattedParams) {
+        const actDuration = new Date().getTime() - reqStartTime;
+        const outcome: ActOutcome = error
+          ? { success: false, error, duration: actDuration }
+          : { success: true, response, duration: actDuration };
+        for (const hook of api.hooks.actions.afterActHooks) {
+          await hook(action.name, formattedParams, this, actCtx, outcome);
         }
       }
       this._actDepth--;

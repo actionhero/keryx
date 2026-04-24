@@ -566,3 +566,79 @@ describe("compression", () => {
     }
   });
 });
+
+describe("request hooks", () => {
+  const resetHooks = () => {
+    const hooksInitializer = api.initializers.find((i) => i.name === "hooks");
+    (hooksInitializer as any).webBeforeRequest.length = 0;
+    (hooksInitializer as any).webAfterRequest.length = 0;
+  };
+
+  test("beforeRequest fires before the response is produced", async () => {
+    resetHooks();
+    const seen: Array<{ url: string; metadata: Record<string, unknown> }> = [];
+    api.hooks.web.beforeRequest((req, ctx) => {
+      seen.push({ url: req.url, metadata: ctx.metadata });
+    });
+
+    const res = await fetch(getUrl() + "/api/status");
+    expect(res.status).toBe(200);
+    expect(seen.length).toBe(1);
+    expect(seen[0].url).toContain("/api/status");
+  });
+
+  test("afterRequest receives the final Response", async () => {
+    resetHooks();
+    const seen: Array<{ status: number }> = [];
+    api.hooks.web.afterRequest((_req, res) => {
+      seen.push({ status: res.status });
+    });
+
+    await fetch(getUrl() + "/api/status");
+    expect(seen.length).toBe(1);
+    expect(seen[0].status).toBe(200);
+  });
+
+  test("ctx.metadata flows from beforeRequest to afterRequest", async () => {
+    resetHooks();
+    let carried: unknown;
+    api.hooks.web.beforeRequest((_req, ctx) => {
+      ctx.metadata.marker = "hello";
+    });
+    api.hooks.web.afterRequest((_req, _res, ctx) => {
+      carried = ctx.metadata.marker;
+    });
+
+    await fetch(getUrl() + "/api/status");
+    expect(carried).toBe("hello");
+  });
+
+  test("hooks fire for non-action requests (e.g. 404 paths)", async () => {
+    resetHooks();
+    let fired = 0;
+    api.hooks.web.beforeRequest(() => {
+      fired++;
+    });
+    api.hooks.web.afterRequest(() => {
+      fired++;
+    });
+
+    const res = await fetch(getUrl() + "/.well-known/does-not-exist");
+    expect(res.status).toBe(404);
+    expect(fired).toBe(2);
+  });
+
+  test("multiple beforeRequest hooks run in registration order", async () => {
+    resetHooks();
+    const calls: string[] = [];
+    api.hooks.web.beforeRequest(() => {
+      calls.push("a");
+    });
+    api.hooks.web.beforeRequest(() => {
+      calls.push("b");
+    });
+
+    await fetch(getUrl() + "/api/status");
+    expect(calls).toEqual(["a", "b"]);
+  });
+});

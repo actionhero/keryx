@@ -462,3 +462,45 @@ describe("fanOut overload types (compile-time)", () => {
     expect(typeof _never).toBe("function");
   });
 });
+
+describe("onEnqueue hook in fanOut", () => {
+  afterEach(() => {
+    const hooksInitializer = api.initializers.find((i) => i.name === "hooks");
+    (hooksInitializer as any).actionsOnEnqueue.length = 0;
+  });
+
+  test("fires once per child job in a fan-out batch", async () => {
+    const calls: Array<{ actionName: string; queue: string }> = [];
+    api.hooks.actions.onEnqueue((actionName, _inputs, queue) => {
+      calls.push({ actionName, queue });
+    });
+
+    await api.actions.fanOut("fanout:child", [
+      { itemId: "1" },
+      { itemId: "2" },
+      { itemId: "3" },
+    ]);
+
+    expect(calls).toHaveLength(3);
+    expect(calls.every((c) => c.actionName === "fanout:child")).toBe(true);
+    expect(calls.every((c) => c.queue === "worker")).toBe(true);
+  });
+
+  test("returned inputs from hook land in each child job payload", async () => {
+    api.hooks.actions.onEnqueue((_name, inputs) => ({
+      ...inputs,
+      injected: true,
+    }));
+
+    await api.actions.fanOut("fanout:child", [
+      { itemId: "a" },
+      { itemId: "b" },
+    ]);
+
+    const jobs = await api.actions.queued("worker");
+    expect(jobs).toHaveLength(2);
+    for (const job of jobs) {
+      expect(job.args[0].injected).toBe(true);
+    }
+  });
+});
