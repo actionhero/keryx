@@ -4,26 +4,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-The fullstack TypeScript framework for MCP and APIs, built on Bun. Spiritual successor to ActionHero. Monorepo with three workspaces: `packages/keryx/` (publishable framework), `example/backend/` (example API server), and `example/frontend/` (Vite + React app). The core idea: **Actions are the universal controller** - they serve as HTTP endpoints, WebSocket handlers, CLI commands, background tasks, and MCP tools simultaneously.
+The fullstack TypeScript framework for MCP and APIs, built on Bun. Spiritual successor to ActionHero. Monorepo with workspaces under `packages/keryx/` (publishable framework), `packages/plugins/*` (first-party plugins like `tracing` and `resque-admin`), `example/backend/` (example API server), `example/frontend/` (Vite + React app), and `docs/` (VitePress site). The core idea: **Actions are the universal controller** - they serve as HTTP endpoints, WebSocket handlers, CLI commands, background tasks, and MCP tools simultaneously.
 
 ## Monorepo Structure
 
 ```
 keryx/
-  packages/keryx/          # Framework package (publishable as "keryx")
-    classes/               # API, Action, Channel, Connection, Initializer, etc.
-    initializers/          # Framework initializers (db, redis, actions, servers, etc.)
-    servers/               # WebServer (Bun.serve)
-    actions/               # Built-in actions (status, swagger)
-    config/                # Modular config with env overrides (logger, observability, server/web)
-    middleware/             # Generic middleware (rateLimit)
-    util/                  # Helpers (glob, cli, config, zodMixins, oauth, generate, web*)
-    templates/             # OAuth HTML + SVG + CLI generator mustache templates
-    lua/                   # Redis Lua scripts
-    api.ts                 # Singleton + exports
-    index.ts               # Package entry point (re-exports)
-    keryx.ts               # CLI entry (start, generate, upgrade)
-    __tests__/             # Framework-level tests
+  packages/
+    keryx/                 # Framework package (publishable as "keryx")
+      classes/             # API, Action, Channel, Connection, Initializer, etc.
+      initializers/        # Framework initializers (db, redis, actions, servers, etc.)
+      servers/             # WebServer (Bun.serve)
+      actions/             # Built-in actions (status, swagger)
+      config/              # Modular config with env overrides (logger, observability, server/web)
+      middleware/          # Generic middleware (rateLimit)
+      util/                # Helpers (glob, cli, config, zodMixins, oauth, generate, web*)
+      templates/           # OAuth HTML + SVG + CLI generator mustache templates
+      lua/                 # Redis Lua scripts
+      api.ts               # Singleton + exports
+      index.ts             # Package entry point (re-exports)
+      keryx.ts             # CLI entry (start, generate, upgrade)
+      __tests__/           # Framework-level tests
+    plugins/               # First-party plugins (each is its own workspace)
+      tracing/             # OpenTelemetry tracing plugin
+      resque-admin/        # Web UI for inspecting Resque queues
   example/
     backend/               # Example app using keryx
       actions/             # App actions (user, session, message, channel, files)
@@ -70,23 +74,29 @@ All commands from root unless noted. Backend tests require PostgreSQL (`keryx` a
 ```bash
 bun install                        # Install all dependencies (all workspaces)
 bun dev                            # Run both backend and frontend with hot reload
-bun run ci                         # Full CI: lint + test all workspaces
+bun run ci                         # Full CI: lint + tests + docs tests across all workspaces
+bun tests                          # Run tests for every workspace (package, plugins, examples)
 
-# Package tests (run from packages/keryx/)
-cd packages/keryx
-bun test                           # Run framework tests
+# Per-workspace test scripts (from root)
+bun test-package                   # packages/keryx
+bun test-plugin-tracing            # packages/plugins/tracing
+bun test-plugin-resque-admin       # packages/plugins/resque-admin
+bun test-example-backend           # example/backend
+bun test-example-frontend          # example/frontend
+
+# Single test file (cd into the workspace first)
+cd example/backend
+bun test __tests__/actions/user.test.ts
 
 # Example backend (run from example/backend/)
 cd example/backend
-bun test                           # Run all example tests (uses bun:test, non-concurrent)
-bun test __tests__/actions/user.test.ts  # Run a single test file
 bun run dev                        # Backend only with --watch
 bun run start                      # Start server
 bun run migrations                 # Generate DB migrations from schema changes
 
 # Formatting (from root)
-bun lint                           # Check formatting (biome)
-bun format                         # Fix formatting (biome)
+bun lint                           # Check formatting (biome) across all workspaces
+bun format                         # Fix formatting (biome) across all workspaces
 ```
 
 ## Architecture
