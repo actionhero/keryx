@@ -776,6 +776,78 @@ describe("action lifecycle hooks (api.hooks.actions.beforeAct / afterAct)", () =
     }
   });
 
+  test("after hooks receive before-middleware param updates when later before middleware throws", async () => {
+    resetHooks();
+    const seen: {
+      runAfterParams?: unknown;
+      afterActParams?: unknown;
+      afterActError?: string;
+    } = {};
+
+    const middleware: ActionMiddleware[] = [
+      {
+        runBefore: async (params) => ({
+          updatedParams: { ...params, enriched: true },
+        }),
+      },
+      {
+        runBefore: async () => {
+          throw new TypedError({
+            message: "blocked after enrichment",
+            type: ErrorType.CONNECTION_ACTION_RUN,
+          });
+        },
+      },
+      {
+        runAfter: async (params) => {
+          seen.runAfterParams = params;
+        },
+      },
+    ];
+
+    class ThrowingBeforeMiddlewareAction extends Action {
+      constructor() {
+        super({
+          name: "test:lifecycle-before-throw",
+          inputs: z.object({ value: z.string() }),
+          middleware,
+        });
+      }
+
+      async run(): Promise<unknown> {
+        return { ok: true };
+      }
+    }
+
+    api.hooks.actions.afterAct((_name, params, _conn, _ctx, outcome) => {
+      seen.afterActParams = params;
+      seen.afterActError = outcome.success
+        ? undefined
+        : (outcome.error as TypedError).message;
+    });
+
+    api.actions.actions.push(new ThrowingBeforeMiddlewareAction());
+
+    try {
+      const conn = new Connection("test", "test-before-middleware-throws");
+      const { error } = await conn.act("test:lifecycle-before-throw", {
+        value: "original",
+      });
+
+      expect(error?.message).toBe("blocked after enrichment");
+      expect(seen).toEqual({
+        runAfterParams: { value: "original", enriched: true },
+        afterActParams: { value: "original", enriched: true },
+        afterActError: "blocked after enrichment",
+      });
+    } finally {
+      api.actions.actions = api.actions.actions.filter(
+        (a: Action) => a.name !== "test:lifecycle-before-throw",
+      );
+      resetHooks();
+    }
+  });
+
   test("beforeAct fires with connection, actionName, and params", async () => {
     resetHooks();
     const seen: Array<{

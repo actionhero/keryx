@@ -59,6 +59,10 @@ export type AfterActHook = (
   outcome: ActOutcome,
 ) => Promise<void> | void;
 
+type ActionParamsState = {
+  value: Record<string, unknown>;
+};
+
 /**
  * Represents a client connection to the server — HTTP request, WebSocket, or internal caller.
  * Each connection tracks its own session, channel subscriptions, and rate-limit state.
@@ -156,15 +160,18 @@ export class Connection<
 
     let action: Action | undefined;
     let formattedParams: Record<string, unknown> | undefined;
+    let paramsState: ActionParamsState | undefined;
     const actCtx: ActContext = { metadata: {} };
     let beforeActRan = false;
     try {
       action = this.resolveAction(actionName);
       if (!this.sessionLoaded) await this.loadSession();
       formattedParams = await this.formatParams(params, action);
-      await this.runBeforeActHooks(action, formattedParams, actCtx);
+      paramsState = { value: formattedParams };
+      await this.runBeforeActHooks(action, paramsState.value, actCtx);
       beforeActRan = true;
-      formattedParams = await this.runMiddlewareBefore(action, formattedParams);
+      await this.runMiddlewareBefore(action, paramsState);
+      formattedParams = paramsState.value;
       response = await this.executeWithTimeout(action, formattedParams);
     } catch (e) {
       loggerResponsePrefix = "ERROR";
@@ -177,6 +184,7 @@ export class Connection<
               cause: e,
             });
     } finally {
+      if (paramsState) formattedParams = paramsState.value;
       if (action && formattedParams)
         response = await this.runMiddlewareAfter(
           action,
@@ -364,21 +372,18 @@ export class Connection<
 
   private async runMiddlewareBefore(
     action: Action,
-    params: Record<string, unknown>,
+    paramsState: ActionParamsState,
   ) {
-    let formattedParams = params;
     for (const middleware of action.middleware ?? []) {
       if (middleware.runBefore) {
         const middlewareResponse = await middleware.runBefore(
-          formattedParams,
+          paramsState.value,
           this,
         );
         if (middlewareResponse && middlewareResponse?.updatedParams)
-          formattedParams = middlewareResponse.updatedParams;
+          paramsState.value = middlewareResponse.updatedParams;
       }
     }
-
-    return formattedParams;
   }
 
   private async runMiddlewareAfter(
