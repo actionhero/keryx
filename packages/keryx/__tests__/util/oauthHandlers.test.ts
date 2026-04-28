@@ -245,6 +245,76 @@ describe("handleToken — happy path", () => {
   });
 });
 
+describe("handleToken — authorization_code error cases", () => {
+  async function seedClientAndCode(): Promise<{
+    clientId: string;
+    redirectUri: string;
+    code: string;
+    codeVerifier: string;
+  }> {
+    const clientId = `test-client-${crypto.randomUUID()}`;
+    const redirectUri = "http://localhost:9999/cb";
+    const codeVerifier = "test-verifier-correct-horse-battery-staple";
+    const code = `code-${crypto.randomUUID()}`;
+    await api.redis.redis.set(
+      `oauth:client:${clientId}`,
+      JSON.stringify({ client_id: clientId, redirect_uris: [redirectUri] }),
+      "EX",
+      300,
+    );
+    const digest = createHash("sha256").update(codeVerifier).digest();
+    const codeChallenge = base64UrlEncode(new Uint8Array(digest));
+    await api.redis.redis.set(
+      `oauth:code:${code}`,
+      JSON.stringify({ clientId, userId: 99, codeChallenge, redirectUri }),
+      "EX",
+      300,
+    );
+    return { clientId, redirectUri, code, codeVerifier };
+  }
+
+  function tokenRequest(fields: Record<string, string>): Request {
+    return new Request("http://localhost/oauth/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        ...fields,
+      }).toString(),
+    });
+  }
+
+  test("rejects missing redirect_uri with invalid_grant (RFC 6749 §4.1.3)", async () => {
+    const { clientId, code, codeVerifier } = await seedClientAndCode();
+    const res = await handleToken(
+      tokenRequest({ code, code_verifier: codeVerifier, client_id: clientId }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: string;
+      error_description: string;
+    };
+    expect(body.error).toBe("invalid_grant");
+    expect(body.error_description).toBe("redirect_uri mismatch");
+    expect(await api.redis.redis.get(`oauth:code:${code}`)).toBeNull();
+  });
+
+  test("rejects mismatched redirect_uri with invalid_grant", async () => {
+    const { clientId, code, codeVerifier } = await seedClientAndCode();
+    const res = await handleToken(
+      tokenRequest({
+        code,
+        code_verifier: codeVerifier,
+        client_id: clientId,
+        redirect_uri: "http://localhost:9999/different",
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("invalid_grant");
+  });
+});
+
 describe("handleToken — refresh_token grant", () => {
   /** Seed a token pair directly, as `issueTokenPair` would produce. */
   async function seedPair(clientId: string, userId = 1, scopes: string[] = []) {

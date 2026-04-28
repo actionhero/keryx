@@ -83,7 +83,10 @@ async function handleAuthorizationCodeGrant(
   if (clientId !== codeData.clientId) {
     return oauthError("invalid_grant", "client_id mismatch");
   }
-  if (redirectUri && redirectUri !== codeData.redirectUri) {
+  // RFC 6749 §4.1.3: redirect_uri was part of the authorize request (and
+  // is always stored on the code), so it MUST also be supplied here and
+  // match exactly. Enforcing this prevents auth-code injection attacks.
+  if (!redirectUri || redirectUri !== codeData.redirectUri) {
     return oauthError("invalid_grant", "redirect_uri mismatch");
   }
 
