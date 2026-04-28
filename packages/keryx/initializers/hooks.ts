@@ -24,6 +24,24 @@ declare module "keryx" {
 }
 
 /**
+ * A small generic registry that stores hooks in an array and exposes a
+ * read-only view. Eliminates per-hook-type boilerplate in {@link Hooks}.
+ */
+class HookRegistry<T extends (...args: never[]) => unknown> {
+  private hooks: T[] = [];
+
+  /** Append a hook to the registry. */
+  register(hook: T): void {
+    this.hooks.push(hook);
+  }
+
+  /** Read-only snapshot of registered hooks. */
+  get all(): ReadonlyArray<T> {
+    return this.hooks;
+  }
+}
+
+/**
  * Central registry for framework lifecycle hooks. Plugins register hooks here
  * from their initializer's `initialize()`; the framework iterates the registered
  * hooks at runtime.
@@ -34,19 +52,19 @@ declare module "keryx" {
  * `initializers/actionts.ts`, `initializers/resque.ts`).
  */
 export class Hooks extends Initializer {
-  private webBeforeRequest: BeforeRequestHook[] = [];
-  private webAfterRequest: AfterRequestHook[] = [];
-  private wsOnConnect: OnConnectHook[] = [];
-  private wsOnMessage: OnMessageHook[] = [];
-  private wsOnDisconnect: OnDisconnectHook[] = [];
-  private mcpOnConnect: OnMcpConnectHook[] = [];
-  private mcpOnMessage: OnMcpMessageHook[] = [];
-  private mcpOnDisconnect: OnMcpDisconnectHook[] = [];
-  private actionsOnEnqueue: OnEnqueueHook[] = [];
-  private actionsBeforeAct: BeforeActHook[] = [];
-  private actionsAfterAct: AfterActHook[] = [];
-  private resqueBeforeJob: BeforeJobHook[] = [];
-  private resqueAfterJob: AfterJobHook[] = [];
+  private webBeforeRequest = new HookRegistry<BeforeRequestHook>();
+  private webAfterRequest = new HookRegistry<AfterRequestHook>();
+  private wsOnConnect = new HookRegistry<OnConnectHook>();
+  private wsOnMessage = new HookRegistry<OnMessageHook>();
+  private wsOnDisconnect = new HookRegistry<OnDisconnectHook>();
+  private mcpOnConnect = new HookRegistry<OnMcpConnectHook>();
+  private mcpOnMessage = new HookRegistry<OnMcpMessageHook>();
+  private mcpOnDisconnect = new HookRegistry<OnMcpDisconnectHook>();
+  private actionsOnEnqueue = new HookRegistry<OnEnqueueHook>();
+  private actionsBeforeAct = new HookRegistry<BeforeActHook>();
+  private actionsAfterAct = new HookRegistry<AfterActHook>();
+  private resqueBeforeJob = new HookRegistry<BeforeJobHook>();
+  private resqueAfterJob = new HookRegistry<AfterJobHook>();
 
   constructor() {
     super(namespace);
@@ -62,7 +80,7 @@ export class Hooks extends Initializer {
          * Does not fire for WebSocket upgrades.
          */
         beforeRequest(hook: BeforeRequestHook): void {
-          self.webBeforeRequest.push(hook);
+          self.webBeforeRequest.register(hook);
         },
         /**
          * Register a hook to run after the `Response` is built, before
@@ -70,14 +88,12 @@ export class Hooks extends Initializer {
          * so state stashed in `ctx.metadata` flows through.
          */
         afterRequest(hook: AfterRequestHook): void {
-          self.webAfterRequest.push(hook);
+          self.webAfterRequest.register(hook);
         },
         /** @internal Iterated by `WebServer.handleIncomingConnection`. */
-        beforeRequestHooks:
-          self.webBeforeRequest as ReadonlyArray<BeforeRequestHook>,
+        beforeRequestHooks: self.webBeforeRequest.all,
         /** @internal Iterated by `WebServer.handleIncomingConnection`. */
-        afterRequestHooks:
-          self.webAfterRequest as ReadonlyArray<AfterRequestHook>,
+        afterRequestHooks: self.webAfterRequest.all,
       },
       ws: {
         /**
@@ -85,29 +101,28 @@ export class Hooks extends Initializer {
          * after the `Connection` has been constructed and registered.
          */
         onConnect(hook: OnConnectHook): void {
-          self.wsOnConnect.push(hook);
+          self.wsOnConnect.register(hook);
         },
         /**
          * Register a hook to run for each inbound WebSocket message, after
          * rate-limiting but before message parsing / dispatch.
          */
         onMessage(hook: OnMessageHook): void {
-          self.wsOnMessage.push(hook);
+          self.wsOnMessage.register(hook);
         },
         /**
          * Register a hook to run when a WebSocket connection closes, before
          * channel presence is cleaned up and the connection is destroyed.
          */
         onDisconnect(hook: OnDisconnectHook): void {
-          self.wsOnDisconnect.push(hook);
+          self.wsOnDisconnect.register(hook);
         },
         /** @internal Iterated by `WebServer.handleWebSocketConnectionOpen`. */
-        onConnectHooks: self.wsOnConnect as ReadonlyArray<OnConnectHook>,
+        onConnectHooks: self.wsOnConnect.all,
         /** @internal Iterated by `WebServer.handleWebSocketConnectionMessage`. */
-        onMessageHooks: self.wsOnMessage as ReadonlyArray<OnMessageHook>,
+        onMessageHooks: self.wsOnMessage.all,
         /** @internal Iterated by `WebServer.handleWebSocketConnectionClose`. */
-        onDisconnectHooks:
-          self.wsOnDisconnect as ReadonlyArray<OnDisconnectHook>,
+        onDisconnectHooks: self.wsOnDisconnect.all,
       },
       mcp: {
         /**
@@ -115,7 +130,7 @@ export class Hooks extends Initializer {
          * the MCP initialize handshake completes).
          */
         onConnect(hook: OnMcpConnectHook): void {
-          self.mcpOnConnect.push(hook);
+          self.mcpOnConnect.register(hook);
         },
         /**
          * Register a hook to run for each inbound MCP request (POST/GET/DELETE
@@ -124,21 +139,20 @@ export class Hooks extends Initializer {
          * session.
          */
         onMessage(hook: OnMcpMessageHook): void {
-          self.mcpOnMessage.push(hook);
+          self.mcpOnMessage.register(hook);
         },
         /**
          * Register a hook to run when an MCP session's transport closes.
          */
         onDisconnect(hook: OnMcpDisconnectHook): void {
-          self.mcpOnDisconnect.push(hook);
+          self.mcpOnDisconnect.register(hook);
         },
         /** @internal Iterated by the MCP handler on session init. */
-        onConnectHooks: self.mcpOnConnect as ReadonlyArray<OnMcpConnectHook>,
+        onConnectHooks: self.mcpOnConnect.all,
         /** @internal Iterated by the MCP handler before dispatching a request. */
-        onMessageHooks: self.mcpOnMessage as ReadonlyArray<OnMcpMessageHook>,
+        onMessageHooks: self.mcpOnMessage.all,
         /** @internal Iterated by the MCP handler on transport close. */
-        onDisconnectHooks:
-          self.mcpOnDisconnect as ReadonlyArray<OnMcpDisconnectHook>,
+        onDisconnectHooks: self.mcpOnDisconnect.all,
       },
       actions: {
         /**
@@ -147,7 +161,7 @@ export class Hooks extends Initializer {
          * mutate inputs by returning a replacement object.
          */
         onEnqueue(hook: OnEnqueueHook): void {
-          self.actionsOnEnqueue.push(hook);
+          self.actionsOnEnqueue.register(hook);
         },
         /**
          * Register a hook to run inside `Connection.act()` after params are
@@ -156,7 +170,7 @@ export class Hooks extends Initializer {
          * cli, mcp, …) — inspect `connection.type` to discriminate.
          */
         beforeAct(hook: BeforeActHook): void {
-          self.actionsBeforeAct.push(hook);
+          self.actionsBeforeAct.register(hook);
         },
         /**
          * Register a hook to run inside `Connection.act()` in a `finally` block
@@ -165,28 +179,28 @@ export class Hooks extends Initializer {
          * all transports.
          */
         afterAct(hook: AfterActHook): void {
-          self.actionsAfterAct.push(hook);
+          self.actionsAfterAct.register(hook);
         },
         /** @internal Iterated by `Actions.enqueue`, `enqueueAt`, `enqueueIn`. */
-        onEnqueueHooks: self.actionsOnEnqueue as ReadonlyArray<OnEnqueueHook>,
+        onEnqueueHooks: self.actionsOnEnqueue.all,
         /** @internal Iterated inside `Connection.act`. */
-        beforeActHooks: self.actionsBeforeAct as ReadonlyArray<BeforeActHook>,
+        beforeActHooks: self.actionsBeforeAct.all,
         /** @internal Iterated inside `Connection.act`. */
-        afterActHooks: self.actionsAfterAct as ReadonlyArray<AfterActHook>,
+        afterActHooks: self.actionsAfterAct.all,
       },
       resque: {
         /** Register a hook to run before each job's action executes. */
         beforeJob(hook: BeforeJobHook): void {
-          self.resqueBeforeJob.push(hook);
+          self.resqueBeforeJob.register(hook);
         },
         /** Register a hook to run after each job's action executes (success or failure). */
         afterJob(hook: AfterJobHook): void {
-          self.resqueAfterJob.push(hook);
+          self.resqueAfterJob.register(hook);
         },
         /** @internal Iterated inside `wrapActionAsJob.perform`. */
-        beforeJobHooks: self.resqueBeforeJob as ReadonlyArray<BeforeJobHook>,
+        beforeJobHooks: self.resqueBeforeJob.all,
         /** @internal Iterated inside `wrapActionAsJob.perform`. */
-        afterJobHooks: self.resqueAfterJob as ReadonlyArray<AfterJobHook>,
+        afterJobHooks: self.resqueAfterJob.all,
       },
     };
   }
