@@ -13,34 +13,32 @@ import { ErrorType, TypedError } from "../classes/TypedError";
  */
 export async function globLoader<T>(searchDir: string) {
   const results: T[] = [];
-  const globs = [new Glob("**/*.{ts,tsx}")];
+  const glob = new Glob("**/*.{ts,tsx}");
   const dir = path.isAbsolute(searchDir)
     ? searchDir
     : path.join(api.rootDir, searchDir);
 
-  for (const glob of globs) {
-    for await (const file of glob.scan(dir)) {
-      if (file.startsWith(".")) continue;
+  for await (const file of glob.scan(dir)) {
+    if (file.startsWith(".")) continue;
 
-      const fullPath = path.join(dir, file);
-      const modules = (await import(fullPath)) as Record<string, unknown>;
+    const fullPath = path.join(dir, file);
+    const modules = (await import(fullPath)) as Record<string, unknown>;
 
-      for (const [name, klass] of Object.entries(modules)) {
-        // Skip non-class exports (constants, enums, functions)
-        if (typeof klass !== "function" || klass.prototype === undefined) {
-          continue;
-        }
+    for (const [name, klass] of Object.entries(modules)) {
+      // Skip non-class exports (constants, enums, functions)
+      if (typeof klass !== "function" || klass.prototype === undefined) {
+        continue;
+      }
 
-        try {
-          const instance = new (klass as new () => T)();
-          results.push(instance);
-        } catch (error) {
-          throw new TypedError({
-            message: `Error loading from ${dir} -  ${name} - ${error}`,
-            type: ErrorType.SERVER_INITIALIZATION,
-            cause: error,
-          });
-        }
+      try {
+        const instance = new (klass as new () => T)();
+        results.push(instance);
+      } catch (error) {
+        throw new TypedError({
+          message: `Error loading from ${dir} -  ${name} - ${error}`,
+          type: ErrorType.SERVER_INITIALIZATION,
+          cause: error,
+        });
       }
     }
   }
