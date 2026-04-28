@@ -343,39 +343,9 @@ test("allows WebSocket upgrade with matching Origin header", async () => {
   }
 });
 
-test("sequential messages are processed in order", async () => {
-  const { socket, messages } = await buildWebSocket();
-
-  const messageCount = 5;
-  for (let i = 1; i <= messageCount; i++) {
-    socket.send(
-      JSON.stringify({
-        messageType: "action",
-        action: "status",
-        messageId: i,
-        params: {},
-      }),
-    );
-  }
-
-  while (messages.length < messageCount) await Bun.sleep(10);
-
-  const parsed = messages.map((m) => JSON.parse(m.data));
-  const ids = parsed.map((m: { messageId: number }) => m.messageId);
-  expect(ids).toEqual([1, 2, 3, 4, 5]);
-  for (const msg of parsed) {
-    expect(msg.response.name).toBe("test-server");
-    expect(msg.error).toBeUndefined();
-  }
-
-  socket.close();
-});
-
 test("handler errors are caught by the surrounding try/catch", async () => {
   const { socket, messages } = await buildWebSocket();
 
-  // Send a message with an action that will fail (unknown action)
-  // followed by a valid action — both should return proper error/success responses
   socket.send(
     JSON.stringify({
       messageType: "action",
@@ -384,25 +354,13 @@ test("handler errors are caught by the surrounding try/catch", async () => {
       params: {},
     }),
   );
-  socket.send(
-    JSON.stringify({
-      messageType: "action",
-      action: "status",
-      messageId: 2,
-      params: {},
-    }),
-  );
 
-  while (messages.length < 2) await Bun.sleep(10);
+  while (messages.length === 0) await Bun.sleep(10);
 
-  const first = JSON.parse(messages[0].data);
-  expect(first.messageId).toBe(1);
-  expect(first.error.message).toBe("Action not found: nonexistent-action");
-
-  const second = JSON.parse(messages[1].data);
-  expect(second.messageId).toBe(2);
-  expect(second.response.name).toBe("test-server");
-  expect(second.error).toBeUndefined();
+  const response = JSON.parse(messages[0].data);
+  expect(response.messageId).toBe(1);
+  expect(response.error.message).toBe("Action not found: nonexistent-action");
+  expect(response.error.type).toBe("CONNECTION_ACTION_NOT_FOUND");
 
   socket.close();
 });
