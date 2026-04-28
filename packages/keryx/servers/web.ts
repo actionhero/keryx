@@ -409,14 +409,16 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
       await hook(connection, message);
     }
 
+    let messageId: unknown;
     try {
       const parsedMessage = JSON.parse(message.toString());
+      messageId = parsedMessage["messageId"];
       if (parsedMessage["messageType"] === "action") {
-        handleWebsocketAction(connection, ws, parsedMessage);
+        await handleWebsocketAction(connection, ws, parsedMessage);
       } else if (parsedMessage["messageType"] === "subscribe") {
-        handleWebsocketSubscribe(connection, ws, parsedMessage);
+        await handleWebsocketSubscribe(connection, ws, parsedMessage);
       } else if (parsedMessage["messageType"] === "unsubscribe") {
-        handleWebsocketUnsubscribe(connection, ws, parsedMessage);
+        await handleWebsocketUnsubscribe(connection, ws, parsedMessage);
       } else {
         throw new TypedError({
           message: `messageType either missing or unknown`,
@@ -426,6 +428,7 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
     } catch (e) {
       ws.send(
         JSON.stringify({
+          messageId,
           error: buildErrorPayload(
             new TypedError({
               message: `${e}`,
