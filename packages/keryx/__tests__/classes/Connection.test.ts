@@ -586,6 +586,268 @@ describe("action lifecycle hooks (api.hooks.actions.beforeAct / afterAct)", () =
     resetHooks();
   });
 
+  test("act preserves lifecycle ordering across the success path", async () => {
+    resetHooks();
+    const order: string[] = [];
+    const originalInfo = logger.info;
+
+    const lifecycleMiddleware: ActionMiddleware = {
+      runBefore: async (params) => {
+        order.push("middlewareBefore");
+        expect(params.value).toBe(7);
+        return { updatedParams: { value: 8 } };
+      },
+      runAfter: async (_params, _connection, error) => {
+        order.push("middlewareAfter");
+        expect(error).toBeUndefined();
+        return { updatedResponse: { final: "middleware" } };
+      },
+    };
+
+    class OrderedAction extends Action {
+      constructor() {
+        super({
+          name: "test:lifecycle-order",
+          description: "Records the action lifecycle ordering",
+          inputs: z.object({
+            value: z.coerce.number().transform((value) => {
+              order.push("formatParams");
+              return value;
+            }),
+          }),
+          middleware: [lifecycleMiddleware],
+        });
+      }
+
+      async run(params: { value: number }, connection: Connection) {
+        order.push("actionRun");
+        expect(params.value).toBe(8);
+        expect(connection.session?.data.userId).toBe(123);
+        return { final: "action" };
+      }
+    }
+
+    api.hooks.actions.beforeAct((_name, params, connection) => {
+      order.push("beforeAct");
+      expect(params.value).toBe(7);
+      expect(connection.session?.data.userId).toBe(123);
+    });
+    api.hooks.actions.afterAct((_name, _params, _conn, _ctx, outcome) => {
+      order.push("afterAct");
+      expect(outcome).toEqual({
+        success: true,
+        response: { final: "middleware" },
+        duration: expect.any(Number),
+      });
+    });
+
+    const action = new OrderedAction();
+    api.actions.actions.push(action);
+
+    const conn = new Connection("web", "test-lifecycle-order");
+    const originalLoadSession = conn.loadSession.bind(conn);
+    conn.loadSession = async () => {
+      order.push("loadSession");
+      return originalLoadSession();
+    };
+    await api.session.create(conn, { userId: 123 });
+
+    logger.info = (...args: Parameters<typeof logger.info>) => {
+      const message = args[0];
+      const result = originalInfo.apply(logger, args);
+      if (
+        typeof message === "string" &&
+        message.includes("[ACTION:WEB:OK]") &&
+        message.includes("test:lifecycle-order")
+      ) {
+        order.push("log");
+      }
+      return result;
+    };
+
+    try {
+      const { response, error } = await conn.act("test:lifecycle-order", {
+        value: "7",
+      });
+
+      expect(error).toBeUndefined();
+      expect(response).toEqual({ final: "middleware" });
+      expect(order).toEqual([
+        "loadSession",
+        "formatParams",
+        "beforeAct",
+        "middlewareBefore",
+        "actionRun",
+        "middlewareAfter",
+        "afterAct",
+        "log",
+      ]);
+    } finally {
+      logger.info = originalInfo;
+      api.actions.actions = api.actions.actions.filter(
+        (a: Action) => a.name !== "test:lifecycle-order",
+      );
+      resetHooks();
+    }
+  });
+
+  test("middleware and afterAct receive success response and failure error", async () => {
+    resetHooks();
+    const seen: {
+      successRunAfterError?: string;
+      successAfterResponse?: unknown;
+      failureRunAfterType?: ErrorType;
+      failureAfterMessage?: string;
+    } = {};
+
+    const successMiddleware: ActionMiddleware = {
+      runAfter: async (_params, _connection, error) => {
+        seen.successRunAfterError = error?.message;
+        return { updatedResponse: { ok: "middleware" } };
+      },
+    };
+    const failureMiddleware: ActionMiddleware = {
+      runAfter: async (_params, _connection, error) => {
+        seen.failureRunAfterType = error?.type;
+      },
+    };
+
+    class SuccessAction extends Action {
+      constructor() {
+        super({
+          name: "test:lifecycle-success",
+          middleware: [successMiddleware],
+        });
+      }
+
+      async run(): Promise<unknown> {
+        return { ok: "action" };
+      }
+    }
+
+    class FailureAction extends Action {
+      constructor() {
+        super({
+          name: "test:lifecycle-failure",
+          middleware: [failureMiddleware],
+        });
+      }
+
+      async run(): Promise<unknown> {
+        throw new TypedError({
+          message: "lifecycle failed",
+          type: ErrorType.CONNECTION_ACTION_RUN,
+        });
+      }
+    }
+
+    api.hooks.actions.afterAct((actionName, _params, _conn, _ctx, outcome) => {
+      if (actionName === "test:lifecycle-success" && outcome.success) {
+        seen.successAfterResponse = outcome.response;
+      }
+      if (actionName === "test:lifecycle-failure" && !outcome.success) {
+        seen.failureAfterMessage = (outcome.error as TypedError).message;
+      }
+    });
+
+    api.actions.actions.push(new SuccessAction(), new FailureAction());
+
+    try {
+      const conn = new Connection("test", "test-lifecycle-outcomes");
+      const success = await conn.act("test:lifecycle-success", {});
+      const failure = await conn.act("test:lifecycle-failure", {});
+
+      expect(success.error).toBeUndefined();
+      expect(success.response).toEqual({ ok: "middleware" });
+      expect(failure.error?.type).toBe(ErrorType.CONNECTION_ACTION_RUN);
+      expect(failure.error?.message).toBe("lifecycle failed");
+      expect(seen).toEqual({
+        successAfterResponse: { ok: "middleware" },
+        failureRunAfterType: ErrorType.CONNECTION_ACTION_RUN,
+        failureAfterMessage: "lifecycle failed",
+      });
+    } finally {
+      api.actions.actions = api.actions.actions.filter(
+        (a: Action) =>
+          a.name !== "test:lifecycle-success" &&
+          a.name !== "test:lifecycle-failure",
+      );
+      resetHooks();
+    }
+  });
+
+  test("after hooks receive before-middleware param updates when later before middleware throws", async () => {
+    resetHooks();
+    const seen: {
+      runAfterParams?: unknown;
+      afterActParams?: unknown;
+      afterActError?: string;
+    } = {};
+
+    const middleware: ActionMiddleware[] = [
+      {
+        runBefore: async (params) => ({
+          updatedParams: { ...params, enriched: true },
+        }),
+      },
+      {
+        runBefore: async () => {
+          throw new TypedError({
+            message: "blocked after enrichment",
+            type: ErrorType.CONNECTION_ACTION_RUN,
+          });
+        },
+      },
+      {
+        runAfter: async (params) => {
+          seen.runAfterParams = params;
+        },
+      },
+    ];
+
+    class ThrowingBeforeMiddlewareAction extends Action {
+      constructor() {
+        super({
+          name: "test:lifecycle-before-throw",
+          inputs: z.object({ value: z.string() }),
+          middleware,
+        });
+      }
+
+      async run(): Promise<unknown> {
+        return { ok: true };
+      }
+    }
+
+    api.hooks.actions.afterAct((_name, params, _conn, _ctx, outcome) => {
+      seen.afterActParams = params;
+      seen.afterActError = outcome.success
+        ? undefined
+        : (outcome.error as TypedError).message;
+    });
+
+    api.actions.actions.push(new ThrowingBeforeMiddlewareAction());
+
+    try {
+      const conn = new Connection("test", "test-before-middleware-throws");
+      const { error } = await conn.act("test:lifecycle-before-throw", {
+        value: "original",
+      });
+
+      expect(error?.message).toBe("blocked after enrichment");
+      expect(seen).toEqual({
+        runAfterParams: { value: "original", enriched: true },
+        afterActParams: { value: "original", enriched: true },
+        afterActError: "blocked after enrichment",
+      });
+    } finally {
+      api.actions.actions = api.actions.actions.filter(
+        (a: Action) => a.name !== "test:lifecycle-before-throw",
+      );
+      resetHooks();
+    }
+  });
+
   test("beforeAct fires with connection, actionName, and params", async () => {
     resetHooks();
     const seen: Array<{

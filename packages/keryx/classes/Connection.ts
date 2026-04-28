@@ -59,6 +59,10 @@ export type AfterActHook = (
   outcome: ActOutcome,
 ) => Promise<void> | void;
 
+type ActionParamsState = {
+  value: Record<string, unknown>;
+};
+
 /**
  * Represents a client connection to the server — HTTP request, WebSocket, or internal caller.
  * Each connection tracks its own session, channel subscriptions, and rate-limit state.
@@ -156,61 +160,19 @@ export class Connection<
 
     let action: Action | undefined;
     let formattedParams: Record<string, unknown> | undefined;
-    // Cross-transport action hooks (api.hooks.actions.beforeAct / afterAct).
-    // beforeActRan guards afterAct so we only fire after-hooks for invocations
-    // where before-hooks also fired (i.e. action found + params validated).
+    let paramsState: ActionParamsState | undefined;
     const actCtx: ActContext = { metadata: {} };
     let beforeActRan = false;
     try {
-      action = this.findAction(actionName);
-      if (!action) {
-        throw new TypedError({
-          message: `Action not found${actionName ? `: ${actionName}` : ""}`,
-          type: ErrorType.CONNECTION_ACTION_NOT_FOUND,
-        });
-      }
-
-      // load the session once, if it hasn't been loaded yet
+      action = this.resolveAction(actionName);
       if (!this.sessionLoaded) await this.loadSession();
-
       formattedParams = await this.formatParams(params, action);
-
-      for (const hook of api.hooks.actions.beforeActHooks) {
-        await hook(action.name, formattedParams, this, actCtx);
-      }
+      paramsState = { value: formattedParams };
+      await this.runBeforeActHooks(action, paramsState.value, actCtx);
       beforeActRan = true;
-
-      for (const middleware of action.middleware ?? []) {
-        if (middleware.runBefore) {
-          const middlewareResponse = await middleware.runBefore(
-            formattedParams,
-            this,
-          );
-          if (middlewareResponse && middlewareResponse?.updatedParams)
-            formattedParams = middlewareResponse.updatedParams;
-        }
-      }
-
-      const timeoutMs = action.timeout ?? config.actions.timeout;
-      if (timeoutMs > 0) {
-        const controller = new AbortController();
-        const timeoutError = new TypedError({
-          message: `Action '${action.name}' timed out after ${timeoutMs}ms`,
-          type: ErrorType.CONNECTION_ACTION_TIMEOUT,
-        });
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => {
-            controller.abort();
-            reject(timeoutError);
-          }, timeoutMs);
-        });
-        response = await Promise.race([
-          action.run(formattedParams, this, controller.signal),
-          timeoutPromise,
-        ]);
-      } else {
-        response = await action.run(formattedParams, this);
-      }
+      await this.runMiddlewareBefore(action, paramsState);
+      formattedParams = paramsState.value;
+      response = await this.executeWithTimeout(action, formattedParams);
     } catch (e) {
       loggerResponsePrefix = "ERROR";
       error =
@@ -222,34 +184,23 @@ export class Connection<
               cause: e,
             });
     } finally {
-      if (action && formattedParams) {
-        for (const middleware of action.middleware ?? []) {
-          if (middleware.runAfter) {
-            const middlewareResponse = await middleware.runAfter(
-              formattedParams,
-              this,
-              error,
-            );
-            if (middlewareResponse && middlewareResponse?.updatedResponse) {
-              if (response instanceof StreamingResponse) {
-                logger.warn(
-                  `Middleware cannot replace a StreamingResponse for action '${actionName}'`,
-                );
-              } else {
-                response = middlewareResponse.updatedResponse;
-              }
-            }
-          }
-        }
-      }
+      if (paramsState) formattedParams = paramsState.value;
+      if (action && formattedParams)
+        response = await this.runMiddlewareAfter(
+          action,
+          formattedParams,
+          error,
+          response,
+        );
       if (beforeActRan && action && formattedParams) {
-        const actDuration = new Date().getTime() - reqStartTime;
-        const outcome: ActOutcome = error
-          ? { success: false, error, duration: actDuration }
-          : { success: true, response, duration: actDuration };
-        for (const hook of api.hooks.actions.afterActHooks) {
-          await hook(action.name, formattedParams, this, actCtx, outcome);
-        }
+        await this.runAfterActHooks(
+          action,
+          formattedParams,
+          actCtx,
+          reqStartTime,
+          response,
+          error,
+        );
       }
       this._actDepth--;
     }
@@ -379,6 +330,115 @@ export class Connection<
     return api.actions.actions.find((a: Action) => a.name === actionName);
   }
 
+  private resolveAction(actionName: string | undefined) {
+    const action = this.findAction(actionName);
+    if (!action) {
+      throw new TypedError({
+        message: `Action not found${actionName ? `: ${actionName}` : ""}`,
+        type: ErrorType.CONNECTION_ACTION_NOT_FOUND,
+      });
+    }
+
+    return action;
+  }
+
+  private async runBeforeActHooks(
+    action: Action,
+    params: Record<string, unknown>,
+    actCtx: ActContext,
+  ) {
+    for (const hook of api.hooks.actions.beforeActHooks) {
+      await hook(action.name, params, this, actCtx);
+    }
+  }
+
+  private async runAfterActHooks(
+    action: Action,
+    params: Record<string, unknown>,
+    actCtx: ActContext,
+    reqStartTime: number,
+    response: Object,
+    error: TypedError | undefined,
+  ) {
+    const actDuration = new Date().getTime() - reqStartTime;
+    const outcome: ActOutcome = error
+      ? { success: false, error, duration: actDuration }
+      : { success: true, response, duration: actDuration };
+
+    for (const hook of api.hooks.actions.afterActHooks) {
+      await hook(action.name, params, this, actCtx, outcome);
+    }
+  }
+
+  private async runMiddlewareBefore(
+    action: Action,
+    paramsState: ActionParamsState,
+  ) {
+    for (const middleware of action.middleware ?? []) {
+      if (middleware.runBefore) {
+        const middlewareResponse = await middleware.runBefore(
+          paramsState.value,
+          this,
+        );
+        if (middlewareResponse && middlewareResponse?.updatedParams)
+          paramsState.value = middlewareResponse.updatedParams;
+      }
+    }
+  }
+
+  private async runMiddlewareAfter(
+    action: Action,
+    params: Record<string, unknown>,
+    error: TypedError | undefined,
+    response: Object,
+  ) {
+    let updatedResponse = response;
+    for (const middleware of action.middleware ?? []) {
+      if (middleware.runAfter) {
+        const middlewareResponse = await middleware.runAfter(
+          params,
+          this,
+          error,
+        );
+        if (middlewareResponse && middlewareResponse?.updatedResponse) {
+          if (updatedResponse instanceof StreamingResponse) {
+            logger.warn(
+              `Middleware cannot replace a StreamingResponse for action '${action.name}'`,
+            );
+          } else {
+            updatedResponse = middlewareResponse.updatedResponse;
+          }
+        }
+      }
+    }
+
+    return updatedResponse;
+  }
+
+  private async executeWithTimeout(
+    action: Action,
+    params: Record<string, unknown>,
+  ): Promise<Object> {
+    const timeoutMs = action.timeout ?? config.actions.timeout;
+    if (timeoutMs <= 0) return action.run(params, this);
+
+    const controller = new AbortController();
+    const timeoutError = new TypedError({
+      message: `Action '${action.name}' timed out after ${timeoutMs}ms`,
+      type: ErrorType.CONNECTION_ACTION_TIMEOUT,
+    });
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        controller.abort();
+        reject(timeoutError);
+      }, timeoutMs);
+    });
+
+    return Promise.race([
+      action.run(params, this, controller.signal),
+      timeoutPromise,
+    ]);
+  }
   private async formatParams(params: Record<string, unknown>, action: Action) {
     if (!action.inputs) return {} as ActionParams<Action>;
 
