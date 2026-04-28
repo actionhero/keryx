@@ -194,7 +194,7 @@ export class Resque extends Initializer {
       }> = [
         { event: "start", level: "info", suffix: "started" },
         { event: "end", level: "info", suffix: "ended" },
-        { event: "cleaning_worker", level: "debug" },
+        { event: "cleaning_worker", level: "debug", suffix: "cleaning worker" },
         { event: "poll", level: "debug", suffix: "polling" },
         { event: "pause", level: "debug", suffix: "paused" },
       ];
