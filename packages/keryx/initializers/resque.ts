@@ -186,19 +186,27 @@ export class Resque extends Initializer {
         api.resque.jobs,
       );
 
-      // normal worker emitters
-      worker.on("start", () => {
-        logger.info(`[resque:${worker.name}] started`);
-      });
-      worker.on("end", () => {
-        logger.info(`[resque:${worker.name}] ended`);
-      });
-      worker.on("cleaning_worker", () => {
-        logger.debug(`[resque:${worker.name}] cleaning worker`);
-      });
-      worker.on("poll", (queue) => {
-        logger.debug(`[resque:${worker.name}] polling, ${queue}`);
-      });
+      // Simple worker event emitters — table-driven to avoid repetition.
+      const simpleEvents: Array<{
+        event: string;
+        level: "info" | "debug";
+        suffix?: string;
+      }> = [
+        { event: "start", level: "info", suffix: "started" },
+        { event: "end", level: "info", suffix: "ended" },
+        { event: "cleaning_worker", level: "debug" },
+        { event: "poll", level: "debug", suffix: "polling" },
+        { event: "pause", level: "debug", suffix: "paused" },
+      ];
+
+      for (const { event, level, suffix } of simpleEvents) {
+        // @ts-expect-error — Worker.on() has per-event overloads that can't express a table-driven loop
+        worker.on(event, (...args: unknown[]) => {
+          const extra = args.length ? `, ${args.join(", ")}` : "";
+          logger[level](`[resque:${worker.name}] ${suffix ?? event}${extra}`);
+        });
+      }
+
       worker.on("job", (queue, job: ParsedJob) => {
         logger.debug(
           `[resque:${worker.name}] job acquired, ${queue}, ${job.class}, ${JSON.stringify(job.args[0])}`,
@@ -208,9 +216,6 @@ export class Resque extends Initializer {
         logger.debug(
           `[resque:${worker.name}] job reEnqueue, ${queue}, ${job.class}, ${JSON.stringify(job.args[0])}`,
         );
-      });
-      worker.on("pause", () => {
-        logger.debug(`[resque:${worker.name}] paused`);
       });
 
       worker.on("failure", (queue, job, failure, duration) => {
