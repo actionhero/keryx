@@ -570,8 +570,8 @@ describe("compression", () => {
 describe("request hooks", () => {
   const resetHooks = () => {
     const hooksInitializer = api.initializers.find((i) => i.name === "hooks");
-    (hooksInitializer as any).webBeforeRequest.length = 0;
-    (hooksInitializer as any).webAfterRequest.length = 0;
+    (hooksInitializer as any).webBeforeRequest.clear();
+    (hooksInitializer as any).webAfterRequest.clear();
   };
 
   test("beforeRequest fires before the response is produced", async () => {

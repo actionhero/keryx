@@ -35,6 +35,11 @@ class HookRegistry<T extends (...args: never[]) => unknown> {
     this.hooks.push(hook);
   }
 
+  /** Remove all registered hooks (used by test teardown). */
+  clear(): void {
+    this.hooks.length = 0;
+  }
+
   /** Live read-only view of registered hooks. */
   get all(): ReadonlyArray<T> {
     return this.hooks;
@@ -68,6 +73,22 @@ export class Hooks extends Initializer {
 
   constructor() {
     super(namespace);
+  }
+
+  async stop() {
+    this.webBeforeRequest.clear();
+    this.webAfterRequest.clear();
+    this.wsOnConnect.clear();
+    this.wsOnMessage.clear();
+    this.wsOnDisconnect.clear();
+    this.mcpOnConnect.clear();
+    this.mcpOnMessage.clear();
+    this.mcpOnDisconnect.clear();
+    this.actionsOnEnqueue.clear();
+    this.actionsBeforeAct.clear();
+    this.actionsAfterAct.clear();
+    this.resqueBeforeJob.clear();
+    this.resqueAfterJob.clear();
   }
 
   async initialize() {

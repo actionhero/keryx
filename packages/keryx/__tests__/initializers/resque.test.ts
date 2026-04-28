@@ -205,8 +205,8 @@ describe("with workers and scheduler", () => {
       expect(after).toEqual([{ outcome: "success", marker: "from-before" }]);
     } finally {
       const hooksInitializer = api.initializers.find((i) => i.name === "hooks");
-      (hooksInitializer as any).resqueBeforeJob.length = 0;
-      (hooksInitializer as any).resqueAfterJob.length = 0;
+      (hooksInitializer as any).resqueBeforeJob.clear();
+      (hooksInitializer as any).resqueAfterJob.clear();
     }
   });
 
@@ -242,7 +242,7 @@ describe("with workers and scheduler", () => {
       const hooksInitializer2 = api.initializers.find(
         (i) => i.name === "hooks",
       );
-      (hooksInitializer2 as any).resqueAfterJob.length = 0;
+      (hooksInitializer2 as any).resqueAfterJob.clear();
       api.actions.actions = api.actions.actions.filter(
         (a) => a.name !== "exploding_action",
       );
@@ -254,7 +254,7 @@ describe("with workers and scheduler", () => {
 describe("onEnqueue hook", () => {
   afterEach(() => {
     const hooksInitializer = api.initializers.find((i) => i.name === "hooks");
-    (hooksInitializer as any).actionsOnEnqueue.length = 0;
+    (hooksInitializer as any).actionsOnEnqueue.clear();
   });
 
   test("fires for enqueue with actionName, inputs, and queue", async () => {

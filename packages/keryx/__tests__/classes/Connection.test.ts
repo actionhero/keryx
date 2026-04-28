@@ -544,8 +544,8 @@ describe("Action timeouts", () => {
 describe("action lifecycle hooks (api.hooks.actions.beforeAct / afterAct)", () => {
   const resetHooks = () => {
     const hooksInitializer = api.initializers.find((i) => i.name === "hooks");
-    (hooksInitializer as any).actionsBeforeAct.length = 0;
-    (hooksInitializer as any).actionsAfterAct.length = 0;
+    (hooksInitializer as any).actionsBeforeAct.clear();
+    (hooksInitializer as any).actionsAfterAct.clear();
   };
 
   class EchoAction extends Action {

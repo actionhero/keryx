@@ -466,7 +466,7 @@ describe("fanOut overload types (compile-time)", () => {
 describe("onEnqueue hook in fanOut", () => {
   afterEach(() => {
     const hooksInitializer = api.initializers.find((i) => i.name === "hooks");
-    (hooksInitializer as any).actionsOnEnqueue.length = 0;
+    (hooksInitializer as any).actionsOnEnqueue.clear();
   });
 
   test("fires once per child job in a fan-out batch", async () => {
