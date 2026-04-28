@@ -62,6 +62,39 @@ describe("session:create", () => {
     expect(response.error?.message).toEqual("Invalid email or password");
   });
 
+  test("regenerates session ID on login to prevent session fixation", async () => {
+    // First request to get a pre-login session cookie
+    const preLoginRes = await fetch(getUrl() + "/api/status");
+    const preLoginCookie = preLoginRes.headers.get("set-cookie");
+    const preLoginSessionId = preLoginCookie?.split("=")[1]?.split(";")[0];
+    expect(preLoginSessionId).toBeDefined();
+
+    // Login with the pre-login cookie
+    const loginRes = await fetch(getUrl() + "/api/session", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `__session=${preLoginSessionId}`,
+      },
+      body: JSON.stringify({
+        email: "mario@example.com",
+        password: "mushroom1",
+      }),
+    });
+    const loginResponse =
+      (await loginRes.json()) as ActionResponse<SessionCreate>;
+    expect(loginRes.status).toBe(200);
+
+    // The session ID in the response body should differ from the pre-login one
+    expect(loginResponse.session.id).not.toBe(preLoginSessionId);
+
+    // The Set-Cookie header should contain the new session ID
+    const postLoginCookie = loginRes.headers.get("set-cookie");
+    const postLoginSessionId = postLoginCookie?.split("=")[1]?.split(";")[0];
+    expect(postLoginSessionId).toBe(loginResponse.session.id);
+    expect(postLoginSessionId).not.toBe(preLoginSessionId);
+  });
+
   test("fails when passwords do not match with same generic error", async () => {
     const res = await fetch(getUrl() + "/api/session", {
       method: "PUT",

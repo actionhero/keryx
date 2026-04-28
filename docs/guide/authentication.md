@@ -21,6 +21,9 @@ The session initializer manages the full lifecycle:
 // Create or update session data
 await connection.updateSession({ userId: user.id });
 
+// Regenerate session ID after login (prevents session fixation)
+await connection.regenerateSession();
+
 // Access session data
 const userId = connection.session?.data.userId;
 
@@ -69,6 +72,7 @@ export class SessionCreate implements Action {
     }
 
     await connection.updateSession({ userId: user.id });
+    await connection.regenerateSession();
     return { user: serializeUser(user), session: connection.session! };
   };
 }

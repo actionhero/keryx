@@ -92,6 +92,9 @@ class Connection<
   /** Update session data (merges with existing) */
   async updateSession(data: Partial<T>): Promise<void>;
 
+  /** Regenerate the session ID (prevents session fixation). Call after login. */
+  async regenerateSession(): Promise<SessionData<T> | null>;
+
   /** Subscribe to a PubSub channel */
   subscribe(channel: string): void;
 

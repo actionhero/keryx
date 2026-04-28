@@ -291,6 +291,28 @@ export class Connection<
     return api.session.update(this.session, data);
   }
 
+  /**
+   * Regenerate the session ID to prevent session fixation attacks.
+   * Copies existing session data to a new key in Redis, deletes the old key,
+   * and updates this connection's IDs so the response sets a fresh cookie.
+   * Should be called after successful authentication.
+   *
+   * @returns The session data under the new ID.
+   * @throws {TypedError} With `ErrorType.CONNECTION_SESSION_NOT_FOUND` if no session exists.
+   */
+  async regenerateSession() {
+    await this.loadSession();
+
+    if (!this.session) {
+      throw new TypedError({
+        message: "Session not found",
+        type: ErrorType.CONNECTION_SESSION_NOT_FOUND,
+      });
+    }
+
+    return api.session.regenerate(this);
+  }
+
   /** Add a channel to this connection's subscription set. */
   subscribe(channel: string) {
     this.subscriptions.add(channel);

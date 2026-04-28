@@ -67,6 +67,7 @@ export class SessionCreate implements Action {
     }
 
     await connection.updateSession({ userId: user.id });
+    await connection.regenerateSession();
 
     return {
       user: serializeUser(user),
