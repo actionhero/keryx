@@ -25,6 +25,7 @@ propagation.setGlobalPropagator(new W3CTraceContextPropagator());
 trace.setGlobalTracerProvider(testProvider);
 
 beforeAll(async () => {
+  await api.initialize();
   config.tracing.enabled = true;
   await api.start();
 }, HOOK_TIMEOUT);

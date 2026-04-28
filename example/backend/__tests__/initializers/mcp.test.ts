@@ -210,6 +210,54 @@ describe("mcp initializer (enabled)", () => {
     expect(res.status).toBe(404);
   });
 
+  test("POST with a different client's token returns 403", async () => {
+    // Create a session with the first token
+    const initRes = await fetch(mcpUrl(), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "test-client", version: "1.0.0" },
+        },
+      }),
+    });
+    expect(initRes.status).toBe(200);
+    const sessionId = initRes.headers.get("mcp-session-id");
+    expect(sessionId).toBeTruthy();
+
+    // Get a second token from a different OAuth client
+    const attackerToken = await getAccessToken();
+
+    // Attempt to use the session with the attacker's token
+    const hijackRes = await fetch(mcpUrl(), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${attackerToken}`,
+        "mcp-session-id": sessionId!,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/list",
+        params: {},
+      }),
+    });
+    expect(hijackRes.status).toBe(403);
+    const body = (await hijackRes.json()) as { error: string };
+    expect(body.error).toBe("Token does not match session");
+  });
+
   test("tool name formatting", () => {
     expect(api.mcp.formatToolName("status")).toBe("status");
     expect(api.mcp.formatToolName("user:create")).toBe("user-create");

@@ -61,7 +61,10 @@ export class McpInitializer extends Initializer {
     const mcpServers: McpServer[] = [];
     const transports = new Map<
       string,
-      WebStandardStreamableHTTPServerTransport
+      {
+        transport: WebStandardStreamableHTTPServerTransport;
+        clientId: string;
+      }
     >();
 
     function sendNotification(payload: PubSubMessage) {
@@ -207,11 +210,12 @@ export class McpInitializer extends Initializer {
         const mcpServer = createMcpServer();
         mcpServers.push(mcpServer);
 
+        const sessionClientId = authInfo.clientId;
         const transport = new WebStandardStreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           enableJsonResponse: true,
           onsessioninitialized: async (sid) => {
-            transports.set(sid, transport);
+            transports.set(sid, { transport, clientId: sessionClientId });
             for (const hook of api.hooks.mcp.onConnectHooks) {
               await hook(sid);
             }
@@ -244,8 +248,8 @@ export class McpInitializer extends Initializer {
       }
 
       if (sessionId) {
-        const transport = transports.get(sessionId);
-        if (!transport) {
+        const session = transports.get(sessionId);
+        if (!session) {
           return mcpJsonResponse(
             { error: "Session not found" },
             404,
@@ -253,10 +257,23 @@ export class McpInitializer extends Initializer {
           );
         }
 
+        if (session.clientId !== authInfo.clientId) {
+          return mcpJsonResponse(
+            { error: "Token does not match session" },
+            403,
+            corsHeaders,
+          );
+        }
+
         for (const hook of api.hooks.mcp.onMessageHooks) {
           await hook(sessionId);
         }
-        return handleTransportRequest(transport, req, authInfo, corsHeaders);
+        return handleTransportRequest(
+          session.transport,
+          req,
+          authInfo,
+          corsHeaders,
+        );
       }
 
       // GET/DELETE without session ID
@@ -276,7 +293,7 @@ export class McpInitializer extends Initializer {
     if (!config.server.mcp.enabled) return;
 
     // Close all transports
-    for (const transport of api.mcp.transports.values()) {
+    for (const { transport } of api.mcp.transports.values()) {
       try {
         await transport.close();
       } catch {
