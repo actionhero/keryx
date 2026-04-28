@@ -87,6 +87,21 @@ Cross-origin request handling is configured on the web server:
 
 **Important:** When `allowedOrigins` is `"*"` (the default), the server will not send `Access-Control-Allow-Credentials: true` — this follows the browser spec that forbids wildcard origins with credentials. For production, set `WEB_SERVER_ALLOWED_ORIGINS` to your specific domain(s) so that credentialed requests (cookies, auth headers) work correctly.
 
+## Request Body Size Limits
+
+HTTP request bodies are limited to prevent memory exhaustion from oversized payloads. The limit is enforced in two layers:
+
+1. **Pre-flight check** — if the request includes a `Content-Length` header larger than the limit, the server rejects it immediately with `413 Payload Too Large` before reading any body data
+2. **Read-time check** — when parsing the body (JSON, form data, or multipart), the raw byte size is verified before parsing begins, catching chunked requests that omit `Content-Length`
+
+| Config Key    | Env Var            | Default              | Description                           |
+| ------------- | ------------------ | -------------------- | ------------------------------------- |
+| `maxBodySize` | `WEB_MAX_BODY_SIZE` | `10485760` (10 MB)  | Max request body size in bytes        |
+
+Set `WEB_MAX_BODY_SIZE=0` to disable the limit entirely (not recommended for production).
+
+The WebSocket transport has its own payload limit via `websocket.maxPayloadSize` (default 64 KB) — see [WebSocket Protections](#websocket-protections) below.
+
 ## WebSocket Protections
 
 WebSocket connections have several layers of protection:
@@ -182,6 +197,9 @@ SESSION_COOKIE_SECURE=true
 
 # CORS — restrict to your domain
 WEB_SERVER_ALLOWED_ORIGINS=https://yourapp.com
+
+# Request body size — tune for your payload needs (default 10 MB)
+WEB_MAX_BODY_SIZE=10485760
 
 # Rate limiting — tune for your traffic
 RATE_LIMIT_ENABLED=true

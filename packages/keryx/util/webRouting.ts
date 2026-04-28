@@ -35,6 +35,84 @@ export async function determineActionName(
 }
 
 /**
+ * Reject requests whose body exceeds {@link config.server.web.maxBodySize}
+ * based on the `Content-Length` header.
+ *
+ * This is a fast, zero-I/O pre-flight check. Requests that declare a body
+ * size above the limit are rejected immediately with no body reading.
+ * Chunked/streaming requests without `Content-Length` bypass this check —
+ * they are caught by {@link readBodyWithLimit} during body parsing.
+ *
+ * @param req - The incoming HTTP request.
+ * @throws {TypedError} With type {@link ErrorType.CONNECTION_ACTION_RUN} and
+ *   an HTTP-friendly "Payload Too Large" message when the declared body
+ *   size exceeds the configured limit.
+ */
+export function checkBodySize(req: Request): void {
+  const maxBodySize = config.server.web.maxBodySize;
+  if (maxBodySize <= 0) return;
+  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS")
+    return;
+
+  const contentLength = req.headers.get("content-length");
+  if (contentLength !== null) {
+    const length = parseInt(contentLength, 10);
+    if (!Number.isNaN(length) && length > maxBodySize) {
+      throw new TypedError({
+        message: `Payload Too Large — body of ${length} bytes exceeds the ${maxBodySize} byte limit`,
+        type: ErrorType.CONNECTION_ACTION_RUN,
+      });
+    }
+  }
+}
+
+/**
+ * Read a request body as bytes, aborting early if the configured
+ * {@link config.server.web.maxBodySize} is exceeded. Returns the body as a
+ * UTF-8 string. Unlike `req.text()`, this never allocates the full oversized
+ * payload — it reads the stream chunk-by-chunk and cancels as soon as the
+ * limit is breached.
+ *
+ * @param req - The incoming HTTP request (body must not already be consumed).
+ * @returns The body decoded as a UTF-8 string.
+ * @throws {TypedError} With type {@link ErrorType.CONNECTION_ACTION_RUN}
+ *   when the body exceeds the configured limit.
+ */
+async function readBodyWithLimit(req: Request): Promise<string> {
+  const maxBodySize = config.server.web.maxBodySize;
+
+  if (maxBodySize <= 0 || !req.body) {
+    return await req.text();
+  }
+
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += value.byteLength;
+    if (received > maxBodySize) {
+      reader.cancel();
+      throw new TypedError({
+        message: `Payload Too Large — body exceeds the ${maxBodySize} byte limit`,
+        type: ErrorType.CONNECTION_ACTION_RUN,
+      });
+    }
+    chunks.push(value);
+  }
+
+  const merged = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(merged);
+}
+
+/**
  * Parse request parameters from path params, request body (JSON or form-data),
  * and query string into a single plain object.
  *
@@ -68,12 +146,16 @@ export async function parseRequestParams(
     req.headers.get("content-type") === "application/json"
   ) {
     try {
-      const bodyContent = (await req.json()) as Record<string, unknown>;
+      // Use streaming reader that aborts early if the body exceeds the
+      // configured limit — never allocates the full oversized payload.
+      const text = await readBodyWithLimit(req);
+      const bodyContent = JSON.parse(text) as Record<string, unknown>;
       // Merge JSON body directly — preserves types (objects, arrays, booleans, numbers)
       for (const [key, value] of Object.entries(bodyContent)) {
         params[key] = value;
       }
     } catch (e) {
+      if (e instanceof TypedError) throw e;
       throw new TypedError({
         message: `cannot parse request body: ${e}`,
         type: ErrorType.CONNECTION_ACTION_RUN,
@@ -87,6 +169,15 @@ export async function parseRequestParams(
         .get("content-type")
         ?.includes("application/x-www-form-urlencoded"))
   ) {
+    // For form data without a Content-Length header, stream-read the clone
+    // to enforce the body size limit before handing off to the FormData parser.
+    if (
+      config.server.web.maxBodySize > 0 &&
+      !req.headers.get("content-length")
+    ) {
+      await readBodyWithLimit(req.clone() as Request);
+    }
+
     const f = await req.formData();
     f.forEach((value, key) => {
       if (params[key] !== undefined) {
