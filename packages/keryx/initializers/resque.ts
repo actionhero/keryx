@@ -193,8 +193,10 @@ export class Resque extends Initializer {
       worker.on("end", () => {
         logger.info(`[resque:${worker.name}] ended`);
       });
-      worker.on("cleaning_worker", () => {
-        logger.debug(`[resque:${worker.name}] cleaning worker`);
+      worker.on("cleaning_worker", (workerName, pid) => {
+        logger.debug(
+          `[resque:${worker.name}] cleaning worker, ${workerName}, ${pid}`,
+        );
       });
       worker.on("poll", (queue) => {
         logger.debug(`[resque:${worker.name}] polling, ${queue}`);
