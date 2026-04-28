@@ -1,5 +1,17 @@
+import { createHash, timingSafeEqual } from "crypto";
 import { type ActionMiddleware, ErrorType, TypedError } from "keryx";
 import { config } from "keryx/config";
+
+/**
+ * Compare two strings in constant time by hashing both values first.
+ * Hashing normalizes the length so `timingSafeEqual` never receives
+ * buffers of different sizes, avoiding a length-oracle side-channel.
+ */
+export function safeCompare(a: string, b: string): boolean {
+  const hashA = createHash("sha256").update(a).digest();
+  const hashB = createHash("sha256").update(b).digest();
+  return timingSafeEqual(hashA, hashB);
+}
 
 /**
  * Middleware that validates a password input against `config.resqueAdmin.password`.
@@ -19,7 +31,7 @@ export const ResqueAdminPasswordMiddleware: ActionMiddleware = {
       });
     }
 
-    if (!params.password || params.password !== configuredPassword) {
+    if (!params.password || !safeCompare(params.password, configuredPassword)) {
       throw new TypedError({
         message: "Invalid resque admin password",
         type: ErrorType.CONNECTION_SESSION_NOT_FOUND,

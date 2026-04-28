@@ -3,6 +3,7 @@ import { api } from "keryx";
 import { config } from "keryx/config";
 import { parseRedisInfo } from "../actions/redisInfo";
 import { resqueAdminPlugin } from "../index";
+import { safeCompare } from "../middleware/password";
 import { HOOK_TIMEOUT, serverUrl } from "./setup";
 
 const TEST_PASSWORD = "test-resque-admin-pw";
@@ -160,6 +161,28 @@ describe("resque-admin plugin", () => {
         }),
       });
       expect(delRes.status).toBe(200);
+    });
+  });
+
+  describe("safeCompare", () => {
+    test("returns true for matching strings", () => {
+      expect(safeCompare("secret", "secret")).toBe(true);
+    });
+
+    test("returns false for different strings", () => {
+      expect(safeCompare("secret", "wrong")).toBe(false);
+    });
+
+    test("returns false for different-length strings", () => {
+      expect(safeCompare("short", "a-much-longer-string")).toBe(false);
+    });
+
+    test("returns false for empty vs non-empty", () => {
+      expect(safeCompare("", "non-empty")).toBe(false);
+    });
+
+    test("returns true for two empty strings", () => {
+      expect(safeCompare("", "")).toBe(true);
     });
   });
 
