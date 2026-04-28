@@ -106,7 +106,7 @@ export async function parseRequestParams(
       // Read as text first to enforce body size for chunked requests that
       // bypassed the Content-Length pre-flight check in checkBodySize().
       const text = await req.text();
-      if (maxBodySize > 0 && text.length > maxBodySize) {
+      if (maxBodySize > 0 && Buffer.byteLength(text) > maxBodySize) {
         throw new TypedError({
           message: `Payload Too Large — body exceeds the ${maxBodySize} byte limit`,
           type: ErrorType.CONNECTION_ACTION_RUN,
@@ -132,17 +132,12 @@ export async function parseRequestParams(
         .get("content-type")
         ?.includes("application/x-www-form-urlencoded"))
   ) {
-    // For form data without a Content-Length header, read as text first to
-    // enforce body size before handing off to the FormData parser.
-    if (
-      maxBodySize > 0 &&
-      !req.headers.get("content-length") &&
-      req.headers
-        .get("content-type")
-        ?.includes("application/x-www-form-urlencoded")
-    ) {
-      const text = await req.clone().text();
-      if (text.length > maxBodySize) {
+    // For form data without a Content-Length header, check the raw byte size
+    // before handing off to the FormData parser. Uses arrayBuffer() so binary
+    // multipart payloads are measured accurately.
+    if (maxBodySize > 0 && !req.headers.get("content-length")) {
+      const buf = await req.clone().arrayBuffer();
+      if (buf.byteLength > maxBodySize) {
         throw new TypedError({
           message: `Payload Too Large — body exceeds the ${maxBodySize} byte limit`,
           type: ErrorType.CONNECTION_ACTION_RUN,
