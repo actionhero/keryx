@@ -112,6 +112,7 @@ All web server settings are in `config.server.web`:
 | `host`                  | `"localhost"` | Bind address                  |
 | `apiRoute`              | `"/api"`      | URL prefix for action routes  |
 | `allowedOrigins`        | `"*"`         | CORS allowed origins          |
+| `maxBodySize`           | `10485760`    | Max HTTP request body (bytes) |
 | `staticFiles.enabled`   | `true`        | Serve static files            |
 | `staticFiles.directory` | `"assets"`    | Directory for static files    |
 
