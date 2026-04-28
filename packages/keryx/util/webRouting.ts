@@ -35,6 +35,39 @@ export async function determineActionName(
 }
 
 /**
+ * Reject requests whose body exceeds {@link config.server.web.maxBodySize}
+ * based on the `Content-Length` header.
+ *
+ * This is a fast, zero-I/O pre-flight check. Requests that declare a body
+ * size above the limit are rejected immediately with no body reading.
+ * Chunked/streaming requests without `Content-Length` bypass this check and
+ * are instead enforced inside {@link parseRequestParams} after the body is
+ * read as text.
+ *
+ * @param req - The incoming HTTP request.
+ * @throws {TypedError} With type {@link ErrorType.CONNECTION_ACTION_RUN} and
+ *   an HTTP-friendly "Payload Too Large" message when the declared body
+ *   size exceeds the configured limit.
+ */
+export function checkBodySize(req: Request): void {
+  const maxBodySize = config.server.web.maxBodySize;
+  if (maxBodySize <= 0) return;
+  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS")
+    return;
+
+  const contentLength = req.headers.get("content-length");
+  if (contentLength !== null) {
+    const length = parseInt(contentLength, 10);
+    if (!Number.isNaN(length) && length > maxBodySize) {
+      throw new TypedError({
+        message: `Payload Too Large — body of ${length} bytes exceeds the ${maxBodySize} byte limit`,
+        type: ErrorType.CONNECTION_ACTION_RUN,
+      });
+    }
+  }
+}
+
+/**
  * Parse request parameters from path params, request body (JSON or form-data),
  * and query string into a single plain object.
  *
@@ -63,17 +96,29 @@ export async function parseRequestParams(
     }
   }
 
+  const maxBodySize = config.server.web.maxBodySize;
+
   if (
     req.method !== "GET" &&
     req.headers.get("content-type") === "application/json"
   ) {
     try {
-      const bodyContent = (await req.json()) as Record<string, unknown>;
+      // Read as text first to enforce body size for chunked requests that
+      // bypassed the Content-Length pre-flight check in checkBodySize().
+      const text = await req.text();
+      if (maxBodySize > 0 && text.length > maxBodySize) {
+        throw new TypedError({
+          message: `Payload Too Large — body exceeds the ${maxBodySize} byte limit`,
+          type: ErrorType.CONNECTION_ACTION_RUN,
+        });
+      }
+      const bodyContent = JSON.parse(text) as Record<string, unknown>;
       // Merge JSON body directly — preserves types (objects, arrays, booleans, numbers)
       for (const [key, value] of Object.entries(bodyContent)) {
         params[key] = value;
       }
     } catch (e) {
+      if (e instanceof TypedError) throw e;
       throw new TypedError({
         message: `cannot parse request body: ${e}`,
         type: ErrorType.CONNECTION_ACTION_RUN,
@@ -87,6 +132,24 @@ export async function parseRequestParams(
         .get("content-type")
         ?.includes("application/x-www-form-urlencoded"))
   ) {
+    // For form data without a Content-Length header, read as text first to
+    // enforce body size before handing off to the FormData parser.
+    if (
+      maxBodySize > 0 &&
+      !req.headers.get("content-length") &&
+      req.headers
+        .get("content-type")
+        ?.includes("application/x-www-form-urlencoded")
+    ) {
+      const text = await req.clone().text();
+      if (text.length > maxBodySize) {
+        throw new TypedError({
+          message: `Payload Too Large — body exceeds the ${maxBodySize} byte limit`,
+          type: ErrorType.CONNECTION_ACTION_RUN,
+        });
+      }
+    }
+
     const f = await req.formData();
     f.forEach((value, key) => {
       if (params[key] !== undefined) {

@@ -66,6 +66,7 @@ export const configServerWeb = {
       "strict-origin-when-cross-origin",
     ),
   } as Record<string, string>,
+  maxBodySize: await loadFromEnvIfSet("WEB_MAX_BODY_SIZE", 10 * 1024 * 1024),
   compression: {
     enabled: await loadFromEnvIfSet("WEB_COMPRESSION_ENABLED", true),
     threshold: await loadFromEnvIfSet("WEB_COMPRESSION_THRESHOLD", 1024),

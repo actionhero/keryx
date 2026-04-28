@@ -69,6 +69,46 @@ describe("actions", () => {
   });
 });
 
+describe("body size limit", () => {
+  test("returns 413 when Content-Length exceeds maxBodySize", async () => {
+    const original = config.server.web.maxBodySize;
+    config.server.web.maxBodySize = 100;
+    try {
+      const body = JSON.stringify({ data: "x".repeat(200) });
+      const res = await fetch(getUrl() + "/api/status", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "content-length": String(body.length),
+        },
+        body,
+      });
+      expect(res.status).toBe(413);
+      const json = (await res.json()) as { error: { message: string } };
+      expect(json.error.message).toContain("Payload Too Large");
+    } finally {
+      config.server.web.maxBodySize = original;
+    }
+  });
+
+  test("allows requests within the body size limit", async () => {
+    const original = config.server.web.maxBodySize;
+    config.server.web.maxBodySize = 10_000;
+    try {
+      const res = await fetch(getUrl() + "/api/status", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "test" }),
+      });
+      // status action doesn't have a POST route, so 404 is expected —
+      // the important thing is it was NOT rejected with 413
+      expect(res.status).not.toBe(413);
+    } finally {
+      config.server.web.maxBodySize = original;
+    }
+  });
+});
+
 describe("security headers", () => {
   test("API responses include security headers", async () => {
     const res = await fetch(getUrl() + "/api/status");

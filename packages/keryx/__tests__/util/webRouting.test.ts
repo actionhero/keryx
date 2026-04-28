@@ -4,7 +4,11 @@ import { type Action, HTTP_METHOD } from "../../classes/Action";
 import { Router } from "../../classes/Router";
 import { ErrorType } from "../../classes/TypedError";
 import { config } from "../../config";
-import { determineActionName, parseRequestParams } from "../../util/webRouting";
+import {
+  checkBodySize,
+  determineActionName,
+  parseRequestParams,
+} from "../../util/webRouting";
 import { HOOK_TIMEOUT } from "../setup";
 
 // Helpers to build minimal Request objects for testing
@@ -213,6 +217,113 @@ describe("parseRequestParams", () => {
       expect(params.name).toBe("from-body");
       expect(params.extra).toBe("query-val");
     });
+  });
+});
+
+describe("checkBodySize", () => {
+  const originalMaxBodySize = config.server.web.maxBodySize;
+
+  afterAll(() => {
+    config.server.web.maxBodySize = originalMaxBodySize;
+  });
+
+  test("throws when Content-Length exceeds maxBodySize", () => {
+    config.server.web.maxBodySize = 100;
+    const req = new Request("http://localhost/test", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "content-length": "200",
+      },
+      body: "x".repeat(200),
+    });
+    try {
+      checkBodySize(req);
+      throw new Error("should have thrown");
+    } catch (e: any) {
+      expect(e.type).toBe(ErrorType.CONNECTION_ACTION_RUN);
+      expect(e.message).toContain("Payload Too Large");
+      expect(e.message).toContain("200");
+      expect(e.message).toContain("100");
+    }
+  });
+
+  test("does not throw when Content-Length is within limit", () => {
+    config.server.web.maxBodySize = 1000;
+    const req = new Request("http://localhost/test", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "content-length": "50",
+      },
+      body: JSON.stringify({ ok: true }),
+    });
+    expect(() => checkBodySize(req)).not.toThrow();
+  });
+
+  test("skips check for GET requests", () => {
+    config.server.web.maxBodySize = 1;
+    const req = new Request("http://localhost/test", {
+      method: "GET",
+      headers: { "content-length": "999999" },
+    });
+    expect(() => checkBodySize(req)).not.toThrow();
+  });
+
+  test("skips check when maxBodySize is 0 (disabled)", () => {
+    config.server.web.maxBodySize = 0;
+    const req = new Request("http://localhost/test", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "content-length": "999999999",
+      },
+      body: "x",
+    });
+    expect(() => checkBodySize(req)).not.toThrow();
+  });
+
+  test("does not throw when Content-Length header is absent", () => {
+    config.server.web.maxBodySize = 100;
+    const req = new Request("http://localhost/test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ok: true }),
+    });
+    expect(() => checkBodySize(req)).not.toThrow();
+  });
+});
+
+describe("parseRequestParams body size enforcement", () => {
+  const originalMaxBodySize = config.server.web.maxBodySize;
+
+  afterAll(() => {
+    config.server.web.maxBodySize = originalMaxBodySize;
+  });
+
+  test("rejects oversized JSON body without Content-Length", async () => {
+    config.server.web.maxBodySize = 50;
+    const req = new Request("http://localhost/test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ data: "x".repeat(100) }),
+    });
+    try {
+      await parseRequestParams(req, parsedUrl());
+      throw new Error("should have thrown");
+    } catch (e: any) {
+      expect(e.type).toBe(ErrorType.CONNECTION_ACTION_RUN);
+      expect(e.message).toContain("Payload Too Large");
+    }
+  });
+
+  test("allows JSON body within limit", async () => {
+    config.server.web.maxBodySize = 10_000;
+    const params = await parseRequestParams(
+      jsonRequest({ name: "Alice" }),
+      parsedUrl(),
+    );
+    expect(params.name).toBe("Alice");
   });
 });
 

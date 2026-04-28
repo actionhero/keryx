@@ -17,7 +17,11 @@ import {
   buildErrorPayload,
   buildResponse,
 } from "../util/webResponse";
-import { determineActionName, parseRequestParams } from "../util/webRouting";
+import {
+  checkBodySize,
+  determineActionName,
+  parseRequestParams,
+} from "../util/webRouting";
 import {
   handleWebsocketAction,
   handleWebsocketSubscribe,
@@ -508,13 +512,38 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
       return { response: buildResponse(connection, {}, 200, requestOrigin) };
     }
 
+    // Reject oversized request bodies before reading them
+    try {
+      checkBodySize(req);
+    } catch (e) {
+      connection.destroy();
+      if (e instanceof TypedError) {
+        return {
+          response: buildError(connection, e, 413, requestOrigin),
+        };
+      }
+      throw e;
+    }
+
     const { actionName, pathParams } = await determineActionName(
       url,
       httpMethod,
     );
     if (!actionName) errorStatusCode = 404;
 
-    const params = await parseRequestParams(req, url, pathParams ?? undefined);
+    let params: Record<string, unknown>;
+    try {
+      params = await parseRequestParams(req, url, pathParams ?? undefined);
+    } catch (e) {
+      if (
+        e instanceof TypedError &&
+        e.message.startsWith("Payload Too Large")
+      ) {
+        connection.destroy();
+        return { response: buildError(connection, e, 413, requestOrigin) };
+      }
+      throw e;
+    }
 
     const { response, error } = await connection.act(
       actionName!,
