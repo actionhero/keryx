@@ -8,7 +8,7 @@ import {
   test,
 } from "bun:test";
 import { z } from "zod";
-import { Action, api, Connection } from "../../api";
+import { Action, api, Connection, logger } from "../../api";
 import { DEFAULT_QUEUE } from "../../classes/Action";
 import { HOOK_TIMEOUT, waitFor } from "./../setup";
 
@@ -318,6 +318,31 @@ describe("onEnqueue hook", () => {
     await api.actions.enqueue("test_action", { val: "chain" });
     const jobs = await api.actions.queued();
     expect(jobs[0].args[0]).toEqual({ val: "chain", a: 1, b: 2 });
+  });
+});
+
+describe("cleaning_worker event handler (issue #464)", () => {
+  afterEach(async () => {
+    await api.resque.stopWorkers();
+  });
+
+  test("logs worker name and pid from the cleaning_worker event", async () => {
+    const logged: string[] = [];
+    const originalDebug = logger.debug;
+    logger.debug = ((msg: string) => logged.push(msg)) as typeof logger.debug;
+
+    try {
+      await api.resque.startWorkers();
+      const worker = api.resque.workers[0];
+      worker.emit("cleaning_worker", worker, "12345");
+
+      const match = logged.find((m) => m.includes("cleaning worker"));
+      expect(match).toBeDefined();
+      expect(match).toContain("cleaning worker");
+      expect(match).toContain("12345");
+    } finally {
+      logger.debug = originalDebug;
+    }
   });
 });
 
