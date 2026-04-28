@@ -409,8 +409,10 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
       await hook(connection, message);
     }
 
+    let messageId: unknown;
     try {
       const parsedMessage = JSON.parse(message.toString());
+      messageId = parsedMessage["messageId"];
       if (parsedMessage["messageType"] === "action") {
         await handleWebsocketAction(connection, ws, parsedMessage);
       } else if (parsedMessage["messageType"] === "subscribe") {
@@ -426,6 +428,7 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
     } catch (e) {
       ws.send(
         JSON.stringify({
+          messageId,
           error: buildErrorPayload(
             new TypedError({
               message: `${e}`,

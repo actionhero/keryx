@@ -365,6 +365,28 @@ test("handler errors are caught by the surrounding try/catch", async () => {
   socket.close();
 });
 
+test("outer catch includes messageId for unknown messageType", async () => {
+  const { socket, messages } = await buildWebSocket();
+
+  socket.send(
+    JSON.stringify({
+      messageType: "bogus",
+      messageId: 42,
+    }),
+  );
+
+  while (messages.length === 0) await Bun.sleep(10);
+
+  const response = JSON.parse(messages[0].data);
+  expect(response.messageId).toBe(42);
+  expect(response.error.type).toBe("CONNECTION_ACTION_RUN");
+  expect(response.error.message).toContain(
+    "messageType either missing or unknown",
+  );
+
+  socket.close();
+});
+
 test("allows WebSocket upgrade with wildcard allowedOrigins", async () => {
   const originalOrigins = config.server.web.allowedOrigins;
   (config.server.web as any).allowedOrigins = "*";
