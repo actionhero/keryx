@@ -35,7 +35,7 @@ class HookRegistry<T extends (...args: never[]) => unknown> {
     this.hooks.push(hook);
   }
 
-  /** Read-only snapshot of registered hooks. */
+  /** Live read-only view of registered hooks. */
   get all(): ReadonlyArray<T> {
     return this.hooks;
   }
