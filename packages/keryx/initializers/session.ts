@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { api, Connection } from "../api";
 import { Initializer } from "../classes/Initializer";
 import { config } from "../config";
@@ -76,6 +77,46 @@ async function update<T extends Record<string, any>>(
 }
 
 /**
+ * Regenerate the session ID for a connection to prevent session fixation attacks.
+ * Creates a new session with a fresh UUID, copies existing data, deletes the old
+ * session key from Redis, and updates the connection's IDs so the next response
+ * sets a new cookie value.
+ *
+ * @param connection - The connection whose session to regenerate.
+ * @returns The session data under the new ID, or `null` if no session existed.
+ */
+async function regenerate<T extends Record<string, any>>(
+  connection: Connection,
+) {
+  const oldSessionId = connection.sessionId;
+  const oldKey = getKey(oldSessionId);
+  const newSessionId = randomUUID();
+  const newKey = getKey(newSessionId);
+
+  const raw = await api.redis.redis.get(oldKey);
+  if (!raw) return null;
+
+  const sessionData = JSON.parse(raw) as SessionData<T>;
+  sessionData.id = newSessionId;
+
+  await api.redis.redis.set(newKey, JSON.stringify(sessionData));
+  await api.redis.redis.expire(newKey, config.session.ttl);
+  await api.redis.redis.del(oldKey);
+
+  // Update the connection map when connection.id tracks the session cookie
+  const oldId = connection.id;
+  if (oldId === oldSessionId) {
+    api.connections.connections.delete(oldId);
+    connection.id = newSessionId;
+    api.connections.connections.set(newSessionId, connection);
+  }
+  connection.sessionId = newSessionId;
+  connection.session = sessionData as SessionData<T>;
+
+  return connection.session;
+}
+
+/**
  * Delete a session from Redis.
  *
  * @param connection - The connection whose session to destroy.
@@ -104,6 +145,7 @@ export class Session extends Initializer {
       load,
       create,
       update,
+      regenerate,
       destroy,
     };
   }

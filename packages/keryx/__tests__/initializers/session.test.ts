@@ -222,4 +222,90 @@ describe("session initializer", () => {
 
     expect(session.cookieName).toBe(config.session.cookieName);
   });
+
+  test("regenerate object is initialized", () => {
+    expect(typeof api.session.regenerate).toBe("function");
+  });
+
+  test("regenerate creates a new session ID and copies data", async () => {
+    const connection = new Connection("test", "test-regen");
+    await api.session.create(connection, { userId: 42, role: "admin" });
+
+    const oldId = connection.sessionId;
+    const regenerated = await api.session.regenerate(connection);
+
+    expect(regenerated).not.toBeNull();
+    expect(connection.sessionId).not.toBe(oldId);
+    expect(regenerated!.id).toBe(connection.sessionId);
+    expect(regenerated!.data).toEqual({ userId: 42, role: "admin" });
+  });
+
+  test("regenerate deletes the old session key from Redis", async () => {
+    const connection = new Connection("test", "test-regen-delete");
+    await api.session.create(connection, { userId: 10 });
+
+    const oldId = connection.sessionId;
+    await api.session.regenerate(connection);
+
+    const oldData = await api.redis.redis.get(`session:${oldId}`);
+    expect(oldData).toBeNull();
+
+    const newData = await api.redis.redis.get(
+      `session:${connection.sessionId}`,
+    );
+    expect(newData).not.toBeNull();
+  });
+
+  test("regenerate updates connection.id for web connections", async () => {
+    const connection = new Connection("web", "test-regen-web");
+    await api.session.create(connection, { userId: 20 });
+
+    const oldId = connection.id;
+    expect(connection.id).toBe(connection.sessionId);
+
+    await api.session.regenerate(connection);
+
+    expect(connection.id).not.toBe(oldId);
+    expect(connection.id).toBe(connection.sessionId);
+    expect(api.connections.connections.get(connection.id)).toBe(connection);
+    expect(api.connections.connections.has(oldId)).toBe(false);
+  });
+
+  test("regenerate preserves connection.id for websocket connections", async () => {
+    const wsConnectionId = "ws-conn-123";
+    const sessionId = "session-cookie-456";
+    const connection = new Connection(
+      "websocket",
+      "test-regen-ws",
+      wsConnectionId,
+      undefined,
+      sessionId,
+    );
+    await api.session.create(connection, { userId: 30 });
+
+    await api.session.regenerate(connection);
+
+    expect(connection.id).toBe(wsConnectionId);
+    expect(connection.sessionId).not.toBe(sessionId);
+    expect(api.connections.connections.get(wsConnectionId)).toBe(connection);
+  });
+
+  test("regenerate returns null when no session exists", async () => {
+    const connection = new Connection("test", "test-regen-none");
+
+    const result = await api.session.regenerate(connection);
+
+    expect(result).toBeNull();
+  });
+
+  test("regenerate sets TTL on the new session key", async () => {
+    const connection = new Connection("test", "test-regen-ttl");
+    await api.session.create(connection, { userId: 50 });
+
+    await api.session.regenerate(connection);
+
+    const ttl = await api.redis.redis.ttl(`session:${connection.sessionId}`);
+    expect(ttl).toBeGreaterThan(0);
+    expect(ttl).toBeLessThanOrEqual(config.session.ttl);
+  });
 });
