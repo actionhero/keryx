@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/actionhero-keryx-badge.png)](https://mseep.ai/app/actionhero-keryx)
+
 # Keryx
 
 <p align="center"><strong>The fullstack TypeScript framework for MCP and APIs.</strong></p>
