@@ -688,6 +688,22 @@ describe("handleAuthorizePost", () => {
     expect(html).toContain("Invalid redirect URI");
   });
 
+  test("redirect_uri with appended query param is rejected", async () => {
+    const { clientId } = await registerClient("http://localhost:9999/cb");
+    const res = await handleAuthorizePost(
+      buildPost({
+        client_id: clientId,
+        redirect_uri: "http://localhost:9999/cb?evil=1",
+        code_challenge: "chal",
+        code_challenge_method: "S256",
+        response_type: "code",
+      }),
+      templates,
+    );
+    const html = await res.text();
+    expect(html).toContain("Invalid redirect URI");
+  });
+
   test("non-S256 code_challenge_method is rejected", async () => {
     const { clientId } = await registerClient("http://localhost:9999/cb");
     const res = await handleAuthorizePost(
