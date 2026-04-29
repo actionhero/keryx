@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { api } from "../../api";
 import type { Action, OAuthActionResponse } from "../../classes/Action";
-import { Connection } from "../../classes/Connection";
+import { CONNECTION_TYPE, Connection } from "../../classes/Connection";
 import { config } from "../../config";
 import { redirectUrisMatch } from "../oauth";
 import {
@@ -78,7 +78,7 @@ async function runAuthAction(
   }
 
   const connection = new Connection(
-    "oauth",
+    CONNECTION_TYPE.OAUTH,
     isSignup ? "oauth-signup" : "oauth-login",
   );
   try {

@@ -3,7 +3,7 @@ import { parse } from "node:url";
 import type { ServerWebSocket } from "bun";
 import { api, logger } from "../api";
 import { type HTTP_METHOD } from "../classes/Action";
-import { Connection } from "../classes/Connection";
+import { CONNECTION_TYPE, Connection } from "../classes/Connection";
 import { Server } from "../classes/Server";
 import { StreamingResponse } from "../classes/StreamingResponse";
 import { ErrorStatusCodes, ErrorType, TypedError } from "../classes/TypedError";
@@ -367,7 +367,13 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
   async handleWebSocketConnectionOpen(ws: ServerWebSocket) {
     //@ts-expect-error (ws.data is not defined in the bun types)
     const { ip, id, wsConnectionId } = ws.data;
-    const connection = new Connection("websocket", ip, wsConnectionId, ws, id);
+    const connection = new Connection(
+      CONNECTION_TYPE.WEBSOCKET,
+      ip,
+      wsConnectionId,
+      ws,
+      id,
+    );
     connection.onBroadcastMessageReceived = function (payload: PubSubMessage) {
       ws.send(JSON.stringify({ message: payload }));
     };
@@ -513,7 +519,7 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
     let errorStatusCode = 500;
     const httpMethod = req.method?.toUpperCase() as HTTP_METHOD;
 
-    const connection = new Connection("web", ip, id);
+    const connection = new Connection(CONNECTION_TYPE.WEB, ip, id);
 
     if (
       config.server.web.correlationId.header &&

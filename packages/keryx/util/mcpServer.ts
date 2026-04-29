@@ -13,7 +13,7 @@ import * as z4mini from "zod/v4-mini";
 import { api, logger } from "../api";
 import type { Action } from "../classes/Action";
 import { MCP_RESPONSE_FORMAT } from "../classes/Action";
-import { Connection } from "../classes/Connection";
+import { CONNECTION_TYPE, Connection } from "../classes/Connection";
 import { StreamingResponse } from "../classes/StreamingResponse";
 import { ErrorType, TypedError } from "../classes/TypedError";
 import { config } from "../config";
@@ -60,7 +60,7 @@ export async function createMcpConnection(extra: {
   const authInfo = extra.authInfo;
   const clientIp = (authInfo?.extra?.ip as string) || "unknown";
   const connection = new Connection(
-    "mcp",
+    CONNECTION_TYPE.MCP,
     clientIp,
     randomUUID(),
     undefined,

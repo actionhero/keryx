@@ -1,7 +1,7 @@
 import os from "node:os";
 import { Command } from "commander";
 import path from "path";
-import { Action, api, Connection, RUN_MODE } from "../api";
+import { Action, api, CONNECTION_TYPE, Connection, RUN_MODE } from "../api";
 import { ExitCode } from "./../classes/ExitCode";
 import { TypedError } from "./../classes/TypedError";
 import { config } from "../config";
@@ -274,7 +274,7 @@ async function runActionViaCLI(options: Record<string, string>, command: any) {
   await api.start(RUN_MODE.CLI);
 
   const id = "cli:" + os.userInfo().username;
-  const connection = new Connection("cli", id);
+  const connection = new Connection(CONNECTION_TYPE.CLI, id);
   const params: Record<string, unknown> = { ...options };
 
   const { response, error } = await connection.act(actionName, params);

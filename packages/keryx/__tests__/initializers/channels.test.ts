@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { api, Connection } from "../../api";
+import { api, CONNECTION_TYPE, Connection } from "../../api";
 import type { PubSubMessage } from "../../initializers/pubsub";
 import { useTestServer, waitFor } from "./../setup";
 
@@ -41,7 +41,7 @@ describe("channels initializer", () => {
   });
 
   test("authorizeSubscription throws for unknown channel", async () => {
-    const conn = new Connection("test", "auth-test");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "auth-test");
 
     expect(
       api.channels.authorizeSubscription("nonexistent-channel", conn),
@@ -50,7 +50,7 @@ describe("channels initializer", () => {
 
   describe("presence tracking", () => {
     test("addPresence tracks a connection and members returns it", async () => {
-      const conn = new TestConnection("test", "presence-add");
+      const conn = new TestConnection(CONNECTION_TYPE.WEB, "presence-add");
       conn.subscribe("presence-test");
       api.connections.connections.set(conn.id, conn);
 
@@ -61,7 +61,7 @@ describe("channels initializer", () => {
     });
 
     test("removePresence removes a connection from presence", async () => {
-      const conn = new TestConnection("test", "presence-remove");
+      const conn = new TestConnection(CONNECTION_TYPE.WEB, "presence-remove");
       conn.subscribe("presence-rm-test");
       api.connections.connections.set(conn.id, conn);
 
@@ -75,11 +75,11 @@ describe("channels initializer", () => {
     });
 
     test("addPresence broadcasts join event on first connection for a key", async () => {
-      const listener = new TestConnection("test", "join-listener");
+      const listener = new TestConnection(CONNECTION_TYPE.WEB, "join-listener");
       listener.subscribe("join-test");
       api.connections.connections.set(listener.id, listener);
 
-      const joiner = new TestConnection("test", "joiner");
+      const joiner = new TestConnection(CONNECTION_TYPE.WEB, "joiner");
       joiner.subscribe("join-test");
       api.connections.connections.set(joiner.id, joiner);
 
@@ -98,11 +98,14 @@ describe("channels initializer", () => {
     });
 
     test("removePresence broadcasts leave event when last connection leaves", async () => {
-      const listener = new TestConnection("test", "leave-listener");
+      const listener = new TestConnection(
+        CONNECTION_TYPE.WEB,
+        "leave-listener",
+      );
       listener.subscribe("leave-test");
       api.connections.connections.set(listener.id, listener);
 
-      const leaver = new TestConnection("test", "leaver");
+      const leaver = new TestConnection(CONNECTION_TYPE.WEB, "leaver");
       leaver.subscribe("leave-test");
       api.connections.connections.set(leaver.id, leaver);
 
@@ -131,11 +134,11 @@ describe("channels initializer", () => {
     });
 
     test("clearPresence removes all presence keys", async () => {
-      const conn1 = new TestConnection("test", "clear-1");
+      const conn1 = new TestConnection(CONNECTION_TYPE.WEB, "clear-1");
       conn1.subscribe("clear-test-a");
       api.connections.connections.set(conn1.id, conn1);
 
-      const conn2 = new TestConnection("test", "clear-2");
+      const conn2 = new TestConnection(CONNECTION_TYPE.WEB, "clear-2");
       conn2.subscribe("clear-test-b");
       api.connections.connections.set(conn2.id, conn2);
 

@@ -17,7 +17,7 @@ export {
   type ChannelConstructorInputs,
   type ChannelMiddleware,
 } from "./classes/Channel";
-export { Connection } from "./classes/Connection";
+export { CONNECTION_TYPE, Connection } from "./classes/Connection";
 export { Initializer } from "./classes/Initializer";
 export { LogFormat, Logger } from "./classes/Logger";
 export { Server } from "./classes/Server";

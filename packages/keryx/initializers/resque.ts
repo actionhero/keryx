@@ -10,6 +10,7 @@ import {
   Action,
   type ActionParams,
   api,
+  CONNECTION_TYPE,
   Connection,
   config,
   logger,
@@ -337,7 +338,7 @@ export class Resque extends Initializer {
           | undefined;
 
         const connection = new Connection(
-          "task",
+          CONNECTION_TYPE.TASK,
           `job:${api.process.name}:${SERVER_JOB_COUNTER++}`,
         );
         if (propagatedCorrelationId) {

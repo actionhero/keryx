@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
-import { api, Connection } from "../../api";
+import { api, CONNECTION_TYPE, Connection } from "../../api";
 import { Action, type ActionMiddleware } from "../../classes/Action";
 import { ErrorType, TypedError } from "../../classes/TypedError";
 import { TransactionMiddleware } from "../../middleware/transaction";
@@ -108,7 +108,7 @@ describe("TransactionMiddleware", () => {
     await truncate();
     register(new InsertAction("test:tx:commit"));
 
-    const conn = new Connection("test-tx", "tx-1");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "tx-1");
     try {
       const { error } = await conn.act("test:tx:commit", { val: "committed" });
       expect(error).toBeUndefined();
@@ -132,7 +132,7 @@ describe("TransactionMiddleware", () => {
     await truncate();
     register(new InsertAction("test:tx:rollback", { throwAfter: true }));
 
-    const conn = new Connection("test-tx", "tx-2");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "tx-2");
     try {
       const { error } = await conn.act("test:tx:rollback", {
         val: "should-not-persist",
@@ -152,7 +152,7 @@ describe("TransactionMiddleware", () => {
     register(new InsertAction("test:tx:inner-ok"));
     register(new NestedAction("test:tx:nested-ok", "test:tx:inner-ok"));
 
-    const conn = new Connection("test-tx", "tx-3");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "tx-3");
     try {
       const { response, error } = (await conn.act("test:tx:nested-ok", {})) as {
         response: { innerDepthSeen: number; innerError?: TypedError };
@@ -205,7 +205,7 @@ describe("TransactionMiddleware", () => {
     }
     register(new OuterFailingAction());
 
-    const conn = new Connection("test-tx", "tx-4");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "tx-4");
     try {
       const { error } = await conn.act("test:tx:outer-fail", {});
       expect(error).toBeDefined();
@@ -218,7 +218,7 @@ describe("TransactionMiddleware", () => {
 
   test("runAfter with depth 0 and no stored client is a no-op", async () => {
     // Exercises the `if (!client) return` guard without going through an action.
-    const conn = new Connection("test-tx", "tx-5");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "tx-5");
     try {
       await expect(
         TransactionMiddleware.runAfter!({}, conn, undefined),
@@ -234,7 +234,7 @@ describe("TransactionMiddleware", () => {
 
     const before = api.db.pool.totalCount;
     for (let i = 0; i < 8; i++) {
-      const conn = new Connection("test-tx", `tx-leak-${i}`);
+      const conn = new Connection(CONNECTION_TYPE.WEB, `tx-leak-${i}`);
       try {
         const { error } = await conn.act("test:tx:leak-check", {
           val: `row-${i}`,

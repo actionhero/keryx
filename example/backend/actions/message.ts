@@ -1,3 +1,4 @@
+import { CsrfMiddleware } from "@keryxjs/csrf";
 import { count, desc, eq, lt } from "drizzle-orm";
 import {
   type Action,
@@ -21,7 +22,7 @@ export class MessageCreate implements Action {
   name = "message:create";
   description =
     "Create a new chat message as the currently authenticated user. The message is persisted to the database and broadcast in real-time to all connected users via the 'messages' PubSub channel. Requires an active session. Returns the created message with its ID and timestamps.";
-  middleware = [RateLimitMiddleware, SessionMiddleware];
+  middleware = [RateLimitMiddleware, SessionMiddleware, CsrfMiddleware];
   web = { route: "/message", method: HTTP_METHOD.PUT };
   inputs = z.object({
     body: z
@@ -29,6 +30,10 @@ export class MessageCreate implements Action {
       .min(1, "Message body is required")
       .max(1000, "Message must be less than 1000 characters")
       .describe("The message body"),
+    csrfToken: z
+      .string()
+      .optional()
+      .describe("CSRF token from /api/csrf-token"),
   });
 
   async run(

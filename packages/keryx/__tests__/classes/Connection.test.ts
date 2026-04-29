@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { api, Connection, logger } from "../../api";
+import { api, CONNECTION_TYPE, Connection, logger } from "../../api";
 import { Action, type ActionMiddleware } from "../../classes/Action";
 import { LogFormat, LogLevel } from "../../classes/Logger";
 import { ErrorType, TypedError } from "../../classes/TypedError";
@@ -35,8 +35,8 @@ useTestServer({ clearDatabase: true, clearRedis: true });
 
 describe("Connection class", () => {
   test("constructor creates connection with unique ID", () => {
-    const conn1 = new Connection("test", "identifier-1");
-    const conn2 = new Connection("test", "identifier-2");
+    const conn1 = new Connection(CONNECTION_TYPE.WEB, "identifier-1");
+    const conn2 = new Connection(CONNECTION_TYPE.WEB, "identifier-2");
 
     expect(conn1.id).toBeDefined();
     expect(conn2.id).toBeDefined();
@@ -45,28 +45,28 @@ describe("Connection class", () => {
 
   test("constructor accepts custom ID", () => {
     const customId = "custom-test-id";
-    const conn = new Connection("test", "identifier", customId);
+    const conn = new Connection(CONNECTION_TYPE.WEB, "identifier", customId);
 
     expect(conn.id).toBe(customId);
   });
 
   test("constructor sets type and identifier", () => {
-    const conn = new Connection("websocket", "ws-client-123");
+    const conn = new Connection(CONNECTION_TYPE.WEBSOCKET, "ws-client-123");
 
-    expect(conn.type).toBe("websocket");
+    expect(conn.type).toBe(CONNECTION_TYPE.WEBSOCKET);
     expect(conn.identifier).toBe("ws-client-123");
   });
 
   test("connection is added to api.connections map", () => {
     const initialCount = api.connections.connections.size;
-    const conn = new Connection("test", "test-added");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "test-added");
 
     expect(api.connections.connections.size).toBe(initialCount + 1);
     expect(api.connections.connections.get(conn.id)).toBe(conn);
   });
 
   test("subscriptions set is initialized empty", () => {
-    const conn = new Connection("test", "test-subs");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "test-subs");
 
     expect(conn.subscriptions).toBeDefined();
     expect(conn.subscriptions instanceof Set).toBe(true);
@@ -74,32 +74,41 @@ describe("Connection class", () => {
   });
 
   test("sessionLoaded flag starts as false", () => {
-    const conn = new Connection("test", "test-session-flag");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "test-session-flag");
 
     expect(conn.sessionLoaded).toBe(false);
   });
 
   test("rawConnection can be provided", () => {
     const rawConn = { socket: "test-socket" };
-    const conn = new Connection("test", "test-raw", undefined, rawConn);
+    const conn = new Connection(
+      CONNECTION_TYPE.WEB,
+      "test-raw",
+      undefined,
+      rawConn,
+    );
 
     expect(conn.rawConnection).toBe(rawConn);
   });
 
   test("sessionId defaults to id when not provided", () => {
-    const conn = new Connection("test", "test-session-default");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "test-session-default");
     expect(conn.sessionId).toBe(conn.id);
   });
 
   test("sessionId defaults to custom id when not provided", () => {
-    const conn = new Connection("test", "test-session-custom-id", "my-id");
+    const conn = new Connection(
+      CONNECTION_TYPE.WEB,
+      "test-session-custom-id",
+      "my-id",
+    );
     expect(conn.id).toBe("my-id");
     expect(conn.sessionId).toBe("my-id");
   });
 
   test("sessionId can differ from id", () => {
     const conn = new Connection(
-      "websocket",
+      CONNECTION_TYPE.WEBSOCKET,
       "test-ws",
       "connection-uuid",
       undefined,
@@ -114,7 +123,7 @@ describe("Connection class", () => {
 
     // Simulate a WebSocket connection with unique id but shared sessionId
     const wsConn = new Connection(
-      "websocket",
+      CONNECTION_TYPE.WEBSOCKET,
       "127.0.0.1",
       "ws-unique-id",
       undefined,
@@ -126,7 +135,7 @@ describe("Connection class", () => {
 
     // Simulate an HTTP connection with a different unique id but same sessionId
     const httpConn = new Connection(
-      "web",
+      CONNECTION_TYPE.WEB,
       "127.0.0.1",
       sessionCookie,
       undefined,
@@ -148,7 +157,7 @@ describe("Connection class", () => {
   });
 
   test("act executes status action successfully", async () => {
-    const conn = new Connection("test", "test-act-status");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "test-act-status");
 
     const { response, error } = await conn.act("status", {});
 
@@ -160,7 +169,7 @@ describe("Connection class", () => {
   });
 
   test("act returns error for non-existent action", async () => {
-    const conn = new Connection("test", "test-act-notfound");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "test-act-notfound");
 
     const { response: _response, error } = await conn.act(
       "nonexistent-action",
@@ -173,7 +182,7 @@ describe("Connection class", () => {
   });
 
   test("act returns error for undefined action name", async () => {
-    const conn = new Connection("test", "test-act-undefined");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "test-act-undefined");
 
     const { response: _response, error } = await conn.act(undefined, {});
 
@@ -182,7 +191,7 @@ describe("Connection class", () => {
   });
 
   test("act handles action with invalid parameters", async () => {
-    const conn = new Connection("test", "test-act-invalid-params");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "test-act-invalid-params");
     // user:create requires name, email, password - we're not providing them
 
     const { response: _response, error } = await conn.act("user:create", {});
@@ -200,7 +209,12 @@ describe("Connection class", () => {
     };
 
     try {
-      for (const type of ["web", "cli", "resque", "websocket"]) {
+      for (const type of [
+        CONNECTION_TYPE.WEB,
+        CONNECTION_TYPE.CLI,
+        CONNECTION_TYPE.TASK,
+        CONNECTION_TYPE.WEBSOCKET,
+      ]) {
         logMessages.length = 0;
         const conn = new Connection(type, `test-${type}`);
         await conn.act("status", {});
@@ -230,7 +244,7 @@ describe("Connection class", () => {
     };
 
     try {
-      const conn = new Connection("web", "test-json-log");
+      const conn = new Connection(CONNECTION_TYPE.WEB, "test-json-log");
       await conn.act("status", {});
 
       const actionLog = logMessages.find((msg) => {
@@ -259,7 +273,7 @@ describe("Connection class", () => {
   });
 
   test("act loads session for connection", async () => {
-    const conn = new Connection("test", "test-session-load");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "test-session-load");
 
     // Create a session
     await api.session.create(conn, { userId: 999 });
@@ -273,7 +287,7 @@ describe("Connection class", () => {
   });
 
   test("subscribe adds room to subscriptions", () => {
-    const conn = new Connection("test", "test-subscribe");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "test-subscribe");
 
     conn.subscribe("room1");
     conn.subscribe("room2");
@@ -284,7 +298,7 @@ describe("Connection class", () => {
   });
 
   test("unsubscribe removes room from subscriptions", () => {
-    const conn = new Connection("test", "test-unsubscribe");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "test-unsubscribe");
 
     conn.subscribe("room1");
     conn.subscribe("room2");
@@ -296,7 +310,7 @@ describe("Connection class", () => {
   });
 
   test("unsubscribe handles non-existent room gracefully", () => {
-    const conn = new Connection("test", "test-unsub-nonexistent");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "test-unsub-nonexistent");
 
     // Should not throw
     conn.unsubscribe("non-existent-room");
@@ -305,7 +319,7 @@ describe("Connection class", () => {
   });
 
   test("connection can subscribe to multiple rooms", () => {
-    const conn = new Connection("test", "test-multi-subscribe");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "test-multi-subscribe");
 
     const rooms = ["room1", "room2", "room3", "room4", "room5"];
     rooms.forEach((room) => conn.subscribe(room));
@@ -317,7 +331,10 @@ describe("Connection class", () => {
   });
 
   test("subscribing to same room multiple times only adds once", () => {
-    const conn = new Connection("test", "test-duplicate-subscribe");
+    const conn = new Connection(
+      CONNECTION_TYPE.WEB,
+      "test-duplicate-subscribe",
+    );
 
     conn.subscribe("duplicate-room");
     conn.subscribe("duplicate-room");
@@ -328,7 +345,7 @@ describe("Connection class", () => {
   });
 
   test("connection without session has no session property", () => {
-    const conn = new Connection("test", "test-no-session");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "test-no-session");
 
     expect(conn.session).toBeUndefined();
   });
@@ -336,12 +353,12 @@ describe("Connection class", () => {
 
 describe("Connection metadata", () => {
   test("metadata initializes as empty object", () => {
-    const conn = new Connection("test", "test-meta-init");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "test-meta-init");
     expect(conn.metadata).toEqual({});
   });
 
   test("metadata resets on each act() call", async () => {
-    const conn = new Connection("test", "test-meta-reset");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "test-meta-reset");
     (conn.metadata as Record<string, unknown>).foo = "bar";
 
     await conn.act("status", {});
@@ -384,7 +401,7 @@ describe("Connection metadata", () => {
     api.actions.actions.push(testAction);
 
     try {
-      const conn = new Connection("test", "test-meta-lifecycle");
+      const conn = new Connection(CONNECTION_TYPE.WEB, "test-meta-lifecycle");
       const { error } = await conn.act("test:metadata", {});
 
       expect(error).toBeUndefined();
@@ -427,7 +444,10 @@ describe("Connection metadata", () => {
     api.actions.actions.push(testAction);
 
     try {
-      const conn = new Connection("test", "test-runafter-on-throw");
+      const conn = new Connection(
+        CONNECTION_TYPE.WEB,
+        "test-runafter-on-throw",
+      );
       const { error } = await conn.act("test:throwing", {});
 
       expect(error).toBeDefined();
@@ -443,7 +463,7 @@ describe("Connection metadata", () => {
   test("metadata is typed via generic parameter", () => {
     type AppMeta = { membership: string; auditBefore: Record<string, unknown> };
     const conn = new Connection<Record<string, any>, AppMeta>(
-      "test",
+      CONNECTION_TYPE.WEB,
       "test-meta-typed",
     );
 
@@ -475,7 +495,7 @@ describe("Action timeouts", () => {
     const slowAction = new SlowAction();
     api.actions.actions.push(slowAction);
 
-    const conn = new Connection("test", "test-timeout");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "test-timeout");
 
     const { error } = await conn.act("test:slow", { sleepMs: "500" });
 
@@ -493,7 +513,7 @@ describe("Action timeouts", () => {
     const slowAction = new SlowAction(50); // low per-action
     api.actions.actions.push(slowAction);
 
-    const conn = new Connection("test", "test-per-action-timeout");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "test-per-action-timeout");
 
     const { error } = await conn.act("test:slow", { sleepMs: "500" });
 
@@ -511,7 +531,7 @@ describe("Action timeouts", () => {
     const slowAction = new SlowAction();
     api.actions.actions.push(slowAction);
 
-    const conn = new Connection("test", "test-timeout-disabled");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "test-timeout-disabled");
 
     const { response, error } = await conn.act("test:slow", { sleepMs: "50" });
 
@@ -528,7 +548,7 @@ describe("Action timeouts", () => {
     const slowAction = new SlowAction();
     api.actions.actions.push(slowAction);
 
-    const conn = new Connection("test", "test-fast-enough");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "test-fast-enough");
 
     const { response, error } = await conn.act("test:slow", { sleepMs: "10" });
 
@@ -644,7 +664,7 @@ describe("action lifecycle hooks (api.hooks.actions.beforeAct / afterAct)", () =
     const action = new OrderedAction();
     api.actions.actions.push(action);
 
-    const conn = new Connection("web", "test-lifecycle-order");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "test-lifecycle-order");
     const originalLoadSession = conn.loadSession.bind(conn);
     conn.loadSession = async () => {
       order.push("loadSession");
@@ -753,7 +773,10 @@ describe("action lifecycle hooks (api.hooks.actions.beforeAct / afterAct)", () =
     api.actions.actions.push(new SuccessAction(), new FailureAction());
 
     try {
-      const conn = new Connection("test", "test-lifecycle-outcomes");
+      const conn = new Connection(
+        CONNECTION_TYPE.WEB,
+        "test-lifecycle-outcomes",
+      );
       const success = await conn.act("test:lifecycle-success", {});
       const failure = await conn.act("test:lifecycle-failure", {});
 
@@ -829,7 +852,10 @@ describe("action lifecycle hooks (api.hooks.actions.beforeAct / afterAct)", () =
     api.actions.actions.push(new ThrowingBeforeMiddlewareAction());
 
     try {
-      const conn = new Connection("test", "test-before-middleware-throws");
+      const conn = new Connection(
+        CONNECTION_TYPE.WEB,
+        "test-before-middleware-throws",
+      );
       const { error } = await conn.act("test:lifecycle-before-throw", {
         value: "original",
       });
@@ -859,7 +885,7 @@ describe("action lifecycle hooks (api.hooks.actions.beforeAct / afterAct)", () =
       seen.push({ actionName, params, type: connection.type });
     });
 
-    const conn = new Connection("cli", "hook-test-cli");
+    const conn = new Connection(CONNECTION_TYPE.CLI, "hook-test-cli");
     await conn.act("test:echo", { val: "hi" });
 
     expect(seen).toEqual([
@@ -882,7 +908,7 @@ describe("action lifecycle hooks (api.hooks.actions.beforeAct / afterAct)", () =
       });
     });
 
-    const conn = new Connection("task", "hook-test-task");
+    const conn = new Connection(CONNECTION_TYPE.TASK, "hook-test-task");
     await conn.act("test:echo", { val: "ok" });
 
     expect(outcomes).toHaveLength(1);
@@ -903,7 +929,7 @@ describe("action lifecycle hooks (api.hooks.actions.beforeAct / afterAct)", () =
       });
     });
 
-    const conn = new Connection("websocket", "hook-test-ws");
+    const conn = new Connection(CONNECTION_TYPE.WEBSOCKET, "hook-test-ws");
     await conn.act("test:explode", {});
 
     expect(outcomes).toHaveLength(1);
@@ -921,7 +947,7 @@ describe("action lifecycle hooks (api.hooks.actions.beforeAct / afterAct)", () =
       carried = ctx.metadata.marker;
     });
 
-    const conn = new Connection("cli", "hook-test-ctx");
+    const conn = new Connection(CONNECTION_TYPE.CLI, "hook-test-ctx");
     await conn.act("test:echo", { val: "x" });
 
     expect(carried).toBe("threaded");
@@ -937,7 +963,7 @@ describe("action lifecycle hooks (api.hooks.actions.beforeAct / afterAct)", () =
       fired++;
     });
 
-    const conn = new Connection("cli", "hook-test-missing");
+    const conn = new Connection(CONNECTION_TYPE.CLI, "hook-test-missing");
     const { error } = await conn.act("test:not-a-real-action", {});
     expect(error?.type).toBe(ErrorType.CONNECTION_ACTION_NOT_FOUND);
     expect(fired).toBe(0);
@@ -953,7 +979,7 @@ describe("action lifecycle hooks (api.hooks.actions.beforeAct / afterAct)", () =
       fired++;
     });
 
-    const conn = new Connection("cli", "hook-test-bad-params");
+    const conn = new Connection(CONNECTION_TYPE.CLI, "hook-test-bad-params");
     const { error } = await conn.act("test:echo", {}); // missing required `val`
     expect(error).toBeDefined();
     expect(fired).toBe(0);

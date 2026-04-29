@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { api, Connection } from "../../api";
+import { api, CONNECTION_TYPE, Connection } from "../../api";
 import { config } from "../../config";
 import { useTestServer } from "./../setup";
 
@@ -15,7 +15,7 @@ describe("session initializer", () => {
   });
 
   test("create stores session in Redis with correct structure", async () => {
-    const connection = new Connection("test", "test-create");
+    const connection = new Connection(CONNECTION_TYPE.WEB, "test-create");
     const sessionData = { userId: 123, username: "testuser" };
 
     const session = await api.session.create(connection, sessionData);
@@ -28,7 +28,7 @@ describe("session initializer", () => {
   });
 
   test("create sets TTL in Redis", async () => {
-    const connection = new Connection("test", "test-ttl");
+    const connection = new Connection(CONNECTION_TYPE.WEB, "test-ttl");
     const sessionData = { userId: 456 };
 
     await api.session.create(connection, sessionData);
@@ -40,7 +40,7 @@ describe("session initializer", () => {
   });
 
   test("load retrieves session from Redis", async () => {
-    const connection = new Connection("test", "test-load");
+    const connection = new Connection(CONNECTION_TYPE.WEB, "test-load");
     const sessionData = { userId: 789, role: "admin" };
 
     // Create session
@@ -55,7 +55,7 @@ describe("session initializer", () => {
   });
 
   test("load returns null for non-existent session", async () => {
-    const connection = new Connection("test", "test-nonexistent");
+    const connection = new Connection(CONNECTION_TYPE.WEB, "test-nonexistent");
 
     const loadedSession = await api.session.load(connection);
 
@@ -63,7 +63,7 @@ describe("session initializer", () => {
   });
 
   test("load renews TTL on access", async () => {
-    const connection = new Connection("test", "test-renew-ttl");
+    const connection = new Connection(CONNECTION_TYPE.WEB, "test-renew-ttl");
     const sessionData = { userId: 999 };
 
     // Create session
@@ -86,7 +86,7 @@ describe("session initializer", () => {
   });
 
   test("update merges new data with existing", async () => {
-    const connection = new Connection("test", "test-update");
+    const connection = new Connection(CONNECTION_TYPE.WEB, "test-update");
     const initialData: Record<string, unknown> = {
       userId: 111,
       username: "initial",
@@ -112,7 +112,10 @@ describe("session initializer", () => {
   });
 
   test("update overwrites existing fields", async () => {
-    const connection = new Connection("test", "test-update-overwrite");
+    const connection = new Connection(
+      CONNECTION_TYPE.WEB,
+      "test-update-overwrite",
+    );
     const initialData = { userId: 222, count: 1 };
 
     // Create session
@@ -127,7 +130,7 @@ describe("session initializer", () => {
   });
 
   test("update renews TTL", async () => {
-    const connection = new Connection("test", "test-update-ttl");
+    const connection = new Connection(CONNECTION_TYPE.WEB, "test-update-ttl");
     const initialData = { userId: 333 };
 
     // Create session
@@ -150,7 +153,7 @@ describe("session initializer", () => {
   });
 
   test("destroy removes session from Redis", async () => {
-    const connection = new Connection("test", "test-destroy");
+    const connection = new Connection(CONNECTION_TYPE.WEB, "test-destroy");
     const sessionData = { userId: 444 };
 
     // Create session
@@ -171,7 +174,10 @@ describe("session initializer", () => {
   });
 
   test("destroy returns false when session doesn't exist", async () => {
-    const connection = new Connection("test", "test-destroy-nonexistent");
+    const connection = new Connection(
+      CONNECTION_TYPE.WEB,
+      "test-destroy-nonexistent",
+    );
 
     const destroyed = await api.session.destroy(connection);
 
@@ -179,7 +185,7 @@ describe("session initializer", () => {
   });
 
   test("session data can contain complex objects", async () => {
-    const connection = new Connection("test", "test-complex-data");
+    const connection = new Connection(CONNECTION_TYPE.WEB, "test-complex-data");
     const complexData = {
       userId: 555,
       preferences: {
@@ -201,8 +207,8 @@ describe("session initializer", () => {
   });
 
   test("multiple sessions can coexist", async () => {
-    const connection1 = new Connection("test", "test-multi-1");
-    const connection2 = new Connection("test", "test-multi-2");
+    const connection1 = new Connection(CONNECTION_TYPE.WEB, "test-multi-1");
+    const connection2 = new Connection(CONNECTION_TYPE.WEB, "test-multi-2");
 
     await api.session.create(connection1, { userId: 1, name: "User 1" });
     await api.session.create(connection2, { userId: 2, name: "User 2" });
@@ -216,7 +222,7 @@ describe("session initializer", () => {
   });
 
   test("session cookieName matches config", async () => {
-    const connection = new Connection("test", "test-cookie-name");
+    const connection = new Connection(CONNECTION_TYPE.WEB, "test-cookie-name");
 
     const session = await api.session.create(connection, { userId: 666 });
 
@@ -228,7 +234,7 @@ describe("session initializer", () => {
   });
 
   test("regenerate creates a new session ID and copies data", async () => {
-    const connection = new Connection("test", "test-regen");
+    const connection = new Connection(CONNECTION_TYPE.WEB, "test-regen");
     await api.session.create(connection, { userId: 42, role: "admin" });
 
     const oldId = connection.sessionId;
@@ -241,7 +247,7 @@ describe("session initializer", () => {
   });
 
   test("regenerate deletes the old session key from Redis", async () => {
-    const connection = new Connection("test", "test-regen-delete");
+    const connection = new Connection(CONNECTION_TYPE.WEB, "test-regen-delete");
     await api.session.create(connection, { userId: 10 });
 
     const oldId = connection.sessionId;
@@ -257,7 +263,7 @@ describe("session initializer", () => {
   });
 
   test("regenerate updates connection.id for web connections", async () => {
-    const connection = new Connection("web", "test-regen-web");
+    const connection = new Connection(CONNECTION_TYPE.WEB, "test-regen-web");
     await api.session.create(connection, { userId: 20 });
 
     const oldId = connection.id;
@@ -275,7 +281,7 @@ describe("session initializer", () => {
     const wsConnectionId = "ws-conn-123";
     const sessionId = "session-cookie-456";
     const connection = new Connection(
-      "websocket",
+      CONNECTION_TYPE.WEBSOCKET,
       "test-regen-ws",
       wsConnectionId,
       undefined,
@@ -291,7 +297,7 @@ describe("session initializer", () => {
   });
 
   test("regenerate returns null when no session exists", async () => {
-    const connection = new Connection("test", "test-regen-none");
+    const connection = new Connection(CONNECTION_TYPE.WEB, "test-regen-none");
 
     const result = await api.session.regenerate(connection);
 
@@ -299,7 +305,7 @@ describe("session initializer", () => {
   });
 
   test("regenerate sets TTL on the new session key", async () => {
-    const connection = new Connection("test", "test-regen-ttl");
+    const connection = new Connection(CONNECTION_TYPE.WEB, "test-regen-ttl");
     await api.session.create(connection, { userId: 50 });
 
     await api.session.regenerate(connection);

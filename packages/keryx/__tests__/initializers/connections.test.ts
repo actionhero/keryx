@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { api, Connection } from "../../api";
+import { api, CONNECTION_TYPE, Connection } from "../../api";
 import { HOOK_TIMEOUT } from "./../setup";
 
 beforeAll(async () => {
@@ -28,7 +28,7 @@ describe("connections initializer", () => {
   });
 
   test("can add and find a connection", () => {
-    const connection = new Connection("web", "127.0.0.1");
+    const connection = new Connection(CONNECTION_TYPE.WEB, "127.0.0.1");
     api.connections.connections.set(connection.id, connection);
 
     const result = api.connections.find("web", "127.0.0.1", connection.id);
@@ -36,7 +36,7 @@ describe("connections initializer", () => {
   });
 
   test("find matches on type, identifier, and id", () => {
-    const connection = new Connection("web", "127.0.0.1");
+    const connection = new Connection(CONNECTION_TYPE.WEB, "127.0.0.1");
     api.connections.connections.set(connection.id, connection);
 
     // Wrong type
@@ -58,7 +58,7 @@ describe("connections initializer", () => {
   });
 
   test("destroy removes a connection and returns it", () => {
-    const connection = new Connection("web", "10.0.0.1");
+    const connection = new Connection(CONNECTION_TYPE.WEB, "10.0.0.1");
     api.connections.connections.set(connection.id, connection);
 
     const destroyed = api.connections.destroy("web", "10.0.0.1", connection.id);
@@ -76,9 +76,9 @@ describe("connections initializer", () => {
     // Clean up from previous tests
     api.connections.connections.clear();
 
-    const conn1 = new Connection("web", "10.0.0.1");
-    const conn2 = new Connection("ws", "10.0.0.2");
-    const conn3 = new Connection("web", "10.0.0.3");
+    const conn1 = new Connection(CONNECTION_TYPE.WEB, "10.0.0.1");
+    const conn2 = new Connection(CONNECTION_TYPE.WEBSOCKET, "10.0.0.2");
+    const conn3 = new Connection(CONNECTION_TYPE.WEB, "10.0.0.3");
 
     api.connections.connections.set(conn1.id, conn1);
     api.connections.connections.set(conn2.id, conn2);
@@ -88,9 +88,9 @@ describe("connections initializer", () => {
     expect(api.connections.find("web", "10.0.0.1", conn1.id).connection).toBe(
       conn1,
     );
-    expect(api.connections.find("ws", "10.0.0.2", conn2.id).connection).toBe(
-      conn2,
-    );
+    expect(
+      api.connections.find("websocket", "10.0.0.2", conn2.id).connection,
+    ).toBe(conn2);
     expect(api.connections.find("web", "10.0.0.3", conn3.id).connection).toBe(
       conn3,
     );

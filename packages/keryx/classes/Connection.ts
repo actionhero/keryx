@@ -64,6 +64,26 @@ type ActionParamsState = {
 };
 
 /**
+ * The transport that originated a {@link Connection}. Use these constants
+ * instead of bare strings when checking `connection.type` so the value is
+ * consistent across the framework, plugins, and middleware.
+ */
+export enum CONNECTION_TYPE {
+  /** HTTP request handled by the web server. */
+  WEB = "web",
+  /** WebSocket message handled by the web server's `Bun.serve` upgrade. */
+  WEBSOCKET = "websocket",
+  /** Action invoked from the CLI runner. */
+  CLI = "cli",
+  /** Action invoked through the MCP transport. */
+  MCP = "mcp",
+  /** Action running as a Resque background task. */
+  TASK = "task",
+  /** Action invoked from the OAuth login/signup flow. */
+  OAUTH = "oauth",
+}
+
+/**
  * Represents a client connection to the server — HTTP request, WebSocket, or internal caller.
  * Each connection tracks its own session, channel subscriptions, and rate-limit state.
  *
@@ -75,8 +95,8 @@ export class Connection<
   T extends Record<string, any> = Record<string, any>,
   TMeta extends Record<string, any> = Record<string, any>,
 > {
-  /** Transport type identifier (e.g., `"web"`, `"websocket"`). */
-  type: string;
+  /** Transport that originated this connection. */
+  type: CONNECTION_TYPE;
   /** A human-readable identifier for the connection, typically the remote IP or a session key. */
   identifier: string;
   /** Unique connection ID (UUID by default). Used as the key in `api.connections`. */
@@ -103,14 +123,14 @@ export class Connection<
   /**
    * Create a new connection and register it in `api.connections`.
    *
-   * @param type - Transport type (e.g., `"web"`, `"websocket"`).
+   * @param type - Transport that originated this connection.
    * @param identifier - Human-readable identifier, typically the remote IP address.
    * @param id - Unique connection ID. Defaults to a random UUID.
    * @param rawConnection - The underlying transport handle (e.g., Bun `ServerWebSocket`).
    * @param sessionId - Session ID for Redis session lookup. Defaults to `id`. Use a different value when the connection map key should differ from the session cookie (e.g., WebSocket connections).
    */
   constructor(
-    type: string,
+    type: CONNECTION_TYPE,
     identifier: string,
     id = randomUUID() as string,
     rawConnection: any = undefined,
