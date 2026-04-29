@@ -114,7 +114,9 @@ export async function compressResponse(
 
     // Compress the buffered body
     const format: Bun.CompressionFormat = encoding === "br" ? "brotli" : "gzip";
+    // @ts-ignore Bun supports "brotli" as CompressionFormat but DOM lib does not
     const compressionStream = new CompressionStream(format);
+    // @ts-ignore Bun's ReadableStream type is incompatible with Node/DOM ReadableStream
     const stream = new Blob([body]).stream().pipeThrough(compressionStream);
 
     const headers = new Headers(response.headers);
@@ -122,6 +124,7 @@ export async function compressResponse(
     headers.append("Vary", "Accept-Encoding");
     headers.delete("Content-Length");
 
+    // @ts-ignore Bun's ReadableStream type is incompatible with Node/DOM ReadableStream
     return new Response(stream, {
       status: response.status,
       headers,
@@ -130,7 +133,9 @@ export async function compressResponse(
 
   // Content-Length is present and above threshold — stream-compress
   const format: Bun.CompressionFormat = encoding === "br" ? "brotli" : "gzip";
+  // @ts-ignore Bun supports "brotli" as CompressionFormat but DOM lib does not
   const compressionStream = new CompressionStream(format);
+  // @ts-ignore Bun's ReadableStream type is incompatible with Node/DOM ReadableStream
   const stream = response.body.pipeThrough(compressionStream);
 
   const headers = new Headers(response.headers);
@@ -138,6 +143,7 @@ export async function compressResponse(
   headers.append("Vary", "Accept-Encoding");
   headers.delete("Content-Length");
 
+  // @ts-ignore Bun's ReadableStream type is incompatible with Node/DOM ReadableStream
   return new Response(stream, {
     status: response.status,
     headers,
