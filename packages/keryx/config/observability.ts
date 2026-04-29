@@ -4,4 +4,6 @@ export const configObservability = {
   enabled: await loadFromEnvIfSet("OTEL_METRICS_ENABLED", false),
   metricsRoute: await loadFromEnvIfSet("OTEL_METRICS_ROUTE", "/metrics"),
   serviceName: await loadFromEnvIfSet("OTEL_SERVICE_NAME", ""),
+  metricsAuthUsername: await loadFromEnvIfSet("OTEL_METRICS_AUTH_USERNAME", ""),
+  metricsAuthPassword: await loadFromEnvIfSet("OTEL_METRICS_AUTH_PASSWORD", ""),
 };
