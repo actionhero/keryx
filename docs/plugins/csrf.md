@@ -71,11 +71,16 @@ export class MessageCreate implements Action {
 
 Call `GET /api/csrf-token` once on app bootstrap (or whenever you suspect the session has rotated). The token must be sent as a body field (or query string parameter) on state-changing requests — there is no header support.
 
+Cast the response through `ActionResponse<CsrfTokenAction>` so the `token` field is typed at the call site (see [Typed Clients](/guide/typed-clients) for the full pattern):
+
 ```ts
+import type { ActionResponse } from "keryx";
+import type { CsrfTokenAction } from "@keryxjs/csrf";
+
 async function getCsrfToken(): Promise<string> {
   const res = await fetch("/api/csrf-token", { credentials: "include" });
-  const { token } = await res.json();
-  return token;
+  const body = (await res.json()) as ActionResponse<CsrfTokenAction>;
+  return body.token;
 }
 
 const csrfToken = await getCsrfToken();
