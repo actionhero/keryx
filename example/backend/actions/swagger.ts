@@ -1,4 +1,16 @@
-import { Action, api, config, HTTP_METHOD } from "keryx";
+import {
+  Action,
+  api,
+  config,
+  HTTP_METHOD,
+  type OpenApiOperation,
+  type OpenApiParameter,
+  type OpenApiPathItem,
+  type OpenApiRequestBody,
+  type OpenApiResponse,
+  type OpenApiSchema,
+  type OpenApiSecurityScheme,
+} from "keryx";
 import { z } from "zod";
 import pkg from "../package.json";
 
@@ -61,10 +73,10 @@ export class Swagger implements Action {
   web = { route: "/swagger", method: HTTP_METHOD.GET };
 
   async run() {
-    const paths: Record<string, any> = {};
+    const paths: Record<string, OpenApiPathItem> = {};
     const components: {
-      schemas: Record<string, any>;
-      securitySchemes?: Record<string, any>;
+      schemas: Record<string, OpenApiSchema>;
+      securitySchemes?: Record<string, OpenApiSecurityScheme>;
     } = {
       schemas: {},
       securitySchemes: {
@@ -93,21 +105,22 @@ export class Swagger implements Action {
       const description = action.description;
 
       // Extract path parameters from the original route
-      const parameters: any[] = [];
+      const parameters: OpenApiParameter[] = [];
       const pathParamMatches = action.web.route.match(/:\w+/g) || [];
       const pathParamNames = new Set<string>();
 
       // Pre-compute Zod JSON Schema for enriching path param types
-      let zodProperties: Record<string, any> = {};
+      let zodProperties: Record<string, OpenApiSchema> = {};
       let zodDescriptions: Record<string, string> = {};
       if (action.inputs && typeof action.inputs.parse === "function") {
         const jsonSchema = z.toJSONSchema(action.inputs, {
           io: "input",
           unrepresentable: "any",
-        }) as any;
-        zodProperties = jsonSchema.properties ?? {};
-        for (const [name, propSchema] of Object.entries<any>(zodProperties)) {
-          if (propSchema.description) {
+        }) as OpenApiSchema;
+        zodProperties =
+          (jsonSchema.properties as Record<string, OpenApiSchema>) ?? {};
+        for (const [name, propSchema] of Object.entries(zodProperties)) {
+          if (typeof propSchema.description === "string") {
             zodDescriptions[name] = propSchema.description;
           }
         }
@@ -134,16 +147,18 @@ export class Swagger implements Action {
         const fullSchema = z.toJSONSchema(action.inputs!, {
           io: "input",
           unrepresentable: "any",
-        }) as any;
-        const requiredFields = new Set<string>(fullSchema.required ?? []);
-        for (const [name, propSchema] of Object.entries<any>(zodProperties)) {
+        }) as OpenApiSchema;
+        const requiredFields = new Set<string>(
+          (fullSchema.required as string[] | undefined) ?? [],
+        );
+        for (const [name, propSchema] of Object.entries(zodProperties)) {
           if (pathParamNames.has(name)) continue; // already a path param
           parameters.push({
             name,
             in: "query",
             required: requiredFields.has(name),
             schema: propSchema,
-            ...(propSchema.description
+            ...(typeof propSchema.description === "string"
               ? { description: propSchema.description }
               : {}),
           });
@@ -151,7 +166,7 @@ export class Swagger implements Action {
       }
 
       // Build requestBody if Zod inputs exist and method supports body
-      let requestBody: any = undefined;
+      let requestBody: OpenApiRequestBody | undefined = undefined;
       if (
         action.inputs &&
         typeof action.inputs.parse === "function" &&
@@ -165,9 +180,9 @@ export class Swagger implements Action {
         const jsonSchema = z.toJSONSchema(zodSchema, {
           io: "input",
           unrepresentable: "any",
-        });
+        }) as OpenApiSchema;
         // Remove $schema from component schemas (not needed in OpenAPI)
-        const { $schema, ...schemaWithout$schema } = jsonSchema as any;
+        const { $schema, ...schemaWithout$schema } = jsonSchema;
         components.schemas[schemaName] = schemaWithout$schema;
         requestBody = {
           required: true,
@@ -180,7 +195,9 @@ export class Swagger implements Action {
       }
 
       // Build responses - use generated schema if available
-      const responses = JSON.parse(JSON.stringify(swaggerResponses));
+      const responses: Record<string, OpenApiResponse> = JSON.parse(
+        JSON.stringify(swaggerResponses),
+      );
       const responseSchema = api.swagger?.responseSchemas[action.name];
       if (responseSchema) {
         const schemaName = `${action.name.replace(/:/g, "_")}_Response`;
@@ -197,7 +214,7 @@ export class Swagger implements Action {
 
       // Add path/method
       if (!paths[path]) paths[path] = {};
-      paths[path][method] = {
+      const operation: OpenApiOperation = {
         operationId,
         summary,
         ...(description ? { description } : {}),
@@ -206,6 +223,7 @@ export class Swagger implements Action {
         responses,
         tags: [tag],
       };
+      paths[path][method as keyof OpenApiPathItem] = operation;
     }
 
     const document = {

@@ -3,6 +3,11 @@ import {
   ResourceTemplate,
 } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import type {
+  ServerNotification,
+  ServerRequest,
+} from "@modelcontextprotocol/sdk/types.js";
 import { randomUUID } from "crypto";
 import * as z4mini from "zod/v4-mini";
 import { api, logger } from "../api";
@@ -159,7 +164,10 @@ function registerTools(mcpServer: McpServer) {
     mcpServer.registerTool(
       toolName,
       toolConfig,
-      async (args: any, extra: any) => {
+      async (
+        args: Record<string, unknown>,
+        extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+      ) => {
         const mcpSessionId = extra.sessionId || "";
         const connection = await createMcpConnection(extra);
 

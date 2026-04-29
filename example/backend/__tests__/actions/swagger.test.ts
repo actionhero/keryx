@@ -92,7 +92,7 @@ describe("swagger", () => {
         // Should be a $ref
         expect(typeof schema.$ref).toBe("string");
         // The referenced schema should exist in components.schemas
-        const refName = schema.$ref.replace("#/components/schemas/", "");
+        const refName = schema.$ref!.replace("#/components/schemas/", "");
         expect(response.components.schemas[refName]).toBeDefined();
       }
     }
@@ -113,10 +113,10 @@ describe("swagger", () => {
 
     // Verify response schemas
     expect(
-      swaggerPath.responses["200"]!.content["application/json"].schema,
+      swaggerPath.responses["200"]!.content!["application/json"].schema,
     ).toBeDefined();
     expect(
-      swaggerPath.responses["400"]!.content["application/json"].schema,
+      swaggerPath.responses["400"]!.content!["application/json"].schema,
     ).toBeDefined();
   });
 
@@ -219,27 +219,28 @@ describe("swagger", () => {
     const userCreatePath = response.paths["/user"]!.put!;
 
     expect(userCreatePath.requestBody).toBeDefined();
-    const requestBody = userCreatePath.requestBody as any;
+    const requestBody = userCreatePath.requestBody!;
     expect(requestBody.required).toBe(true);
     expect(requestBody.content["application/json"]).toBeDefined();
     const schema = requestBody.content["application/json"].schema;
     expect(schema).toBeDefined();
     // Should be a $ref
     expect(typeof schema.$ref).toBe("string");
-    const refName = schema.$ref.replace("#/components/schemas/", "");
+    const refName = schema.$ref!.replace("#/components/schemas/", "");
     const resolved = response.components.schemas[refName];
     expect(resolved).toBeDefined();
     // Check that the schema is an object with properties
     expect(resolved.type).toBe("object");
     expect(resolved.properties).toBeDefined();
+    const props = resolved.properties!;
     // Check that all expected UserCreate parameters are present
-    expect(resolved.properties.name).toBeDefined();
-    expect(resolved.properties.email).toBeDefined();
-    expect(resolved.properties.password).toBeDefined();
+    expect(props.name).toBeDefined();
+    expect(props.email).toBeDefined();
+    expect(props.password).toBeDefined();
     // Check parameter types
-    expect(resolved.properties.name.type).toBe("string");
-    expect(resolved.properties.email.type).toBe("string");
-    expect(resolved.properties.password.type).toBe("string");
+    expect(props.name.type).toBe("string");
+    expect(props.email.type).toBe("string");
+    expect(props.password.type).toBe("string");
     // Check required fields
     expect(resolved.required).toContain("name");
     expect(resolved.required).toContain("email");
@@ -254,13 +255,13 @@ describe("swagger", () => {
     const statusPath = response.paths["/status"]!.get!;
     expect(statusPath.responses["200"]).toBeDefined();
     const responseContent =
-      statusPath.responses["200"]!.content["application/json"];
+      statusPath.responses["200"]!.content!["application/json"];
     expect(responseContent.schema).toBeDefined();
 
     // Should be a $ref to a response schema
     const schema = responseContent.schema;
     expect(schema.$ref).toBeDefined();
-    const refName = schema.$ref.replace("#/components/schemas/", "");
+    const refName = schema.$ref!.replace("#/components/schemas/", "");
     expect(refName).toBe("status_Response");
 
     // The response schema should exist in components
@@ -268,24 +269,25 @@ describe("swagger", () => {
     expect(resolved).toBeDefined();
     expect(resolved.type).toBe("object");
     expect(resolved.properties).toBeDefined();
+    const props = resolved.properties!;
 
     // Check that the status response properties are present
-    expect(resolved.properties.name).toBeDefined();
-    expect(resolved.properties.pid).toBeDefined();
-    expect(resolved.properties.version).toBeDefined();
-    expect(resolved.properties.uptime).toBeDefined();
-    expect(resolved.properties.consumedMemoryMB).toBeDefined();
+    expect(props.name).toBeDefined();
+    expect(props.pid).toBeDefined();
+    expect(props.version).toBeDefined();
+    expect(props.uptime).toBeDefined();
+    expect(props.consumedMemoryMB).toBeDefined();
 
     // Verify correct types are inferred (not generic objects)
-    expect(resolved.properties.name.type).toBe("string");
-    expect(resolved.properties.pid.type).toBe("number");
-    expect(resolved.properties.version.type).toBe("string");
-    expect(resolved.properties.uptime.type).toBe("number");
-    expect(resolved.properties.consumedMemoryMB.type).toBe("number");
+    expect(props.name.type).toBe("string");
+    expect(props.pid.type).toBe("number");
+    expect(props.version.type).toBe("string");
+    expect(props.uptime.type).toBe("number");
+    expect(props.consumedMemoryMB.type).toBe("number");
 
     // Ensure these are NOT incorrectly typed as objects with additionalProperties
-    expect(resolved.properties.name.additionalProperties).toBeUndefined();
-    expect(resolved.properties.pid.additionalProperties).toBeUndefined();
+    expect(props.name.additionalProperties).toBeUndefined();
+    expect(props.pid.additionalProperties).toBeUndefined();
 
     // Check required fields
     expect(resolved.required).toContain("name");
@@ -302,17 +304,17 @@ describe("swagger", () => {
     // Check the user:create action response schema
     const userCreatePath = response.paths["/user"]!.put!;
     const responseContent =
-      userCreatePath.responses["200"]!.content["application/json"];
+      userCreatePath.responses["200"]!.content!["application/json"];
     const schema = responseContent.schema;
 
     expect(schema.$ref).toBeDefined();
-    const refName = schema.$ref.replace("#/components/schemas/", "");
+    const refName = schema.$ref!.replace("#/components/schemas/", "");
     expect(refName).toBe("user_create_Response");
 
     // The response schema should have a user property
     const resolved = response.components.schemas[refName];
     expect(resolved).toBeDefined();
     expect(resolved.type).toBe("object");
-    expect(resolved.properties.user).toBeDefined();
+    expect(resolved.properties!.user).toBeDefined();
   });
 });

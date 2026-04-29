@@ -2,10 +2,11 @@
 Deep-merges source into target, mutating target in place.
 Only plain objects are recursively merged; arrays and primitives are overwritten.
 */
-export function deepMerge<T extends Record<string, any>>(
+export function deepMerge<T extends Record<string, unknown>>(
   target: T,
-  source: Record<string, any>,
+  source: Record<string, unknown>,
 ): T {
+  const writable = target as Record<string, unknown>;
   for (const key of Object.keys(source)) {
     const targetVal = target[key];
     const sourceVal = source[key];
@@ -18,9 +19,12 @@ export function deepMerge<T extends Record<string, any>>(
       !Array.isArray(targetVal) &&
       !Array.isArray(sourceVal)
     ) {
-      deepMerge(targetVal, sourceVal);
+      deepMerge(
+        targetVal as Record<string, unknown>,
+        sourceVal as Record<string, unknown>,
+      );
     } else {
-      (target as any)[key] = sourceVal;
+      writable[key] = sourceVal;
     }
   }
 
@@ -31,13 +35,14 @@ export function deepMerge<T extends Record<string, any>>(
  * Like `deepMerge`, but only sets values that don't already exist in target.
  * Useful for applying plugin config defaults without overwriting user-set values.
  */
-export function deepMergeDefaults<T extends Record<string, any>>(
+export function deepMergeDefaults<T extends Record<string, unknown>>(
   target: T,
-  source: Record<string, any>,
+  source: Record<string, unknown>,
 ): T {
+  const writable = target as Record<string, unknown>;
   for (const key of Object.keys(source)) {
     if (!(key in target)) {
-      (target as any)[key] = source[key];
+      writable[key] = source[key];
     } else {
       const targetVal = target[key];
       const sourceVal = source[key];
@@ -50,7 +55,10 @@ export function deepMergeDefaults<T extends Record<string, any>>(
         !Array.isArray(targetVal) &&
         !Array.isArray(sourceVal)
       ) {
-        deepMergeDefaults(targetVal, sourceVal);
+        deepMergeDefaults(
+          targetVal as Record<string, unknown>,
+          sourceVal as Record<string, unknown>,
+        );
       }
       // If key exists in target and isn't a nested object, keep the target value
     }
