@@ -160,6 +160,8 @@ By default, error responses include stack traces in development but omit them in
 
 The web server default is based on `NODE_ENV` — when `NODE_ENV=production`, stack traces are automatically hidden from HTTP responses to avoid leaking internal implementation details.
 
+If the server boots with `includeStackInErrors=true` and binds to a non-localhost address, a warning is logged at startup. Stack traces in error responses leak deployment paths, package structure, and file/line numbers. To suppress them on a non-production host that is publicly reachable, set `WEB_SERVER_INCLUDE_STACK_IN_ERRORS=false` (or `NODE_ENV=production`).
+
 ## Reverse Proxy & Forwarded Headers
 
 The server can derive its external-facing origin (used in OAuth metadata, MCP `WWW-Authenticate` URLs, and protected-resource metadata) from `X-Forwarded-Proto` and `X-Forwarded-Host` headers. Because any client can spoof these headers when the server is reachable directly, trusting them unconditionally would let an attacker poison OAuth discovery responses and redirect MCP clients to attacker-controlled hosts.
