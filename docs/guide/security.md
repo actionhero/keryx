@@ -138,7 +138,7 @@ When clients register via `/oauth/register`, redirect URIs are validated:
 - Must not contain userinfo (username/password in the URL)
 - Must use HTTPS for non-localhost URIs
 
-When exchanging authorization codes, the redirect URI must match the registered URI exactly (origin + pathname comparison).
+When authorizing or exchanging authorization codes, the redirect URI must match a registered URI using exact string comparison (per RFC 6749 §3.1.2.3).
 
 ### Registration Rate Limiting
 
@@ -159,6 +159,8 @@ By default, error responses include stack traces in development but omit them in
 | CLI        | `CLI_INCLUDE_STACK_IN_ERRORS`        | `true`                       |
 
 The web server default is based on `NODE_ENV` — when `NODE_ENV=production`, stack traces are automatically hidden from HTTP responses to avoid leaking internal implementation details.
+
+If the server boots with `includeStackInErrors=true` and binds to a non-localhost address, a warning is logged at startup. Stack traces in error responses leak deployment paths, package structure, and file/line numbers. To suppress them on a non-production host that is publicly reachable, set `WEB_SERVER_INCLUDE_STACK_IN_ERRORS=false` (or `NODE_ENV=production`).
 
 ## Reverse Proxy & Forwarded Headers
 

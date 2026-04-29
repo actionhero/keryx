@@ -28,6 +28,7 @@ import {
   handleWebsocketSubscribe,
   handleWebsocketUnsubscribe,
 } from "../util/webSocket";
+import { shouldWarnStackLeak } from "../util/webStackLeakWarning";
 import { handleStaticFile } from "../util/webStaticFiles";
 
 /**
@@ -151,6 +152,12 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
       this.url = `http://${config.server.web.host}:${this.port}`;
       const startMessage = `started server @ ${this.url}`;
       logger.info(logger.colorize ? ansi.bgBlue(startMessage) : startMessage);
+
+      const stackLeakWarning = shouldWarnStackLeak(
+        config.server.web.host,
+        config.server.web.includeStackInErrors,
+      );
+      if (stackLeakWarning) logger.warn(stackLeakWarning);
     } catch (e) {
       await Bun.sleep(1000);
       startupAttempts++;
@@ -164,7 +171,10 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
       // Send close frame to all WebSocket connections
       const wsConnections: ServerWebSocket[] = [];
       for (const connection of api.connections.connections.values()) {
-        if (connection.type === "websocket" && connection.rawConnection) {
+        if (
+          connection.type === CONNECTION_TYPE.WEBSOCKET &&
+          connection.rawConnection
+        ) {
           wsConnections.push(connection.rawConnection);
         }
       }
@@ -187,7 +197,7 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
         const deadline = Date.now() + drainTimeout;
         while (Date.now() < deadline) {
           const remaining = [...api.connections.connections.values()].filter(
-            (c) => c.type === "websocket",
+            (c) => c.type === CONNECTION_TYPE.WEBSOCKET,
           );
           if (remaining.length === 0) break;
           await Bun.sleep(50);
@@ -195,7 +205,7 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
 
         // Force-destroy any lingering WebSocket connections
         const lingering = [...api.connections.connections.values()].filter(
-          (c) => c.type === "websocket",
+          (c) => c.type === CONNECTION_TYPE.WEBSOCKET,
         );
         for (const connection of lingering) {
           connection.destroy();

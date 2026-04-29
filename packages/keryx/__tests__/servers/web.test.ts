@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { Status } from "../../actions/status";
 import { type ActionResponse, api, config } from "../../api";
 import { type Action, HTTP_METHOD } from "../../classes/Action";
+import { shouldWarnStackLeak } from "../../util/webStackLeakWarning";
 import { useTestServer } from "./../setup";
 
 const getUrl = useTestServer();
@@ -66,6 +67,31 @@ describe("actions", () => {
     } finally {
       config.server.web.includeStackInErrors = original;
     }
+  });
+});
+
+describe("stack trace leak warning", () => {
+  test("returns null when stack traces are disabled", () => {
+    expect(shouldWarnStackLeak("0.0.0.0", false)).toBeNull();
+    expect(shouldWarnStackLeak("example.com", false)).toBeNull();
+  });
+
+  test("returns null for localhost variants even with stacks enabled", () => {
+    expect(shouldWarnStackLeak("localhost", true)).toBeNull();
+    expect(shouldWarnStackLeak("127.0.0.1", true)).toBeNull();
+    expect(shouldWarnStackLeak("::1", true)).toBeNull();
+    expect(shouldWarnStackLeak("[::1]", true)).toBeNull();
+  });
+
+  test("returns a warning for non-localhost binds with stacks enabled", () => {
+    const msg = shouldWarnStackLeak("0.0.0.0", true);
+    expect(msg).toContain("Stack traces are enabled");
+    expect(msg).toContain("host=0.0.0.0");
+    expect(msg).toContain("WEB_SERVER_INCLUDE_STACK_IN_ERRORS=false");
+    expect(shouldWarnStackLeak("10.0.0.5", true)).toContain("host=10.0.0.5");
+    expect(shouldWarnStackLeak("example.com", true)).toContain(
+      "host=example.com",
+    );
   });
 });
 

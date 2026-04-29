@@ -40,23 +40,14 @@ export function validateRedirectUri(uri: string): {
 }
 
 /**
- * Compare two redirect URIs by origin and pathname (ignoring query params).
- * Returns `false` if either URI is malformed.
+ * Compare two redirect URIs with exact string matching, as required by
+ * RFC 6749 §3.1.2.3 and RFC 8252 §8.4.
  */
 export function redirectUrisMatch(
   registeredUri: string,
   requestedUri: string,
 ): boolean {
-  try {
-    const registered = new URL(registeredUri);
-    const requested = new URL(requestedUri);
-    return (
-      registered.origin === requested.origin &&
-      registered.pathname === requested.pathname
-    );
-  } catch {
-    return false;
-  }
+  return registeredUri === requestedUri;
 }
 
 /** Encode a byte array as a URL-safe base64 string (no padding). Used for PKCE code challenges. */

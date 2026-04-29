@@ -60,13 +60,31 @@ describe("redirectUrisMatch", () => {
     ).toBe(true);
   });
 
-  test("query params are ignored", () => {
+  test("appended query param returns false (RFC 6749 §3.1.2.3)", () => {
     expect(
       redirectUrisMatch(
         "https://example.com/cb",
         "https://example.com/cb?state=xyz",
       ),
+    ).toBe(false);
+  });
+
+  test("matching query params return true", () => {
+    expect(
+      redirectUrisMatch(
+        "https://example.com/cb?foo=bar",
+        "https://example.com/cb?foo=bar",
+      ),
     ).toBe(true);
+  });
+
+  test("different query param values return false", () => {
+    expect(
+      redirectUrisMatch(
+        "https://example.com/cb?foo=bar",
+        "https://example.com/cb?foo=baz",
+      ),
+    ).toBe(false);
   });
 
   test("different pathname returns false", () => {
@@ -85,15 +103,6 @@ describe("redirectUrisMatch", () => {
     expect(
       redirectUrisMatch("http://localhost:3000/cb", "http://localhost:4000/cb"),
     ).toBe(false);
-  });
-
-  test("malformed input returns false", () => {
-    expect(redirectUrisMatch("not-a-url", "https://example.com/cb")).toBe(
-      false,
-    );
-    expect(redirectUrisMatch("https://example.com/cb", "not-a-url")).toBe(
-      false,
-    );
   });
 });
 
