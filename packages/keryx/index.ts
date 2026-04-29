@@ -64,15 +64,6 @@ export { buildProgram } from "./util/cli";
 export { deepMerge, deepMergeDefaults, loadFromEnvIfSet } from "./util/config";
 export { getValidTypes } from "./util/generate";
 export { globLoader } from "./util/glob";
-export type {
-  OpenApiOperation,
-  OpenApiParameter,
-  OpenApiPathItem,
-  OpenApiRequestBody,
-  OpenApiResponse,
-  OpenApiSchema,
-  OpenApiSecurityScheme,
-} from "./util/openApiTypes";
 export { type PaginatedResult, paginate } from "./util/pagination";
 export type { JSONSchema } from "./util/swaggerSchemaGenerator";
 export {
