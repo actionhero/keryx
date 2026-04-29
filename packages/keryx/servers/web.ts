@@ -28,6 +28,7 @@ import {
   handleWebsocketSubscribe,
   handleWebsocketUnsubscribe,
 } from "../util/webSocket";
+import { shouldWarnStackLeak } from "../util/webStackLeakWarning";
 import { handleStaticFile } from "../util/webStaticFiles";
 
 /**
@@ -151,6 +152,12 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
       this.url = `http://${config.server.web.host}:${this.port}`;
       const startMessage = `started server @ ${this.url}`;
       logger.info(logger.colorize ? ansi.bgBlue(startMessage) : startMessage);
+
+      const stackLeakWarning = shouldWarnStackLeak(
+        config.server.web.host,
+        config.server.web.includeStackInErrors,
+      );
+      if (stackLeakWarning) logger.warn(stackLeakWarning);
     } catch (e) {
       await Bun.sleep(1000);
       startupAttempts++;
