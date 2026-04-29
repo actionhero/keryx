@@ -217,6 +217,38 @@ describe("parseRequestParams", () => {
       expect(params.name).toBe("from-body");
       expect(params.extra).toBe("query-val");
     });
+
+    test("body scalar + query scalar with same key produces an array", async () => {
+      const params = await parseRequestParams(
+        jsonRequest({ tag: "from-body" }),
+        parsedUrl("tag=from-query"),
+      );
+      expect(params.tag).toEqual(["from-body", "from-query"]);
+    });
+
+    test("body scalar + repeated query of same key flattens", async () => {
+      const params = await parseRequestParams(
+        jsonRequest({ tag: "body" }),
+        parsedUrl("tag=q1&tag=q2"),
+      );
+      expect(params.tag).toEqual(["body", "q1", "q2"]);
+    });
+
+    test("path param + repeated query of same key flattens", async () => {
+      const req = new Request("http://localhost/test", { method: "GET" });
+      const params = await parseRequestParams(req, parsedUrl("id=q1&id=q2"), {
+        id: "from-path",
+      });
+      expect(params.id).toEqual(["from-path", "q1", "q2"]);
+    });
+
+    test("body array + query scalar of same key flattens", async () => {
+      const params = await parseRequestParams(
+        jsonRequest({ tag: ["a", "b"] }),
+        parsedUrl("tag=c"),
+      );
+      expect(params.tag).toEqual(["a", "b", "c"]);
+    });
   });
 });
 
