@@ -138,7 +138,7 @@ When clients register via `/oauth/register`, redirect URIs are validated:
 - Must not contain userinfo (username/password in the URL)
 - Must use HTTPS for non-localhost URIs
 
-When exchanging authorization codes, the redirect URI must match the registered URI exactly (origin + pathname comparison).
+When authorizing or exchanging authorization codes, the redirect URI must match a registered URI using exact string comparison (per RFC 6749 §3.1.2.3).
 
 ### Registration Rate Limiting
 
