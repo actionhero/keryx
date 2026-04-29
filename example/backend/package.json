@@ -18,6 +18,7 @@
     "format": "tsc && biome check --write ."
   },
   "dependencies": {
+    "@keryxjs/csrf": "workspace:*",
     "@keryxjs/resque-admin": "workspace:*",
     "@keryxjs/tracing": "workspace:*",
     "keryx": "workspace:*",

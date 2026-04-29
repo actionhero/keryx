@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { api, Connection, ErrorType, TypedError } from "keryx";
+import { api, CONNECTION_TYPE, Connection, ErrorType, TypedError } from "keryx";
 import { SessionMiddleware } from "../../middleware/session";
 import { HOOK_TIMEOUT } from "./../setup";
 
@@ -15,7 +15,7 @@ afterAll(async () => {
 describe("SessionMiddleware", () => {
   describe("runBefore", () => {
     test("throws TypedError when connection.session is undefined", async () => {
-      const connection = new Connection("test", "test-identifier");
+      const connection = new Connection(CONNECTION_TYPE.WEB, "test-identifier");
       connection.session = undefined;
 
       try {
@@ -31,7 +31,7 @@ describe("SessionMiddleware", () => {
     });
 
     test("throws TypedError when connection.session.data is empty", async () => {
-      const connection = new Connection("test", "test-identifier");
+      const connection = new Connection(CONNECTION_TYPE.WEB, "test-identifier");
       connection.session = {
         id: "test-session-id",
         cookieName: "sessionId",
@@ -52,7 +52,7 @@ describe("SessionMiddleware", () => {
     });
 
     test("throws TypedError when connection.session.data.userId is undefined", async () => {
-      const connection = new Connection("test", "test-identifier");
+      const connection = new Connection(CONNECTION_TYPE.WEB, "test-identifier");
       connection.session = {
         id: "test-session-id",
         cookieName: "sessionId",
@@ -73,7 +73,7 @@ describe("SessionMiddleware", () => {
     });
 
     test("throws TypedError when connection.session.data.userId is null", async () => {
-      const connection = new Connection("test", "test-identifier");
+      const connection = new Connection(CONNECTION_TYPE.WEB, "test-identifier");
       connection.session = {
         id: "test-session-id",
         cookieName: "sessionId",
@@ -94,7 +94,7 @@ describe("SessionMiddleware", () => {
     });
 
     test("allows request when valid session exists", async () => {
-      const connection = new Connection("test", "test-identifier");
+      const connection = new Connection(CONNECTION_TYPE.WEB, "test-identifier");
       connection.session = {
         id: "test-session-id",
         cookieName: "sessionId",
@@ -108,7 +108,7 @@ describe("SessionMiddleware", () => {
     });
 
     test("allows request with valid userId as string", async () => {
-      const connection = new Connection("test", "test-identifier");
+      const connection = new Connection(CONNECTION_TYPE.WEB, "test-identifier");
       connection.session = {
         id: "test-session-id",
         cookieName: "sessionId",
@@ -122,7 +122,7 @@ describe("SessionMiddleware", () => {
     });
 
     test("error has correct type", async () => {
-      const connection = new Connection("test", "test-identifier");
+      const connection = new Connection(CONNECTION_TYPE.WEB, "test-identifier");
       connection.session = undefined;
 
       try {
@@ -137,7 +137,7 @@ describe("SessionMiddleware", () => {
     });
 
     test("error message is exactly 'Session not found'", async () => {
-      const connection = new Connection("test", "test-identifier");
+      const connection = new Connection(CONNECTION_TYPE.WEB, "test-identifier");
       connection.session = {
         id: "test-id",
         cookieName: "sessionId",

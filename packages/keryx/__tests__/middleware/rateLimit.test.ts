@@ -7,7 +7,7 @@ import {
   test,
 } from "bun:test";
 import { api } from "../../api";
-import { Connection } from "../../classes/Connection";
+import { CONNECTION_TYPE, Connection } from "../../classes/Connection";
 import { ErrorType, TypedError } from "../../classes/TypedError";
 import { config } from "../../config";
 import {
@@ -40,7 +40,7 @@ beforeEach(async () => {
 describe("RateLimitMiddleware", () => {
   describe("runBefore", () => {
     test("allows requests under the limit", async () => {
-      const connection = new Connection("test", "10.0.0.1");
+      const connection = new Connection(CONNECTION_TYPE.WEB, "10.0.0.1");
       connection.session = undefined;
 
       const result = await RateLimitMiddleware.runBefore!({}, connection);
@@ -68,7 +68,7 @@ describe("RateLimitMiddleware", () => {
       pipeline.expire(key, 120);
       await pipeline.exec();
 
-      const connection = new Connection("test", "10.0.0.2");
+      const connection = new Connection(CONNECTION_TYPE.WEB, "10.0.0.2");
       connection.session = undefined;
 
       try {
@@ -91,14 +91,14 @@ describe("RateLimitMiddleware", () => {
       (config.rateLimit as any).authenticatedLimit = 50;
 
       try {
-        const unauthConn = new Connection("test", "10.0.0.30");
+        const unauthConn = new Connection(CONNECTION_TYPE.WEB, "10.0.0.30");
         unauthConn.session = undefined;
         await RateLimitMiddleware.runBefore!({}, unauthConn);
         const unauthInfo = (unauthConn as any).rateLimitInfo!;
         expect(unauthInfo.limit).toBe(5);
         unauthConn.destroy();
 
-        const authConn = new Connection("test", "10.0.0.31");
+        const authConn = new Connection(CONNECTION_TYPE.WEB, "10.0.0.31");
         authConn.session = {
           id: "test-session",
           cookieName: "sessionId",
@@ -121,7 +121,7 @@ describe("RateLimitMiddleware", () => {
       (config.rateLimit as any).enabled = false;
 
       try {
-        const connection = new Connection("test", "10.0.0.4");
+        const connection = new Connection(CONNECTION_TYPE.WEB, "10.0.0.4");
         const result = await RateLimitMiddleware.runBefore!({}, connection);
         expect(result).toBeUndefined();
         expect(connection.rateLimitInfo).toBeUndefined();

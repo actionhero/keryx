@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { api, Connection } from "../../api";
+import { api, CONNECTION_TYPE, Connection } from "../../api";
 import type { PubSubMessage } from "../../initializers/pubsub";
 import { useTestServer, waitFor } from "./../setup";
 
@@ -30,7 +30,7 @@ describe("pubsub initializer", () => {
   });
 
   test("broadcast delivers message to subscribed connections", async () => {
-    const conn = new TestConnection("test", "pubsub-test-1");
+    const conn = new TestConnection(CONNECTION_TYPE.WEB, "pubsub-test-1");
     conn.subscribe("pubsub-test-deliver");
     api.connections.connections.set(conn.id, conn);
 
@@ -50,11 +50,14 @@ describe("pubsub initializer", () => {
   });
 
   test("broadcast does not deliver to connections on other channels", async () => {
-    const subscribed = new TestConnection("test", "pubsub-sub");
+    const subscribed = new TestConnection(CONNECTION_TYPE.WEB, "pubsub-sub");
     subscribed.subscribe("pubsub-channel-a");
     api.connections.connections.set(subscribed.id, subscribed);
 
-    const notSubscribed = new TestConnection("test", "pubsub-nosub");
+    const notSubscribed = new TestConnection(
+      CONNECTION_TYPE.WEB,
+      "pubsub-nosub",
+    );
     notSubscribed.subscribe("pubsub-channel-b");
     api.connections.connections.set(notSubscribed.id, notSubscribed);
 
@@ -71,11 +74,11 @@ describe("pubsub initializer", () => {
   });
 
   test("broadcast delivers to multiple subscribed connections", async () => {
-    const conn1 = new TestConnection("test", "pubsub-multi-1");
+    const conn1 = new TestConnection(CONNECTION_TYPE.WEB, "pubsub-multi-1");
     conn1.subscribe("pubsub-shared");
     api.connections.connections.set(conn1.id, conn1);
 
-    const conn2 = new TestConnection("test", "pubsub-multi-2");
+    const conn2 = new TestConnection(CONNECTION_TYPE.WEB, "pubsub-multi-2");
     conn2.subscribe("pubsub-shared");
     api.connections.connections.set(conn2.id, conn2);
 
@@ -94,7 +97,10 @@ describe("pubsub initializer", () => {
   });
 
   test("sender defaults to unknown-sender when not provided", async () => {
-    const conn = new TestConnection("test", "pubsub-default-sender");
+    const conn = new TestConnection(
+      CONNECTION_TYPE.WEB,
+      "pubsub-default-sender",
+    );
     conn.subscribe("pubsub-default-sender-ch");
     api.connections.connections.set(conn.id, conn);
 

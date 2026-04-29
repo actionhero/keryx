@@ -427,8 +427,10 @@ describe("static files", () => {
 describe("rate limit response headers", () => {
   test("includes rate limit headers when connection has rateLimitInfo", async () => {
     const { buildHeaders } = await import("../../util/webResponse");
-    const { Connection } = await import("../../classes/Connection");
-    const connection = new Connection("test", "10.0.0.1");
+    const { CONNECTION_TYPE, Connection } = await import(
+      "../../classes/Connection"
+    );
+    const connection = new Connection(CONNECTION_TYPE.WEB, "10.0.0.1");
     connection.rateLimitInfo = {
       limit: 100,
       remaining: 95,
@@ -444,8 +446,10 @@ describe("rate limit response headers", () => {
 
   test("includes Retry-After header when retryAfter is present", async () => {
     const { buildHeaders } = await import("../../util/webResponse");
-    const { Connection } = await import("../../classes/Connection");
-    const connection = new Connection("test", "10.0.0.1");
+    const { CONNECTION_TYPE, Connection } = await import(
+      "../../classes/Connection"
+    );
+    const connection = new Connection(CONNECTION_TYPE.WEB, "10.0.0.1");
     connection.rateLimitInfo = {
       limit: 100,
       remaining: 0,
@@ -461,8 +465,10 @@ describe("rate limit response headers", () => {
 
   test("omits rate limit headers when rateLimitInfo is not set", async () => {
     const { buildHeaders } = await import("../../util/webResponse");
-    const { Connection } = await import("../../classes/Connection");
-    const connection = new Connection("test", "10.0.0.1");
+    const { CONNECTION_TYPE, Connection } = await import(
+      "../../classes/Connection"
+    );
+    const connection = new Connection(CONNECTION_TYPE.WEB, "10.0.0.1");
     const headers = buildHeaders(connection);
     expect(headers["X-RateLimit-Limit"]).toBeUndefined();
     expect(headers["X-RateLimit-Remaining"]).toBeUndefined();

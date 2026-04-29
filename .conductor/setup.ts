@@ -156,15 +156,27 @@ const envOverrides = {
   REDIS_URL_TEST: redisUrlTest,
 };
 
-// Write .env for every package that ships a .env.example (framework + plugins)
-const packagesDir = join(ROOT_DIR, "packages");
-for (const pkg of readdirSync(packagesDir)) {
-  const examplePath = join(packagesDir, pkg, ".env.example");
-  if (!existsSync(examplePath)) continue;
-  applyEnvOverrides(examplePath, join(packagesDir, pkg, ".env"), envOverrides);
-  console.log(`Wrote packages/${pkg}/.env`);
+// Write .env for every package that ships a .env.example (framework + plugins).
+// Recurses one level so packages/plugins/<name>/ is also covered.
+function writePackageEnv(pkgDir: string, label: string): void {
+  const examplePath = join(pkgDir, ".env.example");
+  if (!existsSync(examplePath)) return;
+  applyEnvOverrides(examplePath, join(pkgDir, ".env"), envOverrides);
+  console.log(`Wrote ${label}/.env`);
   for (const [key, val] of Object.entries(envOverrides)) {
     console.log(`  ${key}=${val}`);
+  }
+}
+
+const packagesDir = join(ROOT_DIR, "packages");
+for (const pkg of readdirSync(packagesDir)) {
+  const pkgDir = join(packagesDir, pkg);
+  writePackageEnv(pkgDir, `packages/${pkg}`);
+  // Plugins are nested under packages/plugins/<name>; also process them.
+  if (pkg === "plugins") {
+    for (const plugin of readdirSync(pkgDir)) {
+      writePackageEnv(join(pkgDir, plugin), `packages/plugins/${plugin}`);
+    }
   }
 }
 

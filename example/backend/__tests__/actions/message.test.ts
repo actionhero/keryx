@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, test } from "bun:test";
+import type { CsrfTokenAction } from "@keryxjs/csrf";
 import { type ActionResponse, api } from "keryx";
 import type {
   MessageCreate,
@@ -11,9 +12,18 @@ import { createTestSession, createTestUser, useTestServer } from "./../setup";
 
 const getUrl = useTestServer({ clearDatabase: true, clearRedis: true });
 
+async function fetchCsrfToken(url: string, cookie: string): Promise<string> {
+  const res = await fetch(url + "/api/csrf-token", {
+    headers: { Cookie: cookie },
+  });
+  const body = (await res.json()) as ActionResponse<CsrfTokenAction>;
+  return body.token;
+}
+
 describe("message:create", () => {
   let user: ActionResponse<SessionCreate>["user"];
   let session: ActionResponse<SessionCreate>["session"];
+  let csrfToken: string;
 
   beforeAll(async () => {
     await createTestUser(getUrl());
@@ -22,6 +32,10 @@ describe("message:create", () => {
       (await sessionRes.json()) as ActionResponse<SessionCreate>;
     user = sessionResponse.user;
     session = sessionResponse.session;
+    csrfToken = await fetchCsrfToken(
+      getUrl(),
+      `${session.cookieName}=${session.id}`,
+    );
   });
 
   test("fails without a session", async () => {
@@ -56,7 +70,7 @@ describe("message:create", () => {
         Cookie: `${session.cookieName}=${session.id}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ body: "Hello, world!" }),
+      body: JSON.stringify({ body: "Hello, world!", csrfToken }),
     });
     expect(res.status).toBe(200);
 
@@ -64,6 +78,18 @@ describe("message:create", () => {
     expect(response.message.body).toEqual("Hello, world!");
     expect(response.message.id).toBeGreaterThanOrEqual(1);
     expect(response.message.createdAt).toBeGreaterThan(0);
+  });
+
+  test("rejects message:create when CSRF token is missing", async () => {
+    const res = await fetch(getUrl() + "/api/message", {
+      method: "PUT",
+      headers: {
+        Cookie: `${session.cookieName}=${session.id}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ body: "no token" }),
+    });
+    expect(res.status).toBe(403);
   });
 
   describe("messages:list", () => {

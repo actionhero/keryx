@@ -69,6 +69,7 @@ For example: \`/guide/actions.md\`, \`/reference/config.md\`
 - Plugins Overview: /plugins/index.md
 - Tracing: /plugins/tracing.md
 - Resque Admin: /plugins/resque-admin.md
+- CSRF: /plugins/csrf.md
 `;
 
 export function toMarkdownUrl(url: string): string {
@@ -243,6 +244,7 @@ export default defineConfig({
             { text: "Overview", link: "/plugins/" },
             { text: "Tracing", link: "/plugins/tracing" },
             { text: "Resque Admin", link: "/plugins/resque-admin" },
+            { text: "CSRF", link: "/plugins/csrf" },
           ],
         },
       ],

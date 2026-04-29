@@ -27,6 +27,7 @@
         "keryx": "keryx.ts",
       },
       "dependencies": {
+        "@keryxjs/csrf": "workspace:*",
         "@keryxjs/resque-admin": "workspace:*",
         "@keryxjs/tracing": "workspace:*",
         "commander": "^14.0.3",
@@ -70,7 +71,7 @@
     },
     "packages/keryx": {
       "name": "keryx",
-      "version": "0.29.4",
+      "version": "0.30.0",
       "bin": {
         "keryx": "keryx.ts",
       },
@@ -99,6 +100,19 @@
         "zod": "^4.3.6",
       },
     },
+    "packages/plugins/csrf": {
+      "name": "@keryxjs/csrf",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@types/bun": "^1.3.12",
+        "typescript": "^6.0.3",
+        "zod": "^4.3.6",
+      },
+      "peerDependencies": {
+        "keryx": ">=0.30.0",
+        "zod": "^4.3.6",
+      },
+    },
     "packages/plugins/resque-admin": {
       "name": "@keryxjs/resque-admin",
       "version": "0.1.3",
@@ -114,7 +128,7 @@
     },
     "packages/plugins/tracing": {
       "name": "@keryxjs/tracing",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "dependencies": {
         "@kubiks/otel-drizzle": "^2.1.0",
         "@opentelemetry/core": "^1.30.0",
@@ -342,6 +356,8 @@
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.5.5", "", {}, "sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og=="],
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
+
+    "@keryxjs/csrf": ["@keryxjs/csrf@workspace:packages/plugins/csrf"],
 
     "@keryxjs/resque-admin": ["@keryxjs/resque-admin@workspace:packages/plugins/resque-admin"],
 

@@ -1,16 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
-
-// Pads to a common length so we don't leak the expected length via early-return.
-function timingSafeStringEqual(a: string, b: string): boolean {
-  const aBuf = Buffer.from(a, "utf8");
-  const bBuf = Buffer.from(b, "utf8");
-  const len = Math.max(aBuf.length, bBuf.length, 1);
-  const aPadded = Buffer.alloc(len);
-  const bPadded = Buffer.alloc(len);
-  aBuf.copy(aPadded);
-  bBuf.copy(bPadded);
-  return timingSafeEqual(aPadded, bPadded) && aBuf.length === bBuf.length;
-}
+import { safeCompare } from "./safeCompare";
 
 /**
  * Verifies an HTTP Basic auth `Authorization` header against expected credentials
@@ -47,7 +35,7 @@ export function verifyBasicAuth(
   const user = decoded.slice(0, idx);
   const pass = decoded.slice(idx + 1);
 
-  const userOk = timingSafeStringEqual(user, expectedUsername);
-  const passOk = timingSafeStringEqual(pass, expectedPassword);
+  const userOk = safeCompare(user, expectedUsername);
+  const passOk = safeCompare(pass, expectedPassword);
   return userOk && passOk;
 }

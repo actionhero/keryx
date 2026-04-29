@@ -5,6 +5,7 @@ import {
   type ActionMiddleware,
   type ActionParams,
   api,
+  CONNECTION_TYPE,
   Connection,
   ErrorType,
   type Transaction,
@@ -195,7 +196,7 @@ describe("TransactionMiddleware", () => {
     registerAction(new TxInsertAction());
 
     try {
-      const conn = new Connection("test", "test-tx-commit");
+      const conn = new Connection(CONNECTION_TYPE.WEB, "test-tx-commit");
       const { response, error } = await conn.act("test:tx-insert", {});
 
       expect(error).toBeUndefined();
@@ -243,7 +244,7 @@ describe("TransactionMiddleware", () => {
     registerAction(new TxThrowAction());
 
     try {
-      const conn = new Connection("test", "test-tx-rollback");
+      const conn = new Connection(CONNECTION_TYPE.WEB, "test-tx-rollback");
       const { error } = await conn.act("test:tx-throw", {});
 
       expect(error).toBeDefined();
@@ -298,7 +299,10 @@ describe("TransactionMiddleware", () => {
     registerAction(new TxMultiOpAction());
 
     try {
-      const conn = new Connection("test", "test-tx-multi-rollback");
+      const conn = new Connection(
+        CONNECTION_TYPE.WEB,
+        "test-tx-multi-rollback",
+      );
       const { error } = await conn.act("test:tx-multi-op", {});
       expect(error).toBeDefined();
 
@@ -345,11 +349,11 @@ describe("TransactionMiddleware", () => {
       const totalBefore = api.db.pool.totalCount;
 
       // Success path
-      const conn1 = new Connection("test", "test-tx-release-ok");
+      const conn1 = new Connection(CONNECTION_TYPE.WEB, "test-tx-release-ok");
       await conn1.act("test:tx-noop", {});
 
       // Error path
-      const conn2 = new Connection("test", "test-tx-release-err");
+      const conn2 = new Connection(CONNECTION_TYPE.WEB, "test-tx-release-err");
       await conn2.act("test:tx-boom", {});
 
       // Pool should not leak — total should not grow unboundedly
@@ -430,7 +434,7 @@ describe("Transaction chaining across sub-actions", () => {
     registerAction(new TxChildAction());
 
     try {
-      const conn = new Connection("test", "test-tx-chain");
+      const conn = new Connection(CONNECTION_TYPE.WEB, "test-tx-chain");
       const { error } = await conn.act("test:tx-parent", {});
 
       expect(error).toBeUndefined();
@@ -509,7 +513,10 @@ describe("Transaction chaining across sub-actions", () => {
     registerAction(new TxChildThrowAction());
 
     try {
-      const conn = new Connection("test", "test-tx-chain-rollback");
+      const conn = new Connection(
+        CONNECTION_TYPE.WEB,
+        "test-tx-chain-rollback",
+      );
       const { error } = await conn.act("test:tx-parent-chain", {});
 
       expect(error).toBeDefined();
@@ -559,7 +566,7 @@ describe("runAfter error parameter", () => {
     registerAction(new TxErrorCaptureAction());
 
     try {
-      const conn = new Connection("test", "test-error-capture");
+      const conn = new Connection(CONNECTION_TYPE.WEB, "test-error-capture");
       await conn.act("test:tx-error-capture", {});
 
       expect(capturedError).toBeDefined();
@@ -600,7 +607,7 @@ describe("runAfter error parameter", () => {
     registerAction(new TxSuccessCaptureAction());
 
     try {
-      const conn = new Connection("test", "test-success-capture");
+      const conn = new Connection(CONNECTION_TYPE.WEB, "test-success-capture");
       await conn.act("test:tx-success-capture", {});
 
       expect(capturedError).toBeUndefined();

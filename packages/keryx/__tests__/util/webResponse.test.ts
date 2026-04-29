@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { api } from "../../api";
-import { Connection } from "../../classes/Connection";
+import { CONNECTION_TYPE, Connection } from "../../classes/Connection";
 import { StreamingResponse } from "../../classes/StreamingResponse";
 import { ErrorType, TypedError } from "../../classes/TypedError";
 import { config } from "../../config";
@@ -64,7 +64,7 @@ describe("buildHeaders", () => {
   });
 
   test("with a connection: Set-Cookie contains session flags", () => {
-    const conn = new Connection("test-webresponse", "1.2.3.4");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "1.2.3.4");
     try {
       const headers = buildHeaders(conn);
       const cookie = headers["Set-Cookie"];
@@ -80,7 +80,7 @@ describe("buildHeaders", () => {
 
   test("cookieSecure=true emits the Secure flag", () => {
     (config.session as any).cookieSecure = true;
-    const conn = new Connection("test-webresponse", "1.2.3.4");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "1.2.3.4");
     try {
       const cookie = buildHeaders(conn)["Set-Cookie"];
       expect(cookie).toContain("Secure");
@@ -91,7 +91,7 @@ describe("buildHeaders", () => {
   });
 
   test("populates rate-limit headers when info is present", () => {
-    const conn = new Connection("test-webresponse", "1.2.3.4");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "1.2.3.4");
     conn.rateLimitInfo = {
       limit: 100,
       remaining: 42,
@@ -110,7 +110,7 @@ describe("buildHeaders", () => {
   });
 
   test("omits Retry-After when retryAfter is undefined", () => {
-    const conn = new Connection("test-webresponse", "1.2.3.4");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "1.2.3.4");
     conn.rateLimitInfo = {
       limit: 100,
       remaining: 99,
@@ -126,7 +126,7 @@ describe("buildHeaders", () => {
   });
 
   test("emits correlation ID header when connection carries one", () => {
-    const conn = new Connection("test-webresponse", "1.2.3.4");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "1.2.3.4");
     conn.correlationId = "corr-xyz-123";
     try {
       const headers = buildHeaders(conn);
@@ -160,7 +160,7 @@ describe("buildHeaders", () => {
 
 describe("buildResponse", () => {
   test("serializes an object to pretty JSON with CRLF terminator", async () => {
-    const conn = new Connection("test-webresponse", "1.2.3.4");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "1.2.3.4");
     try {
       const res = buildResponse(conn, { hello: "world" });
       expect(res.status).toBe(200);
@@ -173,7 +173,7 @@ describe("buildResponse", () => {
   });
 
   test("uses explicit status code when provided", async () => {
-    const conn = new Connection("test-webresponse", "1.2.3.4");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "1.2.3.4");
     try {
       const res = buildResponse(conn, { ok: true }, 201);
       expect(res.status).toBe(201);
@@ -183,7 +183,7 @@ describe("buildResponse", () => {
   });
 
   test("passes a bare Response through unchanged", () => {
-    const conn = new Connection("test-webresponse", "1.2.3.4");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "1.2.3.4");
     try {
       const passthrough = new Response("raw", { status: 418 });
       const res = buildResponse(conn, passthrough);
@@ -194,7 +194,7 @@ describe("buildResponse", () => {
   });
 
   test("converts a StreamingResponse via .toResponse", async () => {
-    const conn = new Connection("test-webresponse", "1.2.3.4");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "1.2.3.4");
     try {
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
@@ -306,7 +306,7 @@ describe("buildError", () => {
   });
 
   test("still includes session cookie when a connection is passed", () => {
-    const conn = new Connection("test-webresponse", "1.2.3.4");
+    const conn = new Connection(CONNECTION_TYPE.WEB, "1.2.3.4");
     try {
       const err = new TypedError({
         message: "boom",
