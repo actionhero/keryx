@@ -74,6 +74,24 @@ describe("deepMergeDefaults", () => {
     deepMergeDefaults(target, { items: [3, 4, 5] });
     expect(target).toEqual({ items: [1, 2] });
   });
+
+  test("keeps target object when source is a scalar at the same key", () => {
+    const target = { a: { x: 1 } } as Record<string, unknown>;
+    deepMergeDefaults(target, { a: "string" });
+    expect(target).toEqual({ a: { x: 1 } });
+  });
+
+  test("treats null target value as set and does not overwrite with object", () => {
+    const target = { a: null } as Record<string, unknown>;
+    deepMergeDefaults(target, { a: { x: 1 } });
+    expect(target).toEqual({ a: null });
+  });
+
+  test("fills a missing nested object wholesale", () => {
+    const target = {} as Record<string, unknown>;
+    deepMergeDefaults(target, { server: { port: 3000, host: "0.0.0.0" } });
+    expect(target).toEqual({ server: { port: 3000, host: "0.0.0.0" } });
+  });
 });
 
 describe("config.plugins", () => {

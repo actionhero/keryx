@@ -1,3 +1,36 @@
+type MergeMode = "overwrite" | "defaults";
+
+function mergeWith<T extends Record<string, unknown>>(
+  target: T,
+  source: Record<string, unknown>,
+  mode: MergeMode,
+): T {
+  const writable = target as Record<string, unknown>;
+  for (const key of Object.keys(source)) {
+    const targetVal = target[key];
+    const sourceVal = source[key];
+    const bothPlainObjects =
+      targetVal &&
+      sourceVal &&
+      typeof targetVal === "object" &&
+      typeof sourceVal === "object" &&
+      !Array.isArray(targetVal) &&
+      !Array.isArray(sourceVal);
+
+    if (bothPlainObjects) {
+      mergeWith(
+        targetVal as Record<string, unknown>,
+        sourceVal as Record<string, unknown>,
+        mode,
+      );
+    } else if (mode === "overwrite" || !(key in target)) {
+      writable[key] = sourceVal;
+    }
+  }
+
+  return target;
+}
+
 /**
 Deep-merges source into target, mutating target in place.
 Only plain objects are recursively merged; arrays and primitives are overwritten.
@@ -6,29 +39,7 @@ export function deepMerge<T extends Record<string, unknown>>(
   target: T,
   source: Record<string, unknown>,
 ): T {
-  const writable = target as Record<string, unknown>;
-  for (const key of Object.keys(source)) {
-    const targetVal = target[key];
-    const sourceVal = source[key];
-
-    if (
-      targetVal &&
-      sourceVal &&
-      typeof targetVal === "object" &&
-      typeof sourceVal === "object" &&
-      !Array.isArray(targetVal) &&
-      !Array.isArray(sourceVal)
-    ) {
-      deepMerge(
-        targetVal as Record<string, unknown>,
-        sourceVal as Record<string, unknown>,
-      );
-    } else {
-      writable[key] = sourceVal;
-    }
-  }
-
-  return target;
+  return mergeWith(target, source, "overwrite");
 }
 
 /**
@@ -39,32 +50,7 @@ export function deepMergeDefaults<T extends Record<string, unknown>>(
   target: T,
   source: Record<string, unknown>,
 ): T {
-  const writable = target as Record<string, unknown>;
-  for (const key of Object.keys(source)) {
-    if (!(key in target)) {
-      writable[key] = source[key];
-    } else {
-      const targetVal = target[key];
-      const sourceVal = source[key];
-
-      if (
-        targetVal &&
-        sourceVal &&
-        typeof targetVal === "object" &&
-        typeof sourceVal === "object" &&
-        !Array.isArray(targetVal) &&
-        !Array.isArray(sourceVal)
-      ) {
-        deepMergeDefaults(
-          targetVal as Record<string, unknown>,
-          sourceVal as Record<string, unknown>,
-        );
-      }
-      // If key exists in target and isn't a nested object, keep the target value
-    }
-  }
-
-  return target;
+  return mergeWith(target, source, "defaults");
 }
 
 /**

@@ -17,7 +17,7 @@ import { users } from "../schema/users";
 import { zMessageIdOrModel } from "../util/zodMixins";
 import type { SessionImpl } from "./session";
 
-export class MessageCrete implements Action {
+export class MessageCreate implements Action {
   name = "message:create";
   description =
     "Create a new chat message as the currently authenticated user. The message is persisted to the database and broadcast in real-time to all connected users via the 'messages' PubSub channel. Requires an active session. Returns the created message with its ID and timestamps.";
@@ -32,7 +32,7 @@ export class MessageCrete implements Action {
   });
 
   async run(
-    params: ActionParams<MessageCrete>,
+    params: ActionParams<MessageCreate>,
     connection: Connection<SessionImpl>,
   ) {
     const userId = connection.session!.data.userId!;

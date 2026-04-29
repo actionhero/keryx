@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { type ActionResponse, api } from "keryx";
 import type {
-  MessageCrete,
+  MessageCreate,
   MessagesList,
   MessageView,
 } from "../../actions/message";
@@ -31,7 +31,7 @@ describe("message:create", () => {
       body: JSON.stringify({ body: "Hello, world!" }),
     });
     expect(res.status).toBe(401);
-    const response = (await res.json()) as ActionResponse<MessageCrete>;
+    const response = (await res.json()) as ActionResponse<MessageCreate>;
     expect(response.error?.message).toEqual("Session not found");
   });
 
@@ -45,7 +45,7 @@ describe("message:create", () => {
       body: JSON.stringify({ body: "Hello, world!" }),
     });
     expect(res.status).toBe(401);
-    const response = (await res.json()) as ActionResponse<MessageCrete>;
+    const response = (await res.json()) as ActionResponse<MessageCreate>;
     expect(response.error?.message).toEqual("Session not found");
   });
 
@@ -60,7 +60,7 @@ describe("message:create", () => {
     });
     expect(res.status).toBe(200);
 
-    const response = (await res.json()) as ActionResponse<MessageCrete>;
+    const response = (await res.json()) as ActionResponse<MessageCreate>;
     expect(response.message.body).toEqual("Hello, world!");
     expect(response.message.id).toBeGreaterThanOrEqual(1);
     expect(response.message.createdAt).toBeGreaterThan(0);
