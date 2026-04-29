@@ -35,16 +35,19 @@ export function buildCorsHeaders(
 }
 
 /**
- * Derive the external-facing origin for a request.
+ * Derive the external-facing origin for a request. Used to construct OAuth
+ * metadata URLs (issuer, endpoints) and the MCP `WWW-Authenticate` resource
+ * metadata URL.
  *
  * Resolution order:
  * 1. `applicationUrl` config (when set to a non-localhost value).
  * 2. `X-Forwarded-Proto` / `X-Forwarded-Host` (or `Host`) headers — only when
- *    `config.server.web.trustProxy` is enabled. These headers are spoofable
- *    by any client when the server is reachable directly, so trusting them
- *    unconditionally would let an attacker poison OAuth metadata and MCP
- *    `WWW-Authenticate` URLs. Operators must opt in via `WEB_TRUST_PROXY=true`
- *    after confirming a reverse proxy strips client-supplied forwarded headers.
+ *    `config.server.mcp.oauthTrustProxy` is enabled. These headers are
+ *    spoofable by any client when the server is reachable directly, so
+ *    trusting them unconditionally would let an attacker poison OAuth
+ *    metadata and MCP `WWW-Authenticate` URLs. Operators must opt in via
+ *    `MCP_OAUTH_TRUST_PROXY=true` after confirming a reverse proxy strips
+ *    client-supplied forwarded headers.
  * 3. The parsed request-URL origin.
  */
 export function getExternalOrigin(req: Request, url: URL): string {
@@ -55,7 +58,7 @@ export function getExternalOrigin(req: Request, url: URL): string {
     return new URL(appUrl).origin;
   }
 
-  if (config.server.web.trustProxy) {
+  if (config.server.mcp.oauthTrustProxy) {
     const forwardedProto = req.headers.get("x-forwarded-proto");
     const forwardedHost =
       req.headers.get("x-forwarded-host") || req.headers.get("host");

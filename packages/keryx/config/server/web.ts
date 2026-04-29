@@ -11,7 +11,6 @@ export const configServerWeb = {
     "APPLICATION_URL",
     `http://${host}:${port}`,
   ),
-  trustProxy: await loadFromEnvIfSet("WEB_TRUST_PROXY", false),
   apiRoute: await loadFromEnvIfSet("WEB_SERVER_API_ROUTE", "/api"),
   allowedOrigins: await loadFromEnvIfSet("WEB_SERVER_ALLOWED_ORIGINS", "*"),
   allowedMethods: await loadFromEnvIfSet(

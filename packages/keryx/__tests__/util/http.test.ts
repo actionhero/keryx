@@ -9,18 +9,18 @@ import {
 
 let originalAllowedOrigins: string;
 let originalApplicationUrl: string;
-let originalTrustProxy: boolean;
+let originalOauthTrustProxy: boolean;
 
 beforeAll(() => {
   originalAllowedOrigins = config.server.web.allowedOrigins;
   originalApplicationUrl = config.server.web.applicationUrl;
-  originalTrustProxy = config.server.web.trustProxy;
+  originalOauthTrustProxy = config.server.mcp.oauthTrustProxy;
 });
 
 afterAll(() => {
   config.server.web.allowedOrigins = originalAllowedOrigins;
   config.server.web.applicationUrl = originalApplicationUrl;
-  config.server.web.trustProxy = originalTrustProxy;
+  config.server.mcp.oauthTrustProxy = originalOauthTrustProxy;
 });
 
 describe("isOriginAllowed", () => {
@@ -79,7 +79,7 @@ describe("buildCorsHeaders", () => {
 describe("getExternalOrigin", () => {
   test("returns applicationUrl origin when set (non-localhost)", () => {
     config.server.web.applicationUrl = "https://myapp.example.com";
-    config.server.web.trustProxy = false;
+    config.server.mcp.oauthTrustProxy = false;
     const req = new Request("http://localhost:3000/test");
     const url = new URL("http://localhost:3000/test");
     expect(getExternalOrigin(req, url)).toBe("https://myapp.example.com");
@@ -87,7 +87,7 @@ describe("getExternalOrigin", () => {
 
   test("uses X-Forwarded-Proto + X-Forwarded-Host when trustProxy enabled", () => {
     config.server.web.applicationUrl = "";
-    config.server.web.trustProxy = true;
+    config.server.mcp.oauthTrustProxy = true;
     const req = new Request("http://localhost:3000/test", {
       headers: {
         "x-forwarded-proto": "https",
@@ -100,7 +100,7 @@ describe("getExternalOrigin", () => {
 
   test("uses request protocol with forwarded host when no forwarded proto", () => {
     config.server.web.applicationUrl = "";
-    config.server.web.trustProxy = true;
+    config.server.mcp.oauthTrustProxy = true;
     const req = new Request("http://localhost:3000/test", {
       headers: { "x-forwarded-host": "proxy.example.com" },
     });
@@ -110,7 +110,7 @@ describe("getExternalOrigin", () => {
 
   test("ignores X-Forwarded-* headers when trustProxy is false (default)", () => {
     config.server.web.applicationUrl = "";
-    config.server.web.trustProxy = false;
+    config.server.mcp.oauthTrustProxy = false;
     const req = new Request("http://localhost:3000/test", {
       headers: {
         "x-forwarded-proto": "https",
@@ -123,7 +123,7 @@ describe("getExternalOrigin", () => {
 
   test("ignores spoofed Host header when trustProxy is false", () => {
     config.server.web.applicationUrl = "";
-    config.server.web.trustProxy = false;
+    config.server.mcp.oauthTrustProxy = false;
     const req = new Request("http://localhost:3000/test", {
       headers: { host: "evil.example.com" },
     });
@@ -133,7 +133,7 @@ describe("getExternalOrigin", () => {
 
   test("falls back to request URL origin", () => {
     config.server.web.applicationUrl = "";
-    config.server.web.trustProxy = false;
+    config.server.mcp.oauthTrustProxy = false;
     const req = new Request("http://localhost:3000/test");
     const url = new URL("http://localhost:3000/test");
     expect(getExternalOrigin(req, url)).toBe("http://localhost:3000");

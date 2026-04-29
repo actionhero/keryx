@@ -164,13 +164,13 @@ The web server default is based on `NODE_ENV` — when `NODE_ENV=production`, st
 
 The server can derive its external-facing origin (used in OAuth metadata, MCP `WWW-Authenticate` URLs, and protected-resource metadata) from `X-Forwarded-Proto` and `X-Forwarded-Host` headers. Because any client can spoof these headers when the server is reachable directly, trusting them unconditionally would let an attacker poison OAuth discovery responses and redirect MCP clients to attacker-controlled hosts.
 
-By default, `trustProxy` is `false` and forwarded headers are ignored — origin resolution falls back to `applicationUrl` (when set) or the request URL. Enable it only when the server is behind a reverse proxy that strips client-supplied `X-Forwarded-*` headers and sets them itself.
+By default, `oauthTrustProxy` is `false` and forwarded headers are ignored — origin resolution falls back to `applicationUrl` (when set) or the request URL. Enable it only when the server is behind a reverse proxy that strips client-supplied `X-Forwarded-*` headers and sets them itself.
 
-| Key          | Env Var           | Default | Description                                                  |
-| ------------ | ----------------- | ------- | ------------------------------------------------------------ |
-| `trustProxy` | `WEB_TRUST_PROXY` | `false` | Honor `X-Forwarded-Proto` / `X-Forwarded-Host` (and `Host`). |
+| Key               | Env Var                 | Default | Description                                                  |
+| ----------------- | ----------------------- | ------- | ------------------------------------------------------------ |
+| `oauthTrustProxy` | `MCP_OAUTH_TRUST_PROXY` | `false` | Honor `X-Forwarded-Proto` / `X-Forwarded-Host` (and `Host`). |
 
-For most production deployments, set `APPLICATION_URL` to your canonical external URL — it takes precedence over any forwarded headers and is the safest configuration regardless of `trustProxy`.
+For most production deployments, set `APPLICATION_URL` to your canonical external URL — it takes precedence over any forwarded headers and is the safest configuration regardless of `oauthTrustProxy`.
 
 ## Correlation IDs
 
@@ -211,7 +211,7 @@ SESSION_COOKIE_SECURE=true
 APPLICATION_URL=https://yourapp.com
 
 # Trust proxy — only enable behind a reverse proxy that strips client X-Forwarded-* headers
-# WEB_TRUST_PROXY=true
+# MCP_OAUTH_TRUST_PROXY=true
 
 # CORS — restrict to your domain
 WEB_SERVER_ALLOWED_ORIGINS=https://yourapp.com
