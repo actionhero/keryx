@@ -18,11 +18,13 @@ OTEL_METRICS_ENABLED=true bun run start
 
 ## Configuration
 
-| Config Key     | Env Var                | Default      | Description                                                                                |
-| -------------- | ---------------------- | ------------ | ------------------------------------------------------------------------------------------ |
-| `enabled`      | `OTEL_METRICS_ENABLED` | `false`      | Master toggle for all instrumentation                                                      |
-| `metricsRoute` | `OTEL_METRICS_ROUTE`   | `"/metrics"` | Path for the Prometheus scrape endpoint                                                    |
-| `serviceName`  | `OTEL_SERVICE_NAME`    | _(app name)_ | Service name in metric labels. Defaults to the `name` field from your app's `package.json` |
+| Config Key            | Env Var                       | Default      | Description                                                                                |
+| --------------------- | ----------------------------- | ------------ | ------------------------------------------------------------------------------------------ |
+| `enabled`             | `OTEL_METRICS_ENABLED`        | `false`      | Master toggle for all instrumentation                                                      |
+| `metricsRoute`        | `OTEL_METRICS_ROUTE`          | `"/metrics"` | Path for the Prometheus scrape endpoint                                                    |
+| `serviceName`         | `OTEL_SERVICE_NAME`           | _(app name)_ | Service name in metric labels. Defaults to the `name` field from your app's `package.json` |
+| `metricsAuthUsername` | `OTEL_METRICS_AUTH_USERNAME`  | `""`         | When set together with `metricsAuthPassword`, requires HTTP Basic auth on `/metrics`       |
+| `metricsAuthPassword` | `OTEL_METRICS_AUTH_PASSWORD`  | `""`         | Password for the metrics endpoint when basic auth is enabled                               |
 
 ## Available Metrics
 
@@ -86,6 +88,33 @@ scrape_configs:
 ```
 
 The metrics endpoint is served on the existing web server — no additional ports or servers needed. It's intercepted before action routing, so it won't conflict with your API routes. Keryx validates at startup that no action route overlaps with the metrics path.
+
+### Authentication
+
+By default `/metrics` is unauthenticated. This is suitable for private networks (e.g. Kubernetes clusters) where network segmentation provides the access control. For publicly-exposed servers, enable HTTP Basic auth by setting both `OTEL_METRICS_AUTH_USERNAME` and `OTEL_METRICS_AUTH_PASSWORD`. When either is empty, the endpoint stays open.
+
+```bash
+OTEL_METRICS_ENABLED=true \
+OTEL_METRICS_AUTH_USERNAME=prometheus \
+OTEL_METRICS_AUTH_PASSWORD=secret \
+bun run start
+```
+
+Configure Prometheus to send the credentials on each scrape:
+
+```yaml
+scrape_configs:
+  - job_name: "keryx"
+    scrape_interval: 15s
+    metrics_path: "/metrics"
+    basic_auth:
+      username: "prometheus"
+      password_file: "/etc/prometheus/keryx_password"
+    static_configs:
+      - targets: ["keryx.example.com"]
+```
+
+Requests without an `Authorization: Basic ...` header (or with wrong credentials) get a `401 Unauthorized` with `WWW-Authenticate: Basic realm="Metrics"`.
 
 ## Custom Exporters
 

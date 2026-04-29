@@ -1,6 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { parse } from "node:url";
 import type { ServerWebSocket } from "bun";
-import { randomUUID } from "crypto";
 import { api, logger } from "../api";
 import { type HTTP_METHOD } from "../classes/Action";
 import { Connection } from "../classes/Connection";
@@ -11,6 +11,7 @@ import { config } from "../config";
 import type { PubSubMessage } from "../initializers/pubsub";
 import { ansi } from "../util/ansi";
 import { isOriginAllowed } from "../util/http";
+import { verifyBasicAuth } from "../util/webBasicAuth";
 import { compressResponse } from "../util/webCompression";
 import {
   buildError,
@@ -325,6 +326,23 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
       config.observability.enabled &&
       parsedUrl.pathname === config.observability.metricsRoute
     ) {
+      if (
+        !verifyBasicAuth(
+          req,
+          config.observability.metricsAuthUsername,
+          config.observability.metricsAuthPassword,
+        )
+      ) {
+        return {
+          response: new Response("Unauthorized", {
+            status: 401,
+            headers: {
+              "WWW-Authenticate": 'Basic realm="Metrics"',
+              "Content-Type": "text/plain",
+            },
+          }),
+        };
+      }
       const body = await api.observability.collectMetrics();
       return {
         response: new Response(body || "", {
