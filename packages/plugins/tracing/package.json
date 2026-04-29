@@ -1,6 +1,6 @@
 {
   "name": "@keryxjs/tracing",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "module": "index.ts",
   "type": "module",
   "license": "MIT",
@@ -27,7 +27,8 @@
   "files": [
     "index.ts",
     "initializer.ts",
-    "tsconfig.json"
+    "tsconfig.json",
+    "README.md"
   ],
   "exports": {
     ".": "./index.ts"

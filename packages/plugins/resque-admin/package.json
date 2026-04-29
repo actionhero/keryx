@@ -1,6 +1,6 @@
 {
   "name": "@keryxjs/resque-admin",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "module": "index.ts",
   "type": "module",
   "license": "MIT",
@@ -29,7 +29,8 @@
     "middleware/",
     "templates/",
     "index.ts",
-    "LICENSE"
+    "LICENSE",
+    "README.md"
   ],
   "exports": {
     ".": "./index.ts"
