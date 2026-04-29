@@ -72,7 +72,7 @@ Configure via `config.server.web.compression`:
 | ----------- | --------------------------- | --------------- | ----------------------------------------- |
 | `enabled`   | `WEB_COMPRESSION_ENABLED`   | `true`          | Enable/disable HTTP compression           |
 | `threshold` | `WEB_COMPRESSION_THRESHOLD` | `1024`          | Minimum response size (bytes) to compress |
-| `encodings` | —                           | `["br","gzip"]` | Supported encodings (preference order)    |
+| `encodings` | —                           | `["gzip"]`      | Supported encodings (preference order)    |
 
 ### Static File Caching
 

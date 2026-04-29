@@ -7,7 +7,6 @@ import {
   ErrorType,
   HTTP_METHOD,
   RateLimitMiddleware,
-  type SessionData,
   secret,
   TypedError,
 } from "keryx";
@@ -43,14 +42,10 @@ export class SessionCreate implements Action {
     ),
   });
 
-  // @ts-ignore - this is a valid action and response type, but sometimes the compiler doesn't like it
-  run = async (
+  async run(
     params: ActionParams<SessionCreate>,
     connection: Connection<SessionImpl>,
-  ): Promise<{
-    user: Awaited<ReturnType<typeof serializeUser>>;
-    session: SessionData<SessionImpl>;
-  }> => {
+  ) {
     const [user] = await api.db.db
       .select()
       .from(users)
@@ -73,7 +68,7 @@ export class SessionCreate implements Action {
       user: serializeUser(user),
       session: connection.session!,
     };
-  };
+  }
 }
 
 export class SessionDestroy implements Action {

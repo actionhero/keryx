@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { type AnyColumn, eq, type Table } from "drizzle-orm";
 import { z } from "zod/v4";
 import { api } from "../api";
 import { ErrorType, TypedError } from "../classes/TypedError";
@@ -79,9 +79,6 @@ export function paginationInputs(options?: {
   });
 }
 
-// Type for Drizzle tables with an id column
-type TableWithId = { id: any; $inferSelect: any };
-
 /**
  * Generic factory to create a Zod schema that accepts either an ID or a model object.
  * If an ID is provided, it resolves to the full model via database lookup.
@@ -91,8 +88,8 @@ type TableWithId = { id: any; $inferSelect: any };
  * @param isModel - Type guard function to check if value is already a model
  * @param entityName - Human-readable name for error messages
  */
-export function zIdOrModel<TTable extends TableWithId, TModel>(
-  table: TTable,
+export function zIdOrModel<TModel>(
+  table: Table & { id: AnyColumn },
   modelSchema: z.ZodType<TModel>,
   isModel: (val: unknown) => val is TModel,
   entityName: string,
@@ -105,8 +102,8 @@ export function zIdOrModel<TTable extends TableWithId, TModel>(
       }
       const [record] = await api.db.db
         .select()
-        .from(table as any)
-        .where(eq((table as any).id, val))
+        .from(table)
+        .where(eq(table.id, val))
         .limit(1);
 
       if (!record) {

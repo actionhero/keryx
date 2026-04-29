@@ -1,10 +1,11 @@
 type MergeMode = "overwrite" | "defaults";
 
-function mergeWith<T extends Record<string, any>>(
+function mergeWith<T extends Record<string, unknown>>(
   target: T,
-  source: Record<string, any>,
+  source: Record<string, unknown>,
   mode: MergeMode,
 ): T {
+  const writable = target as Record<string, unknown>;
   for (const key of Object.keys(source)) {
     const targetVal = target[key];
     const sourceVal = source[key];
@@ -17,9 +18,13 @@ function mergeWith<T extends Record<string, any>>(
       !Array.isArray(sourceVal);
 
     if (bothPlainObjects) {
-      mergeWith(targetVal, sourceVal, mode);
+      mergeWith(
+        targetVal as Record<string, unknown>,
+        sourceVal as Record<string, unknown>,
+        mode,
+      );
     } else if (mode === "overwrite" || !(key in target)) {
-      (target as any)[key] = sourceVal;
+      writable[key] = sourceVal;
     }
   }
 
@@ -30,9 +35,9 @@ function mergeWith<T extends Record<string, any>>(
 Deep-merges source into target, mutating target in place.
 Only plain objects are recursively merged; arrays and primitives are overwritten.
 */
-export function deepMerge<T extends Record<string, any>>(
+export function deepMerge<T extends Record<string, unknown>>(
   target: T,
-  source: Record<string, any>,
+  source: Record<string, unknown>,
 ): T {
   return mergeWith(target, source, "overwrite");
 }
@@ -41,9 +46,9 @@ export function deepMerge<T extends Record<string, any>>(
  * Like `deepMerge`, but only sets values that don't already exist in target.
  * Useful for applying plugin config defaults without overwriting user-set values.
  */
-export function deepMergeDefaults<T extends Record<string, any>>(
+export function deepMergeDefaults<T extends Record<string, unknown>>(
   target: T,
-  source: Record<string, any>,
+  source: Record<string, unknown>,
 ): T {
   return mergeWith(target, source, "defaults");
 }

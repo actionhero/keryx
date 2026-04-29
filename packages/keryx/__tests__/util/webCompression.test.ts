@@ -146,26 +146,23 @@ describe("compressResponse", () => {
     expect(await decompressed.text()).toBe(LARGE_BODY);
   });
 
-  test("prefers brotli over gzip when both are accepted", async () => {
+  test("ignores unsupported encodings and uses gzip when offered", async () => {
     const res = new Response(LARGE_BODY, {
       headers: {
         "Content-Type": "text/plain",
         "Content-Length": String(LARGE_BODY.length),
       },
     });
-    const out = await compressResponse(res, reqWith("gzip, br"));
-    expect(out.headers.get("Content-Encoding")).toBe("br");
+    const out = await compressResponse(res, reqWith("br, gzip"));
+    expect(out.headers.get("Content-Encoding")).toBe("gzip");
 
-    // @ts-ignore Bun supports "brotli" as DecompressionFormat
     const decompressed = new Response(
-      out.body!.pipeThrough(new DecompressionStream("brotli")),
+      out.body!.pipeThrough(new DecompressionStream("gzip")),
     );
     expect(await decompressed.text()).toBe(LARGE_BODY);
   });
 
   test("quality values in Accept-Encoding are stripped", async () => {
-    // Server preference order: brotli first. So even though client asks for
-    // gzip with higher q value, the server still picks brotli.
     const res = new Response(LARGE_BODY, {
       headers: {
         "Content-Type": "text/plain",
@@ -173,7 +170,7 @@ describe("compressResponse", () => {
       },
     });
     const out = await compressResponse(res, reqWith("br;q=0.5, gzip;q=0.8"));
-    expect(out.headers.get("Content-Encoding")).toBe("br");
+    expect(out.headers.get("Content-Encoding")).toBe("gzip");
   });
 
   test("compresses body without Content-Length if it clears the threshold", async () => {

@@ -70,7 +70,7 @@ export const configServerWeb = {
   compression: {
     enabled: await loadFromEnvIfSet("WEB_COMPRESSION_ENABLED", true),
     threshold: await loadFromEnvIfSet("WEB_COMPRESSION_THRESHOLD", 1024),
-    encodings: ["br", "gzip"] as ("br" | "gzip")[],
+    encodings: ["gzip"] as "gzip"[],
   },
   correlationId: {
     header: await loadFromEnvIfSet("WEB_CORRELATION_ID_HEADER", "X-Request-Id"),
