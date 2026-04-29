@@ -37,7 +37,7 @@ function parseAcceptEncoding(header: string): Set<string> {
 /**
  * Pick the best encoding based on server preference order and client support.
  */
-function selectEncoding(clientEncodings: Set<string>): "br" | "gzip" | null {
+function selectEncoding(clientEncodings: Set<string>): "gzip" | null {
   for (const encoding of config.server.web.compression.encodings) {
     if (clientEncodings.has(encoding)) return encoding;
   }
@@ -54,22 +54,16 @@ function isIncompressible(contentType: string | null): boolean {
 }
 
 /**
- * Pipe a body through a `CompressionStream` and build a new `Response` carrying the
+ * Pipe a body through a gzip `CompressionStream` and build a new `Response` carrying the
  * compression headers (`Content-Encoding`, appended `Vary`, removed `Content-Length`).
  */
-function compressBody(
-  body: ReadableStream,
-  encoding: "br" | "gzip",
-  response: Response,
-): Response {
-  const format: Bun.CompressionFormat = encoding === "br" ? "brotli" : "gzip";
-  // @ts-ignore Bun supports "brotli" as CompressionFormat but DOM lib does not
-  const compressionStream = new CompressionStream(format);
+function compressBody(body: ReadableStream, response: Response): Response {
+  const compressionStream = new CompressionStream("gzip");
   // @ts-ignore Bun's ReadableStream type is incompatible with Node/DOM ReadableStream
   const stream = body.pipeThrough(compressionStream);
 
   const headers = new Headers(response.headers);
-  headers.set("Content-Encoding", encoding);
+  headers.set("Content-Encoding", "gzip");
   headers.append("Vary", "Accept-Encoding");
   headers.delete("Content-Length");
 
@@ -110,8 +104,7 @@ export async function compressResponse(
   if (!acceptEncoding) return response;
 
   const clientEncodings = parseAcceptEncoding(acceptEncoding);
-  const encoding = selectEncoding(clientEncodings);
-  if (!encoding) return response;
+  if (!selectEncoding(clientEncodings)) return response;
 
   // Skip incompressible content types
   if (isIncompressible(response.headers.get("Content-Type"))) return response;
@@ -136,9 +129,9 @@ export async function compressResponse(
       });
     }
 
-    return compressBody(new Blob([body]).stream(), encoding, response);
+    return compressBody(new Blob([body]).stream(), response);
   }
 
   // Content-Length is present and above threshold — stream-compress
-  return compressBody(response.body, encoding, response);
+  return compressBody(response.body, response);
 }

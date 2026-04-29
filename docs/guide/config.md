@@ -228,13 +228,13 @@ Example JSON output:
 
 #### Compression
 
-HTTP responses are automatically compressed when the client sends an `Accept-Encoding` header. Brotli is preferred over gzip. Responses below the threshold or with incompressible content types (images, video, etc.) are served uncompressed.
+HTTP responses are automatically gzip-compressed when the client sends an `Accept-Encoding: gzip` header. Responses below the threshold or with incompressible content types (images, video, etc.) are served uncompressed.
 
-| Key                     | Env Var                     | Default          | Description                                |
-| ----------------------- | --------------------------- | ---------------- | ------------------------------------------ |
-| `compression.enabled`   | `WEB_COMPRESSION_ENABLED`   | `true`           | Enable HTTP response compression           |
-| `compression.threshold` | `WEB_COMPRESSION_THRESHOLD` | `1024`           | Minimum response size in bytes to compress |
-| `compression.encodings` | —                           | `["br", "gzip"]` | Encoding preference order (brotli first)   |
+| Key                     | Env Var                     | Default    | Description                                |
+| ----------------------- | --------------------------- | ---------- | ------------------------------------------ |
+| `compression.enabled`   | `WEB_COMPRESSION_ENABLED`   | `true`     | Enable HTTP response compression           |
+| `compression.threshold` | `WEB_COMPRESSION_THRESHOLD` | `1024`     | Minimum response size in bytes to compress |
+| `compression.encodings` | —                           | `["gzip"]` | Supported encodings                        |
 
 #### Correlation IDs
 

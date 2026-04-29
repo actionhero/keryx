@@ -532,30 +532,6 @@ describe("compression", () => {
     expect(body.openapi).toBeDefined();
   });
 
-  test("returns brotli-compressed response when Accept-Encoding: br", async () => {
-    const res = await fetch(getUrl() + "/api/swagger", {
-      headers: { "Accept-Encoding": "br" },
-      decompress: false,
-    });
-    expect(res.status).toBe(200);
-    expect(res.headers.get("Content-Encoding")).toBe("br");
-
-    const decompressed = new Response(
-      res.body!.pipeThrough(new DecompressionStream("brotli")),
-    );
-    const body = (await decompressed.json()) as Record<string, unknown>;
-    expect(body.openapi).toBeDefined();
-  });
-
-  test("prefers brotli over gzip when both are accepted", async () => {
-    const res = await fetch(getUrl() + "/api/swagger", {
-      headers: { "Accept-Encoding": "gzip, br" },
-      decompress: false,
-    });
-    expect(res.status).toBe(200);
-    expect(res.headers.get("Content-Encoding")).toBe("br");
-  });
-
   test("does not compress when Accept-Encoding is absent", async () => {
     const res = await fetch(getUrl() + "/api/swagger", {
       headers: { "Accept-Encoding": "" },
