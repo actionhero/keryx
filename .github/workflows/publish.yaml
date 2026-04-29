@@ -7,6 +7,7 @@ on:
       - packages/keryx/package.json
       - packages/plugins/tracing/package.json
       - packages/plugins/resque-admin/package.json
+      - packages/plugins/csrf/package.json
 
 jobs:
   publish:
@@ -26,6 +27,9 @@ jobs:
           - package: resque-admin
             dir: packages/plugins/resque-admin
             npm_name: "@keryxjs/resque-admin"
+          - package: csrf
+            dir: packages/plugins/csrf
+            npm_name: "@keryxjs/csrf"
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
