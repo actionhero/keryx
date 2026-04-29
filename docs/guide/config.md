@@ -201,6 +201,7 @@ Example JSON output:
 | `port`                 | `WEB_SERVER_PORT`                    | `8080`                                           |
 | `host`                 | `WEB_SERVER_HOST`                    | `"localhost"`                                    |
 | `applicationUrl`       | `APPLICATION_URL`                    | `"http://localhost:8080"`                        |
+| `trustProxy`           | `WEB_TRUST_PROXY`                    | `false`                                          |
 | `apiRoute`             | `WEB_SERVER_API_ROUTE`               | `"/api"`                                         |
 | `allowedOrigins`       | `WEB_SERVER_ALLOWED_ORIGINS`         | `"*"`                                            |
 | `allowedMethods`       | `WEB_SERVER_ALLOWED_METHODS`         | `"HEAD, GET, POST, PUT, PATCH, DELETE, OPTIONS"` |
@@ -235,6 +236,16 @@ HTTP responses are automatically compressed when the client sends an `Accept-Enc
 | `compression.enabled`   | `WEB_COMPRESSION_ENABLED`   | `true`           | Enable HTTP response compression           |
 | `compression.threshold` | `WEB_COMPRESSION_THRESHOLD` | `1024`           | Minimum response size in bytes to compress |
 | `compression.encodings` | —                           | `["br", "gzip"]` | Encoding preference order (brotli first)   |
+
+#### Trust Proxy
+
+Controls whether the server trusts forwarded headers (`X-Forwarded-Proto`, `X-Forwarded-Host`) when deriving the external origin used in OAuth metadata and MCP `WWW-Authenticate` URLs.
+
+| Key          | Env Var           | Default | Description                                                                |
+| ------------ | ----------------- | ------- | -------------------------------------------------------------------------- |
+| `trustProxy` | `WEB_TRUST_PROXY` | `false` | When `true`, honor `X-Forwarded-Proto` / `X-Forwarded-Host` (and `Host`) overrides for the external origin. Only enable behind a trusted reverse proxy that strips client-supplied forwarded headers. |
+
+See the [Security guide](/guide/security#reverse-proxy-forwarded-headers) for details.
 
 #### Correlation IDs
 
