@@ -4,6 +4,68 @@ import pkg from "../package.json";
 
 const SWAGGER_VERSION = "3.0.0";
 
+// Public shape of the OpenAPI doc this action emits. Kept local because
+// the only consumer is `ActionResponse<Swagger>` in tests — defining
+// these inline keeps the action self-contained.
+type JsonSchema = {
+  type?: string;
+  $ref?: string;
+  properties?: Record<string, JsonSchema>;
+  required?: string[];
+  additionalProperties?: unknown;
+  [key: string]: unknown;
+};
+
+type SwaggerOperation = {
+  operationId: string;
+  summary: string;
+  description?: string;
+  parameters?: Array<{
+    name: string;
+    in: string;
+    required?: boolean;
+    schema: JsonSchema;
+    description?: string;
+  }>;
+  requestBody?: {
+    required: boolean;
+    content: Record<string, { schema: JsonSchema }>;
+  };
+  responses: Record<
+    string,
+    {
+      description: string;
+      content: Record<string, { schema: JsonSchema }>;
+    }
+  >;
+  tags: string[];
+};
+
+type SwaggerDocument = {
+  openapi: string;
+  info: {
+    title: string;
+    version: string;
+    license: { name: string };
+    description: string;
+  };
+  servers: Array<{ url: string; description: string }>;
+  paths: Record<string, Record<string, SwaggerOperation | undefined>>;
+  components: {
+    schemas: Record<string, JsonSchema>;
+    securitySchemes?: Record<
+      string,
+      {
+        type: string;
+        in?: string;
+        name?: string;
+        description?: string;
+      }
+    >;
+  };
+  security: Array<Record<string, string[]>>;
+};
+
 const errorResponseSchema = {
   type: "object",
   properties: {
@@ -60,7 +122,7 @@ export class Swagger implements Action {
     "Returns the full API documentation as an OpenAPI 3.0.0 JSON document. Includes all available endpoints with their routes, methods, request schemas, response schemas, and parameter descriptions. Does not require authentication.";
   web = { route: "/swagger", method: HTTP_METHOD.GET };
 
-  async run() {
+  async run(): Promise<SwaggerDocument> {
     const paths: Record<string, Record<string, unknown>> = {};
     const components: {
       schemas: Record<string, unknown>;
@@ -232,6 +294,6 @@ export class Swagger implements Action {
       components,
       security: [{ sessionCookie: [] }],
     };
-    return document;
+    return document as unknown as SwaggerDocument;
   }
 }
