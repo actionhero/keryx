@@ -113,6 +113,28 @@ async function readBodyWithLimit(req: Request): Promise<string> {
 }
 
 /**
+ * Merge a value into the params object under `key`, appending to any existing
+ * value rather than replacing it. If `key` is not set, assigns `value` as-is.
+ * If it is set, produces an array containing the existing value(s) followed by
+ * the incoming value(s). Used to fold body, form-data, and query string
+ * sources into a single params object while preserving repeated keys.
+ */
+function appendParam(
+  params: Record<string, unknown>,
+  key: string,
+  value: unknown,
+): void {
+  if (params[key] === undefined) {
+    params[key] = value;
+    return;
+  }
+  const incoming = Array.isArray(value) ? value : [value];
+  params[key] = Array.isArray(params[key])
+    ? [...(params[key] as unknown[]), ...incoming]
+    : [params[key], ...incoming];
+}
+
+/**
  * Parse request parameters from path params, request body (JSON or form-data),
  * and query string into a single plain object.
  *
@@ -179,44 +201,12 @@ export async function parseRequestParams(
     }
 
     const f = await req.formData();
-    f.forEach((value, key) => {
-      if (params[key] !== undefined) {
-        if (Array.isArray(params[key])) {
-          (params[key] as unknown[]).push(value);
-        } else {
-          params[key] = [params[key], value];
-        }
-      } else {
-        params[key] = value;
-      }
-    });
+    f.forEach((value, key) => appendParam(params, key, value));
   }
 
   if (url.query) {
     for (const [key, values] of Object.entries(url.query)) {
-      if (values !== undefined) {
-        if (Array.isArray(values)) {
-          if (params[key] !== undefined) {
-            if (Array.isArray(params[key])) {
-              (params[key] as unknown[]).push(...values);
-            } else {
-              params[key] = [params[key], ...values];
-            }
-          } else {
-            params[key] = values;
-          }
-        } else {
-          if (params[key] !== undefined) {
-            if (Array.isArray(params[key])) {
-              (params[key] as unknown[]).push(values);
-            } else {
-              params[key] = [params[key], values];
-            }
-          } else {
-            params[key] = values;
-          }
-        }
-      }
+      if (values !== undefined) appendParam(params, key, values);
     }
   }
 
