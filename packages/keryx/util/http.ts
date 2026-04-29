@@ -35,10 +35,20 @@ export function buildCorsHeaders(
 }
 
 /**
- * Derive the external-facing origin for a request.
- * Respects reverse-proxy headers (`X-Forwarded-Proto` / `X-Forwarded-Host`)
- * so that URLs are correct when behind ngrok, a load balancer, etc.
- * Falls back to the parsed request-URL origin.
+ * Derive the external-facing origin for a request. Used to construct OAuth
+ * metadata URLs (issuer, endpoints) and the MCP `WWW-Authenticate` resource
+ * metadata URL.
+ *
+ * Resolution order:
+ * 1. `applicationUrl` config (when set to a non-localhost value).
+ * 2. `X-Forwarded-Proto` / `X-Forwarded-Host` (or `Host`) headers — only when
+ *    `config.server.mcp.oauthTrustProxy` is enabled. These headers are
+ *    spoofable by any client when the server is reachable directly, so
+ *    trusting them unconditionally would let an attacker poison OAuth
+ *    metadata and MCP `WWW-Authenticate` URLs. Operators must opt in via
+ *    `MCP_OAUTH_TRUST_PROXY=true` after confirming a reverse proxy strips
+ *    client-supplied forwarded headers.
+ * 3. The parsed request-URL origin.
  */
 export function getExternalOrigin(req: Request, url: URL): string {
   // Prefer explicitly configured APPLICATION_URL (for proxy/tunnel scenarios
@@ -48,17 +58,18 @@ export function getExternalOrigin(req: Request, url: URL): string {
     return new URL(appUrl).origin;
   }
 
-  // Fall back to reverse-proxy headers
-  const forwardedProto = req.headers.get("x-forwarded-proto");
-  const forwardedHost =
-    req.headers.get("x-forwarded-host") || req.headers.get("host");
+  if (config.server.mcp.oauthTrustProxy) {
+    const forwardedProto = req.headers.get("x-forwarded-proto");
+    const forwardedHost =
+      req.headers.get("x-forwarded-host") || req.headers.get("host");
 
-  if (forwardedProto && forwardedHost) {
-    return `${forwardedProto}://${forwardedHost}`;
-  }
+    if (forwardedProto && forwardedHost) {
+      return `${forwardedProto}://${forwardedHost}`;
+    }
 
-  if (forwardedHost) {
-    return `${url.protocol}//${forwardedHost}`;
+    if (forwardedHost) {
+      return `${url.protocol}//${forwardedHost}`;
+    }
   }
 
   return url.origin;

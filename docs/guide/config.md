@@ -315,4 +315,7 @@ See the [Security guide](/guide/security) for details on how rate limiting works
 | `instructions`       | `MCP_SERVER_INSTRUCTIONS`  | package description |
 | `oauthClientTtl`     | `MCP_OAUTH_CLIENT_TTL`     | `2592000`           |
 | `oauthCodeTtl`       | `MCP_OAUTH_CODE_TTL`       | `300`               |
+| `oauthTrustProxy`    | `MCP_OAUTH_TRUST_PROXY`    | `false`             |
 | `markdownDepthLimit` | `MCP_MARKDOWN_DEPTH_LIMIT` | `5`                 |
+
+`oauthTrustProxy` controls whether `X-Forwarded-Proto` / `X-Forwarded-Host` headers are honored when deriving the external origin used in OAuth metadata and MCP `WWW-Authenticate` URLs. Only enable behind a trusted reverse proxy that strips client-supplied forwarded headers. See the [Security guide](/guide/security#reverse-proxy-forwarded-headers) for details.
