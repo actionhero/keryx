@@ -155,7 +155,6 @@ bun docs:build                     # Generate reference data + build static site
 
 ## Pull Requests
 
-- **Never enable auto-merge** — Do not use `gh pr merge --auto` or enable auto-merge on PRs. PRs should always be merged manually after review.
 - **Always bump the package version** — Every PR must bump `"version"` in `packages/keryx/package.json`. Use patch for bug fixes, minor for new features.
 - **Link the issue when solving one** — If a PR resolves a GitHub issue, the PR body MUST contain `closes #<number>` (e.g. `closes #450`) so the issue auto-closes on merge. Referencing the issue number in the title alone is not enough.
 
