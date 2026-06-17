@@ -1,0 +1,7 @@
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+
+[scripts]
+archive = "bun .conductor/teardown.ts"
+run = "bun dev"
+run_mode = "nonconcurrent"
+setup = "bun install && bun .conductor/setup.ts"
