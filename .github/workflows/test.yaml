@@ -63,12 +63,7 @@ jobs:
       - run: bun install
       - run: cp packages/keryx/.env.example packages/keryx/.env
       - name: Run test shard ${{ matrix.shard }}/2
-        run: |
-          cd packages/keryx
-          files=$(find __tests__ -name '*.test.ts' | sort)
-          shard_files=$(echo "$files" | awk "NR % 2 == (${{ matrix.shard }} - 1)")
-          echo "Running: $shard_files"
-          bun test $shard_files
+        run: cd packages/keryx && bunx --bun vitest run --shard=${{ matrix.shard }}/2
         env:
           DATABASE_URL_TEST: postgres://postgres:postgres@localhost:5432/keryx-test
 
@@ -100,7 +95,7 @@ jobs:
       - run: cp packages/keryx/.env.example packages/keryx/.env
       - run: cp packages/plugins/resque-admin/.env.example packages/plugins/resque-admin/.env
       - name: Run resque-admin tests
-        run: cd packages/plugins/resque-admin && bun test
+        run: cd packages/plugins/resque-admin && bun run test
         env:
           DATABASE_URL_TEST: postgres://postgres:postgres@localhost:5432/keryx-test
 
@@ -135,12 +130,7 @@ jobs:
       - run: bun install
       - run: cp example/backend/.env.example example/backend/.env
       - name: Run test shard ${{ matrix.shard }}/2
-        run: |
-          cd example/backend
-          files=$(find __tests__ -name '*.test.ts' | sort)
-          shard_files=$(echo "$files" | awk "NR % 2 == (${{ matrix.shard }} - 1)")
-          echo "Running: $shard_files"
-          bun test $shard_files
+        run: cd example/backend && bunx --bun vitest run --shard=${{ matrix.shard }}/2
         env:
           DATABASE_URL_TEST: postgres://postgres:postgres@localhost:5432/keryx-test
 
@@ -172,7 +162,7 @@ jobs:
       - run: cp packages/keryx/.env.example packages/keryx/.env
       - run: cp packages/plugins/tracing/.env.example packages/plugins/tracing/.env
       - name: Run tracing tests
-        run: cd packages/plugins/tracing && bun test
+        run: cd packages/plugins/tracing && bun run test
         env:
           DATABASE_URL_TEST: postgres://postgres:postgres@localhost:5432/keryx-test
 
@@ -204,7 +194,7 @@ jobs:
       - run: cp packages/keryx/.env.example packages/keryx/.env
       - run: cp packages/plugins/csrf/.env.example packages/plugins/csrf/.env
       - name: Run csrf tests
-        run: cd packages/plugins/csrf && bun test
+        run: cd packages/plugins/csrf && bun run test
         env:
           DATABASE_URL_TEST: postgres://postgres:postgres@localhost:5432/keryx-test
 

@@ -6,7 +6,7 @@ import {
   describe,
   expect,
   test,
-} from "bun:test";
+} from "vitest";
 import { z } from "zod";
 import { Action, api } from "../../api";
 import { HOOK_TIMEOUT, waitFor } from "./../setup";

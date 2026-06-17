@@ -1,4 +1,4 @@
-import { afterAll, beforeAll } from "bun:test";
+import { afterAll, beforeAll } from "vitest";
 import { api } from "../api";
 import type { WebServer } from "../servers/web";
 

@@ -24,13 +24,13 @@ export interface ComponentDef {
 }
 
 const generateTemplatesDir = path.join(
-  import.meta.dir,
+  import.meta.dirname,
   "..",
   "templates",
   "generate",
 );
 const scaffoldTemplatesDir = path.join(
-  import.meta.dir,
+  import.meta.dirname,
   "..",
   "templates",
   "scaffold",

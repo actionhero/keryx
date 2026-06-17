@@ -1,10 +1,12 @@
 ---
-description: Testing with Bun's built-in test runner — real HTTP requests, no mocking.
+description: Testing with Vitest (running on the Bun runtime) — real HTTP requests, no mocking.
 ---
 
 # Testing
 
 We don't mock the server. That's a deliberate choice — if you're testing an API, you should be making real HTTP requests against a real running server. Now that Bun includes `fetch` out of the box, this is trivially easy.
+
+Tests are run with [Vitest](https://vitest.dev) executing on the Bun runtime (`bunx --bun vitest`), so your code still runs on Bun while you get Vitest's reporting, filtering, and watch mode. Import test primitives from `"vitest"`.
 
 ## Test Structure
 
@@ -39,10 +41,10 @@ The `keryx/testing` subpath exports helpers that cover the common test lifecycle
   const getUrl = useTestServer({ clearDatabase: true, clearRedis: true });
   ```
 
-  Need additional setup like inserting a seed user? Bun supports multiple `beforeAll` blocks per file — add another one after `useTestServer()` that runs once `api.start()` has completed.
+  Need additional setup like inserting a seed user? Vitest supports multiple `beforeAll` blocks per file — add another one after `useTestServer()` that runs once `api.start()` has completed.
 
 - **`serverUrl()`** — Returns the actual URL the web server bound to (with resolved port). Call after `api.start()`. `useTestServer()` wraps this internally; reach for it directly only when you need manual lifecycle control.
-- **`HOOK_TIMEOUT`** — A generous timeout (15s) for `beforeAll`/`afterAll` hooks, since they connect to Redis, Postgres, run migrations, etc. Pass as the second argument to `beforeAll`/`afterAll` when writing your own lifecycle hooks.
+- **`HOOK_TIMEOUT`** — A generous timeout (60s) for `beforeAll`/`afterAll` hooks, since they connect to Redis, Postgres, run migrations, etc. Pass as the second argument to `beforeAll`/`afterAll` when writing your own lifecycle hooks.
 - **`buildWebSocket(opts?)`**, **`createUser`**, **`createSession`**, **`subscribeToChannel`**, **`waitForBroadcastMessages`** — Higher-level helpers for WebSocket tests. See [Testing WebSocket Connections](#testing-websocket-connections) below.
 - **`waitFor(condition, { interval, timeout })`** — Polls a condition function until it returns `true`, or throws after a timeout. Use this instead of fixed `Bun.sleep()` calls when waiting for async side effects like background tasks:
 
@@ -62,10 +64,13 @@ await waitFor(
 
 ```bash
 # all backend tests
-cd example/backend && bun test
+cd example/backend && bun run test
 
 # a single file
-cd example/backend && bun test __tests__/actions/user.test.ts
+cd example/backend && bunx --bun vitest run __tests__/actions/user.test.ts
+
+# watch mode while developing
+cd example/backend && bunx --bun vitest
 
 # full CI — lint + test both frontend and backend
 bun run ci

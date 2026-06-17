@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { scaffoldProject } from "../util/scaffold";
 
 let tmpDir: string;
@@ -152,7 +152,7 @@ describe("scaffoldProject", () => {
       path.join(targetDir("check-index"), "index.ts"),
       "utf-8",
     );
-    expect(content).toContain("api.rootDir = import.meta.dir");
+    expect(content).toContain("api.rootDir = import.meta.dirname");
   });
 
   test(".env.example uses project name", async () => {

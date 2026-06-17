@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { api } from "keryx";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { serializeMessage } from "../../ops/MessageOps";
 import type { Message } from "../../schema/messages";
 import { HOOK_TIMEOUT } from "./../setup";

@@ -66,7 +66,7 @@ export async function generateOAuthTemplateContents(): Promise<
     "oauth-common.css",
     "lion.svg",
   ];
-  const sourceDir = path.join(import.meta.dir, "..", "templates");
+  const sourceDir = path.join(import.meta.dirname, "..", "templates");
 
   for (const file of oauthTemplates) {
     const content = await Bun.file(path.join(sourceDir, file)).text();
@@ -85,7 +85,7 @@ export async function generateConfigFileContents(): Promise<
   Map<string, string>
 > {
   const result = new Map<string, string>();
-  const configDir = path.join(import.meta.dir, "..", "config");
+  const configDir = path.join(import.meta.dirname, "..", "config");
   const glob = new Glob("**/*.ts");
 
   for await (const file of glob.scan(configDir)) {
@@ -140,7 +140,7 @@ export async function generateBuiltinActionContents(): Promise<
 > {
   const result = new Map<string, string>();
   const builtinActions = ["status.ts", "swagger.ts"];
-  const actionsDir = path.join(import.meta.dir, "..", "actions");
+  const actionsDir = path.join(import.meta.dirname, "..", "actions");
 
   for (const file of builtinActions) {
     let content = await Bun.file(path.join(actionsDir, file)).text();
@@ -318,6 +318,7 @@ export async function scaffoldProject(
           start: "bun keryx.ts start",
           dev: "bun --watch keryx.ts start",
           ...(options.includeDb ? { migrations: "bun run migrations.ts" } : {}),
+          test: "tsc && bunx --bun vitest run",
           lint: "tsc && biome check .",
           format: "tsc && biome check --write .",
         },
@@ -334,6 +335,7 @@ export async function scaffoldProject(
         devDependencies: {
           "@biomejs/biome": "^2.4.8",
           "@types/bun": "latest",
+          vitest: "^4.1.9",
           ...(options.includeDb ? { "drizzle-kit": "^0.20.18" } : {}),
         },
       },
@@ -343,6 +345,7 @@ export async function scaffoldProject(
   );
 
   await write("tsconfig.json", generateTsconfigContents());
+  await writeTemplate("vitest.config.ts", "vitest.config.ts.mustache");
   await write(
     "biome.json",
     JSON.stringify(

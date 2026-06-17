@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Redis as RedisClient } from "ioredis";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { api } from "../../api";
 import { config } from "../../config";
 import { Redis } from "../../initializers/redis";

@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { z } from "zod";
 import { api, CONNECTION_TYPE, Connection } from "../../api";
 import { Action, type ActionMiddleware } from "../../classes/Action";

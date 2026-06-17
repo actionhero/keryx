@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { api, config } from "keryx";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { tracingPlugin } from "..";
 import { HOOK_TIMEOUT } from "./setup";
 

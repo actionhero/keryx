@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Action, api, HTTP_METHOD } from "keryx";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { z } from "zod";
 import { HOOK_TIMEOUT, serverUrl } from "./../setup";
 

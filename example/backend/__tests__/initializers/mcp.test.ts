@@ -1,7 +1,7 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { type Action, api, config } from "keryx";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { z } from "zod";
 import * as z4mini from "zod/v4-mini";
 import { HOOK_TIMEOUT, serverUrl } from "../setup";
@@ -117,7 +117,7 @@ describe("mcp initializer (enabled)", () => {
 
   test("MCP server boots when enabled", () => {
     expect(api.mcp.mcpServers).toBeDefined();
-    expect(api.mcp.handleRequest).toBeFunction();
+    expect(typeof api.mcp.handleRequest).toBe("function");
   });
 
   test("POST without auth returns 401 with WWW-Authenticate header", async () => {
@@ -140,7 +140,7 @@ describe("mcp initializer (enabled)", () => {
     });
     expect(res.status).toBe(401);
     const wwwAuth = res.headers.get("www-authenticate") ?? "";
-    expect(wwwAuth).toStartWith("Bearer");
+    expect(wwwAuth).toMatch(/^Bearer/);
     expect(wwwAuth).toContain("resource_metadata=");
     expect(wwwAuth).toContain("/.well-known/oauth-protected-resource/mcp");
   });
@@ -317,7 +317,7 @@ describe("mcp initializer (enabled)", () => {
 
     test("resources/read on static URI returns action response as content", async () => {
       const result = await client.readResource({ uri: "keryx://status" });
-      expect(result.contents).toBeArray();
+      expect(result.contents).toBeInstanceOf(Array);
       expect(result.contents.length).toBeGreaterThan(0);
       const content = result.contents[0];
       expect(content.uri).toBe("keryx://status");
@@ -340,7 +340,7 @@ describe("mcp initializer (enabled)", () => {
         name: "greeting-prompt",
         arguments: { name: "Evan" },
       });
-      expect(result.messages).toBeArray();
+      expect(result.messages).toBeInstanceOf(Array);
       expect(result.messages.length).toBeGreaterThan(0);
       const msg = result.messages[0];
       expect(msg.role).toBe("user");
@@ -355,7 +355,7 @@ describe("mcp initializer (enabled)", () => {
         name: "greeting-prompt",
         arguments: {},
       });
-      expect(result.messages).toBeArray();
+      expect(result.messages).toBeInstanceOf(Array);
       const msg = result.messages[0];
       expect((msg.content as { type: string; text: string }).text).toContain(
         "world",
@@ -411,7 +411,7 @@ describe("mcp initializer (enabled)", () => {
         type: string;
         text?: string;
       }>;
-      expect(content).toBeArray();
+      expect(content).toBeInstanceOf(Array);
       expect(content.length).toBeGreaterThan(0);
 
       const textContent = content[0];
@@ -496,7 +496,7 @@ describe("mcp initializer (enabled)", () => {
       expect(result.isError).toBe(true);
 
       const content = result.content as Array<{ type: string }>;
-      expect(content).toBeArray();
+      expect(content).toBeInstanceOf(Array);
       expect(content.length).toBeGreaterThan(0);
     });
   });
@@ -1082,7 +1082,7 @@ describe("mcp initializer (enabled)", () => {
           text?: string;
         }>;
         const listParsed = JSON.parse(listContent[0].text!);
-        expect(listParsed.messages).toBeArray();
+        expect(listParsed.messages).toBeInstanceOf(Array);
         const ourMessage = listParsed.messages.find(
           (m: any) => m.body === "Hello from E2E test",
         );

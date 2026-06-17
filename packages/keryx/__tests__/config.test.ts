@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import type { KeryxConfig } from "../config";
 import { config } from "../config";
 import { deepMerge, loadFromEnvIfSet } from "../util/config";

@@ -1,9 +1,9 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
-const keryxTs = path.join(import.meta.dir, "..", "keryx.ts");
+const keryxTs = path.join(import.meta.dirname, "..", "keryx.ts");
 let tmpDir: string;
 let projectDir: string;
 
@@ -72,7 +72,7 @@ describe("keryx new (CLI integration)", () => {
 
   test("index.ts sets api.rootDir", () => {
     const content = fs.readFileSync(path.join(projectDir, "index.ts"), "utf-8");
-    expect(content).toContain("api.rootDir = import.meta.dir");
+    expect(content).toContain("api.rootDir = import.meta.dirname");
   });
 
   test(".env.example contains expected vars", () => {

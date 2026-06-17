@@ -1,12 +1,12 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Subprocess } from "bun";
 import fs from "fs";
 import os from "os";
 import path from "path";
 import { Pool } from "pg";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
-const keryxTs = path.join(import.meta.dir, "..", "keryx.ts");
-const keryxPkgDir = path.join(import.meta.dir, "..");
+const keryxTs = path.join(import.meta.dirname, "..", "keryx.ts");
+const keryxPkgDir = path.join(import.meta.dirname, "..");
 const E2E_TIMEOUT = 60_000;
 const SERVER_PORT = 18765;
 const REDIS_DB = 9;

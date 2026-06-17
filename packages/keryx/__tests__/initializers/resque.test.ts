@@ -6,7 +6,7 @@ import {
   describe,
   expect,
   test,
-} from "bun:test";
+} from "vitest";
 import { z } from "zod";
 import { Action, api, Connection, logger } from "../../api";
 import { DEFAULT_QUEUE } from "../../classes/Action";

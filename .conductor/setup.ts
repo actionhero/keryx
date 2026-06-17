@@ -16,7 +16,7 @@ import { $ } from "bun";
 import { existsSync, readdirSync } from "fs";
 import { join } from "path";
 
-const ROOT_DIR = join(import.meta.dir, "..");
+const ROOT_DIR = join(import.meta.dirname, "..");
 
 const workspaceName = process.env.CONDUCTOR_WORKSPACE_NAME;
 const conductorPort = process.env.CONDUCTOR_PORT

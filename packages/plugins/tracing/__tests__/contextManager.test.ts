@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
 import { ROOT_CONTEXT } from "@opentelemetry/api";
+import { describe, expect, test } from "vitest";
 import { KeryxContextManager } from "../initializer";
 
 describe("KeryxContextManager", () => {

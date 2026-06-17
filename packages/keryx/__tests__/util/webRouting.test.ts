@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { api } from "../../api";
 import { type Action, HTTP_METHOD } from "../../classes/Action";
 import { Router } from "../../classes/Router";

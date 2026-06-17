@@ -1,8 +1,8 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { $ } from "bun";
 import { api, config } from "keryx";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { HOOK_TIMEOUT, serverUrl } from "../setup";
 import { computeStats, printStats } from "./stats";
 
@@ -150,163 +150,142 @@ describe("transport benchmarks", () => {
   // -------------------------------------------------------------------------
   // HTTP
   // -------------------------------------------------------------------------
-  test(
-    "benchmark: http",
-    async () => {
-      const { iterations, warmup, p95ms } = THRESHOLDS.http;
+  test("benchmark: http", async () => {
+    const { iterations, warmup, p95ms } = THRESHOLDS.http;
 
-      // Warmup
-      for (let i = 0; i < warmup; i++) {
-        await fetch(`${url}/status`);
-      }
+    // Warmup
+    for (let i = 0; i < warmup; i++) {
+      await fetch(`${url}/status`);
+    }
 
-      // Measured iterations
-      const durations: number[] = [];
-      for (let i = 0; i < iterations; i++) {
-        const start = performance.now();
-        const res = await fetch(`${url}/status`);
-        const elapsed = performance.now() - start;
-        expect(res.status).toBe(200);
-        await res.json();
-        durations.push(elapsed);
-      }
+    // Measured iterations
+    const durations: number[] = [];
+    for (let i = 0; i < iterations; i++) {
+      const start = performance.now();
+      const res = await fetch(`${url}/status`);
+      const elapsed = performance.now() - start;
+      expect(res.status).toBe(200);
+      await res.json();
+      durations.push(elapsed);
+    }
 
-      const stats = computeStats(durations);
-      printStats("HTTP (GET /status)", stats, p95ms);
-      expect(stats.p95).toBeLessThanOrEqual(p95ms);
-    },
-    { timeout: 60_000 },
-  );
+    const stats = computeStats(durations);
+    printStats("HTTP (GET /status)", stats, p95ms);
+    expect(stats.p95).toBeLessThanOrEqual(p95ms);
+  }, 60_000);
 
   // -------------------------------------------------------------------------
   // WebSocket
   // -------------------------------------------------------------------------
-  test(
-    "benchmark: websocket",
-    async () => {
-      const { iterations, warmup, p95ms } = THRESHOLDS.websocket;
-      let messageId = 0;
+  test("benchmark: websocket", async () => {
+    const { iterations, warmup, p95ms } = THRESHOLDS.websocket;
+    let messageId = 0;
 
-      // Create a fresh WebSocket connection for this benchmark
-      const wsUrl = url
-        .replace("https://", "wss://")
-        .replace("http://", "ws://");
-      const ws = new WebSocket(wsUrl);
-      const pending = new Map<
-        number,
-        (value: Record<string, unknown>) => void
-      >();
-      ws.onmessage = (event) => {
-        const parsed = JSON.parse(event.data);
-        const resolve = pending.get(parsed.messageId);
-        if (resolve) {
-          pending.delete(parsed.messageId);
-          resolve(parsed);
-        }
-      };
-      await new Promise<void>((resolve, reject) => {
-        ws.addEventListener("open", () => resolve());
-        ws.addEventListener("error", (e) => reject(e));
+    // Create a fresh WebSocket connection for this benchmark
+    const wsUrl = url.replace("https://", "wss://").replace("http://", "ws://");
+    const ws = new WebSocket(wsUrl);
+    const pending = new Map<number, (value: Record<string, unknown>) => void>();
+    ws.onmessage = (event) => {
+      const parsed = JSON.parse(event.data);
+      const resolve = pending.get(parsed.messageId);
+      if (resolve) {
+        pending.delete(parsed.messageId);
+        resolve(parsed);
+      }
+    };
+    await new Promise<void>((resolve, reject) => {
+      ws.addEventListener("open", () => resolve());
+      ws.addEventListener("error", (e) => reject(e));
+    });
+
+    const sendAndWait = (id: number) =>
+      new Promise<Record<string, unknown>>((resolve) => {
+        pending.set(id, resolve);
+        ws.send(
+          JSON.stringify({
+            messageType: "action",
+            action: "status",
+            messageId: id,
+            params: {},
+          }),
+        );
       });
 
-      const sendAndWait = (id: number) =>
-        new Promise<Record<string, unknown>>((resolve) => {
-          pending.set(id, resolve);
-          ws.send(
-            JSON.stringify({
-              messageType: "action",
-              action: "status",
-              messageId: id,
-              params: {},
-            }),
-          );
-        });
+    // Warmup
+    for (let i = 0; i < warmup; i++) {
+      await sendAndWait(++messageId);
+    }
 
-      // Warmup
-      for (let i = 0; i < warmup; i++) {
-        await sendAndWait(++messageId);
-      }
+    // Measured iterations
+    const durations: number[] = [];
+    for (let i = 0; i < iterations; i++) {
+      const id = ++messageId;
+      const start = performance.now();
+      const response = await sendAndWait(id);
+      const elapsed = performance.now() - start;
+      expect(response.error).toBeUndefined();
+      durations.push(elapsed);
+    }
 
-      // Measured iterations
-      const durations: number[] = [];
-      for (let i = 0; i < iterations; i++) {
-        const id = ++messageId;
-        const start = performance.now();
-        const response = await sendAndWait(id);
-        const elapsed = performance.now() - start;
-        expect(response.error).toBeUndefined();
-        durations.push(elapsed);
-      }
+    ws.close();
 
-      ws.close();
-
-      const stats = computeStats(durations);
-      printStats("WebSocket (action: status)", stats, p95ms);
-      expect(stats.p95).toBeLessThanOrEqual(p95ms);
-    },
-    { timeout: 60_000 },
-  );
+    const stats = computeStats(durations);
+    printStats("WebSocket (action: status)", stats, p95ms);
+    expect(stats.p95).toBeLessThanOrEqual(p95ms);
+  }, 60_000);
 
   // -------------------------------------------------------------------------
   // MCP
   // -------------------------------------------------------------------------
-  test(
-    "benchmark: mcp",
-    async () => {
-      const { iterations, warmup, p95ms } = THRESHOLDS.mcp;
+  test("benchmark: mcp", async () => {
+    const { iterations, warmup, p95ms } = THRESHOLDS.mcp;
 
-      // Warmup
-      for (let i = 0; i < warmup; i++) {
-        await mcpClient.callTool({ name: "status", arguments: {} });
-      }
+    // Warmup
+    for (let i = 0; i < warmup; i++) {
+      await mcpClient.callTool({ name: "status", arguments: {} });
+    }
 
-      // Measured iterations
-      const durations: number[] = [];
-      for (let i = 0; i < iterations; i++) {
-        const start = performance.now();
-        const result = await mcpClient.callTool({
-          name: "status",
-          arguments: {},
-        });
-        const elapsed = performance.now() - start;
-        expect(result.isError).toBeFalsy();
-        durations.push(elapsed);
-      }
+    // Measured iterations
+    const durations: number[] = [];
+    for (let i = 0; i < iterations; i++) {
+      const start = performance.now();
+      const result = await mcpClient.callTool({
+        name: "status",
+        arguments: {},
+      });
+      const elapsed = performance.now() - start;
+      expect(result.isError).toBeFalsy();
+      durations.push(elapsed);
+    }
 
-      const stats = computeStats(durations);
-      printStats("MCP (callTool: status)", stats, p95ms);
-      expect(stats.p95).toBeLessThanOrEqual(p95ms);
-    },
-    { timeout: 120_000 },
-  );
+    const stats = computeStats(durations);
+    printStats("MCP (callTool: status)", stats, p95ms);
+    expect(stats.p95).toBeLessThanOrEqual(p95ms);
+  }, 120_000);
 
   // -------------------------------------------------------------------------
   // CLI
   // -------------------------------------------------------------------------
-  test(
-    "benchmark: cli",
-    async () => {
-      const { iterations, warmup, p95ms } = THRESHOLDS.cli;
+  test("benchmark: cli", async () => {
+    const { iterations, warmup, p95ms } = THRESHOLDS.cli;
 
-      // Warmup
-      for (let i = 0; i < warmup; i++) {
-        await $`./keryx.ts status`.quiet();
-      }
+    // Warmup
+    for (let i = 0; i < warmup; i++) {
+      await $`./keryx.ts status`.quiet();
+    }
 
-      // Measured iterations
-      const durations: number[] = [];
-      for (let i = 0; i < iterations; i++) {
-        const start = performance.now();
-        const { exitCode } = await $`./keryx.ts status`.quiet();
-        const elapsed = performance.now() - start;
-        expect(exitCode).toBe(0);
-        durations.push(elapsed);
-      }
+    // Measured iterations
+    const durations: number[] = [];
+    for (let i = 0; i < iterations; i++) {
+      const start = performance.now();
+      const { exitCode } = await $`./keryx.ts status`.quiet();
+      const elapsed = performance.now() - start;
+      expect(exitCode).toBe(0);
+      durations.push(elapsed);
+    }
 
-      const stats = computeStats(durations);
-      printStats("CLI (./keryx.ts status)", stats, p95ms);
-      expect(stats.p95).toBeLessThanOrEqual(p95ms);
-    },
-    { timeout: 120_000 },
-  );
+    const stats = computeStats(durations);
+    printStats("CLI (./keryx.ts status)", stats, p95ms);
+    expect(stats.p95).toBeLessThanOrEqual(p95ms);
+  }, 120_000);
 });
