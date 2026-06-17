@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { api } from "../../api";
 import { CONNECTION_TYPE, Connection } from "../../classes/Connection";
 import { StreamingResponse } from "../../classes/StreamingResponse";

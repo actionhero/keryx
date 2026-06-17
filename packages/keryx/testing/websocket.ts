@@ -1,4 +1,4 @@
-import { expect } from "bun:test";
+import { expect } from "vitest";
 import { api } from "../api";
 import type { WebServer } from "../servers/web";
 

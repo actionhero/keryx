@@ -13,7 +13,8 @@
     "start": "bun keryx.ts start",
     "dev": "bun --watch keryx.ts start",
     "migrations": "bun run migrations.ts",
-    "benchmark": "bun test __tests__/benchmark/",
+    "benchmark": "bunx --bun vitest run __tests__/benchmark/",
+    "test": "bunx --bun vitest run",
     "lint": "tsc && biome check .",
     "format": "tsc && biome check --write ."
   },

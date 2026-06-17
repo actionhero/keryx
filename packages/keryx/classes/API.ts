@@ -26,7 +26,7 @@ export enum RUN_MODE {
 export class API {
   /** The root directory of the user's application. Set this before calling `initialize()`. */
   rootDir: string;
-  /** The root directory of the keryx package itself (auto-resolved from `import.meta.path`). */
+  /** The root directory of the keryx package itself (auto-resolved from `import.meta.filename`). */
   packageDir: string;
   /** Whether `initialize()` has completed successfully. */
   initialized: boolean;
@@ -50,7 +50,7 @@ export class API {
 
   constructor() {
     this.bootTime = new Date().getTime();
-    this.packageDir = path.join(import.meta.path, "..", "..");
+    this.packageDir = path.join(import.meta.filename, "..", "..");
     this.rootDir = this.packageDir;
     this.logger = new Logger(config.logger);
 

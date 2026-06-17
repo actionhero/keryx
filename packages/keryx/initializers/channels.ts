@@ -10,7 +10,7 @@ import { globLoader } from "../util/glob";
 
 const namespace = "channels";
 const PRESENCE_KEY_PREFIX = "presence:";
-const LUA_DIR = join(import.meta.dir, "..", "lua");
+const LUA_DIR = join(import.meta.dirname, "..", "lua");
 
 const ADD_PRESENCE_LUA = await Bun.file(
   join(LUA_DIR, "add-presence.lua"),

@@ -1,4 +1,3 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import {
   Action,
@@ -13,6 +12,7 @@ import {
   TypedError,
   withTransaction,
 } from "keryx";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { type User, users } from "../../schema/users";
 import { HOOK_TIMEOUT } from "../setup";
 

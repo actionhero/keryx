@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { api } from "keryx";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
   checkPassword,
   hashPassword,

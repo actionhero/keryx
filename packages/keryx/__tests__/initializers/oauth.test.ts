@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import { api } from "../../api";
 import { config } from "../../config";
 import { useTestServer, waitFor } from "./../setup";
@@ -52,7 +52,7 @@ describe("oauth initializer", () => {
         scopes_supported: string[];
       };
       expect(body.resource).toBeDefined();
-      expect(body.authorization_servers).toBeArray();
+      expect(body.authorization_servers).toBeInstanceOf(Array);
       expect(body.authorization_servers.length).toBeGreaterThan(0);
       expect(body.scopes_supported).toEqual(["mcp"]);
     });

@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { scaffoldProject } from "../util/scaffold";
 import { upgradeProject } from "../util/upgrade";
 

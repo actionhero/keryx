@@ -1,0 +1,18 @@
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  test: {
+    include: ["__tests__/**/*.test.ts"],
+    globals: false,
+    // Run on the Bun runtime via `bunx --bun vitest`. The forks pool keeps
+    // Node/Bun process APIs available; file parallelism is disabled so test
+    // files that boot the server don't race on the shared database/Redis.
+    pool: "forks",
+    fileParallelism: false,
+    testTimeout: 15_000,
+    hookTimeout: 60_000,
+    // zod (and other CJS deps consumed via named imports) must be transformed
+    // by Vite so the named-export interop works under the Bun runtime.
+    server: { deps: { inline: ["zod"] } },
+  },
+});

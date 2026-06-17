@@ -45,7 +45,7 @@
     "zod": "^4.3.6"
   },
   "scripts": {
-    "test": "tsc && bun test",
+    "test": "tsc && bunx --bun vitest run",
     "lint": "tsc && biome check .",
     "format": "tsc && biome check --write ."
   }

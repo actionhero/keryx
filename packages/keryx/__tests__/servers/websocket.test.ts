@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
 import { api } from "../../api";
 import { Channel } from "../../classes/Channel";
 import { config } from "../../config";

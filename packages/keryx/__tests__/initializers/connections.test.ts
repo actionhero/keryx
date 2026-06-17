@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { api, CONNECTION_TYPE, Connection } from "../../api";
 import { HOOK_TIMEOUT } from "./../setup";
 

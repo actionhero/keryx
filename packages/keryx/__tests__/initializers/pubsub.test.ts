@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import { api, CONNECTION_TYPE, Connection } from "../../api";
 import type { PubSubMessage } from "../../initializers/pubsub";
 import { useTestServer, waitFor } from "./../setup";

@@ -1,5 +1,5 @@
-import { beforeAll, describe, expect, test } from "bun:test";
 import { type ActionResponse, api } from "keryx";
+import { beforeAll, describe, expect, test } from "vitest";
 import type { SessionCreate } from "../../actions/session";
 import { hashPassword } from "../../ops/UserOps";
 import { users } from "../../schema/users";

@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
 import { type Action, type ActionResponse, api } from "keryx";
+import { describe, expect, test } from "vitest";
 import type { Swagger } from "../../actions/swagger";
 import { useTestServer } from "./../setup";
 
