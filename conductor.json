@@ -1,8 +1,0 @@
-{
-  "scripts": {
-    "setup": "bun install && bun .conductor/setup.ts",
-    "run": "bun dev",
-    "archive": "bun .conductor/teardown.ts"
-  },
-  "runScriptMode": "nonconcurrent"
-}
