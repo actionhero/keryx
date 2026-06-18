@@ -18,6 +18,15 @@ import { join } from "path";
 
 const ROOT_DIR = join(import.meta.dirname, "..");
 
+// Conductor Cloud (Vercel Sandbox / Amazon Linux 2023) takes a dedicated path:
+// the toolchain is installed by .conductor/cloud-init.sh at snapshot build time,
+// and here we just start the services, create databases, and write .env files.
+// CONDUCTOR_IS_LOCAL is "0" in cloud workspaces and "1" locally.
+if (process.env.CONDUCTOR_IS_LOCAL === "0") {
+  await setupCloud();
+  process.exit(0);
+}
+
 const workspaceName = process.env.CONDUCTOR_WORKSPACE_NAME;
 const conductorPort = process.env.CONDUCTOR_PORT
   ? parseInt(process.env.CONDUCTOR_PORT)
@@ -207,3 +216,137 @@ for (const [key, val] of Object.entries(frontendOverrides)) {
 }
 
 console.log("\nSetup complete! Run 'bun dev' to start both servers.");
+
+/**
+ * Conductor Cloud setup (Amazon Linux 2023).
+ *
+ * The toolchain (bun, PostgreSQL, Redis) is installed at snapshot-build time by
+ * .conductor/cloud-init.sh. Here we do the per-workspace runtime work that can't
+ * be baked into a snapshot: start the services, create the databases, and write
+ * the .env files. Cloud workspaces are isolated sandboxes, so we use fixed ports
+ * and database names (no per-workspace hashing like the local path).
+ *
+ * Why start the services here instead of assuming they're up at boot? A snapshot
+ * captures the filesystem, not running processes, so anything started during
+ * cloud-init is gone when a workspace forks the snapshot. And the sandbox isn't
+ * systemd-managed (PID 1 is Vercel's sandbox-init; `systemctl is-system-running`
+ * is "offline"), so there's no boot-time service manager to `enable` against.
+ * The setup script — which Conductor runs on every workspace creation — is the
+ * intended hook for starting services. It's idempotent, so re-runs are cheap.
+ *
+ * Binaries are referenced by absolute path because Bun's `$` shell doesn't
+ * re-read process.env.PATH. Redis ships as redis6-server / redis6-cli on AL2023.
+ */
+async function setupCloud(): Promise<void> {
+  console.log("Conductor Cloud detected — running cloud setup.");
+
+  const home = process.env.HOME ?? "/home/vercel-sandbox";
+  const pgData = join(home, "pgdata");
+
+  const pgCtl = "/usr/bin/pg_ctl";
+  const pgIsReady = "/usr/bin/pg_isready";
+  const createdbBin = "/usr/bin/createdb";
+  const psqlBin = "/usr/bin/psql";
+  const redisServer = "/usr/bin/redis6-server";
+  const redisCli = "/usr/bin/redis6-cli";
+
+  const isPgReady = async () =>
+    (await $`${{ raw: pgIsReady }} -q`.quiet().nothrow()).exitCode === 0;
+
+  // Start Postgres (idempotent)
+  if (await isPgReady()) {
+    console.log("Postgres is already running.");
+  } else {
+    console.log("Starting Postgres...");
+    await $`${{ raw: pgCtl }} -D ${pgData} -l ${join(pgData, "server.log")} start`.nothrow();
+    for (let i = 0; i < 30; i++) {
+      if (await isPgReady()) break;
+      await Bun.sleep(500);
+    }
+    console.log(
+      (await isPgReady()) ? "Postgres started." : "WARNING: Postgres not ready.",
+    );
+  }
+
+  const redisPongs = async () => {
+    const r = await $`${{ raw: redisCli }} ping`.quiet().nothrow();
+    return r.exitCode === 0 && r.stdout.toString().includes("PONG");
+  };
+
+  // Start Redis (idempotent)
+  if (await redisPongs()) {
+    console.log("Redis is already running.");
+  } else {
+    console.log("Starting Redis...");
+    await $`${{ raw: redisServer }} --daemonize yes`.nothrow();
+    for (let i = 0; i < 20; i++) {
+      if (await redisPongs()) break;
+      await Bun.sleep(500);
+    }
+    console.log(
+      (await redisPongs()) ? "Redis started." : "WARNING: Redis not ready.",
+    );
+  }
+
+  // Create databases. keryx-package-test is isolated from keryx-test so the
+  // framework package and example backend don't clobber each other's migrations
+  // (mirrors CI, where each job gets its own Postgres).
+  for (const db of ["keryx", "keryx-test", "keryx-package-test"]) {
+    const exists =
+      await $`${{ raw: psqlBin }} -U postgres -lqt 2>/dev/null | cut -d'|' -f1 | grep -qw ${db}`.nothrow();
+    if (exists.exitCode === 0) {
+      console.log(`Database '${db}' already exists.`);
+    } else {
+      const created = await $`${{ raw: createdbBin }} -U postgres ${db}`.nothrow();
+      console.log(
+        created.exitCode === 0
+          ? `Created database '${db}'.`
+          : `WARNING: could not create database '${db}'.`,
+      );
+    }
+  }
+
+  // Cloud connection strings. Postgres uses trust auth on localhost (set up by
+  // initdb in cloud-init.sh), so no password is needed.
+  const dbUrl = (name: string) => `"postgres://postgres@localhost:5432/${name}"`;
+  const redisUrl = `"redis://localhost:6379/0"`;
+  const redisUrlTest = `"redis://localhost:6379/1"`;
+
+  // Framework + plugins use the isolated package test DB.
+  const packageOverrides = {
+    DATABASE_URL: dbUrl("keryx"),
+    DATABASE_URL_TEST: dbUrl("keryx-package-test"),
+    REDIS_URL: redisUrl,
+    REDIS_URL_TEST: redisUrlTest,
+  };
+
+  const writeCloudEnv = (dir: string, overrides: Record<string, string>) => {
+    const examplePath = join(dir, ".env.example");
+    if (!existsSync(examplePath)) return;
+    applyEnvOverrides(examplePath, join(dir, ".env"), overrides);
+    console.log(`Wrote ${dir.replace(`${ROOT_DIR}/`, "")}/.env`);
+  };
+
+  const packagesDir = join(ROOT_DIR, "packages");
+  for (const pkg of readdirSync(packagesDir)) {
+    const pkgDir = join(packagesDir, pkg);
+    writeCloudEnv(pkgDir, packageOverrides);
+    if (pkg === "plugins") {
+      for (const plugin of readdirSync(pkgDir)) {
+        writeCloudEnv(join(pkgDir, plugin), packageOverrides);
+      }
+    }
+  }
+
+  // example/backend uses its own test DB, separate from the framework package's.
+  writeCloudEnv(join(ROOT_DIR, "example/backend"), {
+    ...packageOverrides,
+    DATABASE_URL_TEST: dbUrl("keryx-test"),
+  });
+
+  writeCloudEnv(join(ROOT_DIR, "example/frontend"), {
+    VITE_API_URL: "http://localhost:8080",
+  });
+
+  console.log("\nCloud setup complete! Run 'bun dev' to start both servers.");
+}
