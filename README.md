@@ -10,11 +10,11 @@
 
 ## What is this Project?
 
-**Keryx is the fullstack TypeScript framework where you write your controller once and it works everywhere.** A single action class handles HTTP requests, WebSocket messages, CLI commands, background tasks, and MCP tool calls — same inputs, same Zod validation, same middleware chain, same response shape. No duplication, no second codebase to keep in sync.
+The big idea behind Keryx: **write your controller once, and it works everywhere.** A single action class handles HTTP requests, WebSocket messages, CLI commands, background tasks, and MCP tool calls — same inputs, same Zod validation, same middleware, same response. You write the logic once; the only thing that changes is how the request arrived and how the response gets delivered.
 
-That includes AI agents. Every action is automatically an MCP tool — agents authenticate via built-in OAuth 2.1, get typed errors, and call the same validated endpoints your HTTP clients use. There's no separate MCP server to build and no schemas to duplicate; expose your app to LLMs by writing the app.
+That last transport — MCP — is the reason I built this now. Every action is automatically an MCP tool, so AI agents authenticate with built-in OAuth 2.1, get typed errors, and call the exact same validated endpoints your HTTP clients do. There's no second MCP server to maintain and no schemas to keep in sync… you expose your app to agents by writing the app.
 
-Built on [Bun](https://bun.sh) for native TypeScript and fast startup, Keryx ships with the batteries a real backend needs: Drizzle ORM with auto-migrations, background tasks and fan-out via Resque, streaming responses (SSE, chunked binary, and over WebSocket/MCP), OpenAPI generation, pagination and caching helpers, database transactions, and a companion Vite + React frontend that consumes your actions with end-to-end type safety — no code generation required.
+And it's a real backend, not a toy. You get Drizzle ORM with auto-migrations, background tasks with fan-out on Resque, streaming responses (SSE, chunked binary, and the same stream over WebSocket and MCP), OpenAPI generation, pagination and caching helpers, database transactions, and a companion Vite + React frontend that reads your actions with end-to-end type safety — no code generation. It's all on [Bun](https://bun.sh), so TypeScript runs natively and startup is fast.
 
 ### One Action, Every Transport
 
@@ -244,9 +244,9 @@ Over HTTP this is native SSE; over WebSocket each chunk becomes an incremental m
 
 ## A Note on ActionHero
 
-Keryx is the spiritual successor to [ActionHero](https://www.actionherojs.com) — a ground-up rewrite of the same core idea, that your controller should work everywhere. ActionHero set out to take the best ideas from Rails and Node.js and shove them together; Keryx keeps that spirit but starts fresh on Bun, Zod, and Drizzle, with first-class MCP support baked in from day one.
+If you've used [ActionHero](https://www.actionherojs.com), Keryx will feel familiar — it's the spiritual successor. I built ActionHero years ago to take the best ideas from Rails and Node.js and shove them together, and I still believe in those ideas… but the framework needed a fresh start on Bun, Zod, and Drizzle, with first-class MCP support instead of something bolted on later. Keryx is that restart.
 
-If you're coming from ActionHero, the biggest changes are: unified controllers (actions = tasks = CLI commands = MCP tools), separate frontend/backend applications, Drizzle ORM in place of Sequelize, and MCP as a first-class transport. See the full [migration guide](https://keryxjs.com/guide/from-actionhero) for details.
+If you're coming from ActionHero, the biggest changes are: unified controllers (actions = tasks = CLI commands = MCP tools), separate frontend and backend applications, Drizzle ORM in place of Sequelize, and MCP as a first-class transport. See the full [migration guide](https://keryxjs.com/guide/from-actionhero) for details.
 
 ## Production Deployment
 
