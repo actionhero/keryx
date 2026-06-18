@@ -1,6 +1,13 @@
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import { z } from "zod";
 import { api } from "../../api";
 import { Action, HTTP_METHOD } from "../../classes/Action";
@@ -158,7 +165,7 @@ describe("mcpServer utilities (integration)", () => {
         const result = await client.readResource({
           uri: "keryx://test-greeting/World",
         });
-        expect(result.contents).toBeInstanceOf(Array);
+        expect(result.contents).toBeArray();
         expect(result.contents.length).toBe(1);
 
         const content = result.contents[0];
@@ -202,7 +209,7 @@ describe("mcpServer utilities (integration)", () => {
           name: "test-prompt",
           arguments: { topic: "refactoring" },
         });
-        expect(result.messages).toBeInstanceOf(Array);
+        expect(result.messages).toBeArray();
         expect(result.messages.length).toBe(1);
         const msg = result.messages[0];
         expect(msg.role).toBe("user");

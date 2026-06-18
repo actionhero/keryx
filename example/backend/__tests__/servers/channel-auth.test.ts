@@ -1,4 +1,3 @@
-import { api } from "keryx";
 import {
   afterAll,
   beforeAll,
@@ -6,7 +5,8 @@ import {
   describe,
   expect,
   test,
-} from "vitest";
+} from "bun:test";
+import { api } from "keryx";
 import { HOOK_TIMEOUT, serverUrl } from "./../setup";
 
 let wsUrl: string;

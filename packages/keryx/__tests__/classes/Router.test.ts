@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { type Action, HTTP_METHOD } from "../../classes/Action";
 import { Router } from "../../classes/Router";
 

@@ -1,5 +1,12 @@
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 import { createHash } from "node:crypto";
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import { api } from "../../api";
 import { config } from "../../config";
 import { base64UrlEncode } from "../../util/oauth";
@@ -20,7 +27,7 @@ import {
 } from "../../util/oauthTemplates";
 import { HOOK_TIMEOUT } from "../setup";
 
-const packageDir = import.meta.dirname + "/../..";
+const packageDir = import.meta.dir + "/../..";
 let templates: OAuthTemplates;
 
 beforeAll(async () => {

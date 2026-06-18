@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "lint": "biome check .",
     "format": "biome check --write .",
-    "test": "bunx --bun vitest run"
+    "test": "bun test"
   },
   "dependencies": {
     "@scalar/api-reference-react": "^0.9.26",

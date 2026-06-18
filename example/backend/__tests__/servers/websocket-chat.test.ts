@@ -1,5 +1,5 @@
+import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { api, config } from "keryx";
-import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import {
   buildWebSocket,
   createSession,

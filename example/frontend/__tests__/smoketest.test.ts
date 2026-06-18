@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 
 describe("Frontend Smoke Test", () => {
   test("it works", async () => {

@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   type Action,
   type ActionMiddleware,
@@ -7,7 +8,6 @@ import {
   HTTP_METHOD,
 } from "keryx";
 import { config } from "keryx/config";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { z } from "zod";
 import { csrfPlugin } from "../index";
 import { CsrfMiddleware } from "../middleware/csrf";

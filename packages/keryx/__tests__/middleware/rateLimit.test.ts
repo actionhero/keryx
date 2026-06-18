@@ -5,7 +5,7 @@ import {
   describe,
   expect,
   test,
-} from "vitest";
+} from "bun:test";
 import { api } from "../../api";
 import { CONNECTION_TYPE, Connection } from "../../classes/Connection";
 import { ErrorType, TypedError } from "../../classes/TypedError";

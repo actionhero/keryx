@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { context, propagation, trace } from "@opentelemetry/api";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
 import { resourceFromAttributes } from "@opentelemetry/resources";
@@ -7,7 +8,6 @@ import {
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
 import { api, config } from "keryx";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { HOOK_TIMEOUT, serverUrl } from "../setup";
 
 const spanExporter = new InMemorySpanExporter();

@@ -1,11 +1,11 @@
-import { beforeAll, describe, expect, test } from "vitest";
+import { beforeAll, describe, expect, test } from "bun:test";
 import {
   loadOAuthTemplates,
   type OAuthTemplates,
   renderSuccessPage,
 } from "../../util/oauthTemplates";
 
-const packageDir = import.meta.dirname + "/../..";
+const packageDir = import.meta.dir + "/../..";
 
 describe("renderSuccessPage", () => {
   let templates: OAuthTemplates;

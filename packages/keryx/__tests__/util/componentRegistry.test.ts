@@ -1,6 +1,6 @@
+import { afterEach, describe, expect, test } from "bun:test";
 import fs from "fs";
 import path from "path";
-import { afterEach, describe, expect, test } from "vitest";
 import { config } from "../../config";
 import {
   buildComponentView,

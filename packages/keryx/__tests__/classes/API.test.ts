@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { API, RUN_MODE } from "../../classes/API";
 import { Initializer } from "../../classes/Initializer";
 import { ErrorType, TypedError } from "../../classes/TypedError";

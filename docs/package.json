@@ -9,7 +9,7 @@
     "generate": "bun run scripts/generate-docs-data.ts",
     "lint": "biome check --files-ignore-unknown=true .",
     "format": "biome check --write --files-ignore-unknown=true .",
-    "test": "bun run build && bunx --bun vitest run"
+    "test": "bun run build && bun test"
   },
   "dependencies": {
     "vitepress": "^1.6.3",

@@ -85,10 +85,8 @@ bun test-example-backend           # example/backend
 bun test-example-frontend          # example/frontend
 
 # Single test file (cd into the workspace first)
-# Tests run with Vitest on the Bun runtime (`bunx --bun vitest`).
 cd example/backend
-bunx --bun vitest run __tests__/actions/user.test.ts
-bunx --bun vitest                  # watch mode
+bun test __tests__/actions/user.test.ts
 
 # Example backend (run from example/backend/)
 cd example/backend

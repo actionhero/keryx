@@ -30,7 +30,7 @@ features:
     details: Type-safe inputs with automatic validation. Your Zod schemas generate OpenAPI docs, power CLI --help, and validate WebSocket params — all from one definition.
   - icon: "\u26A1"
     title: Built on Bun
-    details: Native TypeScript, fast startup, no compilation step. Bun handles bundling and module resolution out of the box, with Vitest for testing.
+    details: Native TypeScript, fast startup, built-in test runner, no compilation step. Bun handles bundling, testing, and module resolution out of the box.
   - icon: "\U0001F4E1"
     title: Real-Time Channels
     details: PubSub over Redis with middleware-based authorization. Define channel patterns, control who can subscribe, and broadcast to WebSocket clients.
@@ -163,7 +163,7 @@ Claude Desktop, VS Code Copilot, Cursor, Windsurf, and any other MCP client can 
 ## Why Bun?
 
 - **Native TypeScript** — no compilation step, no `tsconfig` gymnastics
-- **Vitest on Bun** — `bunx --bun vitest` for fast tests with watch mode and rich reporting
+- **Built-in test runner** — `bun test` with watch mode, no extra dependencies
 - **Fast startup** — sub-second cold starts for dev and production
 - **Module resolution that works** — ESM, CommonJS, and `.ts` imports without configuration
 - **`fetch` included natively** — great for testing your own API

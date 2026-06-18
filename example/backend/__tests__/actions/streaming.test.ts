@@ -1,5 +1,5 @@
+import { describe, expect, test } from "bun:test";
 import { type ActionResponse } from "keryx";
-import { describe, expect, test } from "vitest";
 import type { StreamingCounter } from "../../actions/streaming";
 import { useTestServer } from "./../setup";
 

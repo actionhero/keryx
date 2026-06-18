@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { Pool } from "pg";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { api } from "../../api";
 import { ErrorType, TypedError } from "../../classes/TypedError";
 import { config } from "../../config";

@@ -1,5 +1,3 @@
-import { eq, sql } from "drizzle-orm";
-import { api } from "keryx";
 import {
   afterAll,
   beforeAll,
@@ -7,7 +5,9 @@ import {
   describe,
   expect,
   test,
-} from "vitest";
+} from "bun:test";
+import { eq, sql } from "drizzle-orm";
+import { api } from "keryx";
 import { MessagesCleanup, MessagesHello } from "../../actions/message";
 import { messages } from "../../schema/messages";
 import { users } from "../../schema/users";
