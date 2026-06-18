@@ -167,3 +167,10 @@ If code changes aren't reflected in HTTP responses, check for stale `bun keryx` 
 ps aux | grep "bun keryx" | grep -v grep
 kill -9 <PIDs>
 ```
+
+## Gotcha: Cloud Postgres/Redis Stop on Resume
+
+In Conductor Cloud workspaces, Postgres and Redis are started by `.conductor/setup.ts` (the cloud branch, taken when `CONDUCTOR_IS_LOCAL=0`), which Conductor runs only at workspace *creation*. The sandbox has no service manager (PID 1 is Vercel's `sandbox-init`, not systemd), so nothing auto-restarts them at boot. If a long-lived workspace is paused and resumed and the OS reaps those processes, tests/`bun dev` will fail to connect. Re-run setup to bring them back (it's idempotent):
+```bash
+bun .conductor/setup.ts
+```

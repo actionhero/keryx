@@ -5,3 +5,11 @@ archive = "bun .conductor/teardown.ts"
 run = "bun dev"
 run_mode = "nonconcurrent"
 setup = "bun install && bun .conductor/setup.ts"
+
+# Cloud-only env vars so terminals and agents inherit the Redis URLs without
+# sourcing a file. DATABASE_URL* stay in each workspace's .env (written by
+# .conductor/setup.ts) so the framework package and example backend use
+# isolated test databases.
+[environment_variables.cloud]
+REDIS_URL = "redis://localhost:6379/0"
+REDIS_URL_TEST = "redis://localhost:6379/1"
