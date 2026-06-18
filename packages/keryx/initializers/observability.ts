@@ -8,6 +8,7 @@ import { api, logger } from "../api";
 import { Initializer } from "../classes/Initializer";
 import { ErrorType, TypedError } from "../classes/TypedError";
 import { config } from "../config";
+import { readFileJson } from "../util/runtime";
 
 const namespace = "observability";
 
@@ -194,7 +195,7 @@ export class Observability extends Initializer {
     if (!serviceName) {
       try {
         const pkgPath = path.join(api.rootDir, "package.json");
-        const pkg = await Bun.file(pkgPath).json();
+        const pkg = await readFileJson<{ name?: string }>(pkgPath);
         serviceName = pkg.name || "keryx";
       } catch {
         serviceName = "keryx";

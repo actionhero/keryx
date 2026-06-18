@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import { unlink } from "node:fs/promises";
-import { $ } from "bun";
 import { type Config as DrizzleMigrateConfig } from "drizzle-kit";
 import { DefaultLogger, type LogWriter, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -15,6 +14,12 @@ import {
   formatConnectionStringForLogging,
   throwConnectionError,
 } from "../util/connectionString";
+import {
+  fileExists,
+  packageRunner,
+  spawnProcess,
+  writeFile,
+} from "../util/runtime";
 
 const namespace = "db";
 
@@ -122,21 +127,24 @@ export class DB extends Initializer {
     const tmpfilePath = path.join(api.rootDir, "drizzle", "config.tmp.ts");
 
     try {
-      await Bun.write(tmpfilePath, fileContent);
-      const { exitCode, stdout, stderr } =
-        await $`bun drizzle-kit generate --config ${tmpfilePath}`;
-      logger.trace(stdout.toString());
+      await writeFile(tmpfilePath, fileContent);
+      const { exitCode, stdout, stderr } = await spawnProcess(packageRunner, [
+        "drizzle-kit",
+        "generate",
+        "--config",
+        tmpfilePath,
+      ]);
+      logger.trace(stdout);
       if (exitCode !== 0) {
         {
           throw new TypedError({
-            message: `Failed to generate migrations: ${stderr.toString()}`,
+            message: `Failed to generate migrations: ${stderr}`,
             type: ErrorType.SERVER_INITIALIZATION,
           });
         }
       }
     } finally {
-      const filePointer = Bun.file(tmpfilePath);
-      if (await filePointer.exists()) await unlink(tmpfilePath);
+      if (await fileExists(tmpfilePath)) await unlink(tmpfilePath);
     }
   }
 
@@ -144,7 +152,7 @@ export class DB extends Initializer {
    * Erase all the tables in the active database.  Will fail on production environments.
    */
   async clearDatabase(restartIdentity = true, cascade = true) {
-    if (Bun.env.NODE_ENV === "production") {
+    if (process.env.NODE_ENV === "production") {
       throw new TypedError({
         message: "clearDatabase cannot be called in production",
         type: ErrorType.SERVER_INITIALIZATION,

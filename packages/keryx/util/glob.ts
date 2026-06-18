@@ -1,7 +1,7 @@
-import { Glob } from "bun";
 import path from "path";
 import { api } from "../api";
 import { ErrorType, TypedError } from "../classes/TypedError";
+import { glob } from "./runtime";
 
 /**
  * Auto-discover and instantiate all exported classes from `.ts`/`.tsx` files in a directory.
@@ -13,12 +13,11 @@ import { ErrorType, TypedError } from "../classes/TypedError";
  */
 export async function globLoader<T>(searchDir: string) {
   const results: T[] = [];
-  const glob = new Glob("**/*.{ts,tsx}");
   const dir = path.isAbsolute(searchDir)
     ? searchDir
     : path.join(api.rootDir, searchDir);
 
-  for await (const file of glob.scan(dir)) {
+  for (const file of await glob("**/*.{ts,tsx}", dir)) {
     if (file.startsWith(".")) continue;
 
     const fullPath = path.join(dir, file);

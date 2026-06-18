@@ -1,4 +1,3 @@
-import { Glob } from "bun";
 import fs from "fs";
 import path from "path";
 import { config } from "../config";
@@ -8,6 +7,7 @@ import {
   formatLoadedMessage,
 } from "../util/config";
 import { globLoader } from "../util/glob";
+import { glob } from "../util/runtime";
 import type { Initializer } from "./Initializer";
 import { Logger } from "./Logger";
 import { ErrorType, TypedError } from "./TypedError";
@@ -198,8 +198,7 @@ export class API {
     const configDir = path.join(this.rootDir, "config");
     if (!fs.existsSync(configDir)) return;
 
-    const glob = new Glob("**/*.ts");
-    for await (const file of glob.scan(configDir)) {
+    for (const file of await glob("**/*.ts", configDir)) {
       if (file.startsWith(".")) continue;
 
       const fullPath = path.join(configDir, file);

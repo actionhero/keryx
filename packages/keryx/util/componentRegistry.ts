@@ -1,5 +1,6 @@
 import path from "path";
 import { config } from "../config";
+import { readFileText } from "./runtime";
 
 /**
  * A component that can be produced by `keryx generate`.
@@ -173,12 +174,12 @@ export function buildComponentView(
  * Load a template from `packages/keryx/templates/generate/`.
  */
 export async function loadGenerateTemplate(name: string): Promise<string> {
-  return Bun.file(path.join(generateTemplatesDir, name)).text();
+  return readFileText(path.join(generateTemplatesDir, name));
 }
 
 /**
  * Load a template from `packages/keryx/templates/scaffold/`.
  */
 export async function loadScaffoldTemplate(name: string): Promise<string> {
-  return Bun.file(path.join(scaffoldTemplatesDir, name)).text();
+  return readFileText(path.join(scaffoldTemplatesDir, name));
 }

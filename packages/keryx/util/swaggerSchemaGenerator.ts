@@ -1,6 +1,13 @@
-import { mkdir } from "fs/promises";
 import path from "path";
 import type { Type } from "ts-morph";
+import {
+  fileExists,
+  globSync,
+  readFileJson,
+  readFileText,
+  sha256Hex,
+  writeFile,
+} from "./runtime";
 
 export type JSONSchema = {
   type?: string;
@@ -172,20 +179,18 @@ export function typeToJsonSchema(
  */
 export async function computeActionsHash(rootDir: string): Promise<string> {
   const actionsDirs = [path.join(rootDir, "actions")];
-  const glob = new Bun.Glob("**/*.ts");
-  const hasher = new Bun.CryptoHasher("sha256");
+  const contents: string[] = [];
   for (const actionsDir of actionsDirs) {
     try {
-      const actionFiles = Array.from(glob.scanSync(actionsDir)).sort();
+      const actionFiles = globSync("**/*.ts", actionsDir).sort();
       for (const file of actionFiles) {
-        const content = await Bun.file(path.join(actionsDir, file)).text();
-        hasher.update(content);
+        contents.push(await readFileText(path.join(actionsDir, file)));
       }
     } catch {
       // Directory may not exist
     }
   }
-  return hasher.digest("hex") as string;
+  return sha256Hex(contents);
 }
 
 /**
@@ -199,10 +204,12 @@ export async function loadCachedSchemas(rootDir: string): Promise<{
   responseSchemas: Record<string, JSONSchema>;
 } | null> {
   const cacheFile = path.join(rootDir, ".cache", "swagger-schemas.json");
-  const cacheFileHandle = Bun.file(cacheFile);
-  if (await cacheFileHandle.exists()) {
+  if (await fileExists(cacheFile)) {
     try {
-      const cached = await cacheFileHandle.json();
+      const cached = await readFileJson<{
+        hash: string;
+        responseSchemas: Record<string, JSONSchema>;
+      }>(cacheFile);
       if (cached.hash && cached.responseSchemas) {
         return cached;
       }
@@ -234,7 +241,7 @@ export async function generateSwaggerSchemas(opts: {
   const { Project, ts } = await import("ts-morph");
 
   const tsConfigPath = path.join(rootDir, "tsconfig.json");
-  const hasTsConfig = await Bun.file(tsConfigPath).exists();
+  const hasTsConfig = await fileExists(tsConfigPath);
 
   const project = new Project({
     ...(hasTsConfig ? { tsConfigFilePath: tsConfigPath } : {}),
@@ -322,8 +329,7 @@ export async function writeSchemasCache(
   data: { hash: string; responseSchemas: Record<string, JSONSchema> },
 ): Promise<void> {
   const cacheDir = path.join(rootDir, ".cache");
-  await mkdir(cacheDir, { recursive: true });
-  await Bun.write(
+  await writeFile(
     path.join(cacheDir, "swagger-schemas.json"),
     JSON.stringify(data, null, 2),
   );

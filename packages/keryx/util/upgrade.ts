@@ -3,6 +3,7 @@ import os from "os";
 import path from "path";
 import * as readline from "readline";
 import pkg from "../package.json";
+import { readFileText, spawnProcess, writeFile } from "./runtime";
 import {
   generateBuiltinActionContents,
   generateConfigFileContents,
@@ -47,14 +48,13 @@ async function showDiff(
     os.tmpdir(),
     `keryx-upgrade-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
-  await Bun.write(tmpFile, newContent);
+  await writeFile(tmpFile, newContent);
   try {
-    const proc = Bun.spawn(["diff", "-u", existingPath, tmpFile], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const output = await new Response(proc.stdout).text();
-    await proc.exited;
+    const { stdout: output } = await spawnProcess("diff", [
+      "-u",
+      existingPath,
+      tmpFile,
+    ]);
     if (output) {
       console.log(output);
     }
@@ -116,15 +116,14 @@ export async function upgradeProject(
     if (!fs.existsSync(fullPath)) {
       // New file — create it
       if (!options.dryRun) {
-        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-        await Bun.write(fullPath, newContent);
+        await writeFile(fullPath, newContent);
       }
       console.log(`  + created  ${relativePath}`);
       summary.created++;
       continue;
     }
 
-    const existingContent = await Bun.file(fullPath).text();
+    const existingContent = await readFileText(fullPath);
     if (existingContent === newContent) {
       console.log(`  ✓ up to date  ${relativePath}`);
       summary.upToDate++;
@@ -139,7 +138,7 @@ export async function upgradeProject(
     }
 
     if (options.force) {
-      await Bun.write(fullPath, newContent);
+      await writeFile(fullPath, newContent);
       console.log(`  ⚡ updated  ${relativePath}`);
       summary.updated++;
       continue;
@@ -153,7 +152,7 @@ export async function upgradeProject(
     }
 
     if (answer === "y") {
-      await Bun.write(fullPath, newContent);
+      await writeFile(fullPath, newContent);
       console.log(`  ⚡ updated  ${relativePath}`);
       summary.updated++;
     } else {

@@ -1,8 +1,11 @@
-import { realpath } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
+import { Readable } from "node:stream";
 import type { parse } from "node:url";
 import { logger } from "../api";
 import { config } from "../config";
+import { fileExists, mimeType } from "./runtime";
 import { getSecurityHeaders } from "./webResponse";
 
 /**
@@ -61,8 +64,7 @@ export async function handleStaticFile(
     }
 
     // Check if file exists
-    const file = Bun.file(fullPath);
-    const exists = await file.exists();
+    const exists = await fileExists(fullPath);
 
     if (!exists) {
       // Try serving index.html for directory requests
@@ -76,15 +78,14 @@ export async function handleStaticFile(
         ) {
           return null;
         }
-        const indexFile = Bun.file(indexPath);
-        const indexExists = await indexFile.exists();
+        const indexExists = await fileExists(indexPath);
         if (indexExists) {
           if ((await resolveWithinStaticRoot(indexPath, basePath)) === null) {
             return null;
           }
           return buildStaticFileResponse(
             req,
-            indexFile,
+            indexPath,
             finalPath + "/index.html",
           );
         }
@@ -98,7 +99,7 @@ export async function handleStaticFile(
       return null;
     }
 
-    return buildStaticFileResponse(req, file, finalPath);
+    return buildStaticFileResponse(req, fullPath, finalPath);
   } catch (error) {
     logger.error(`Error serving static file ${finalPath}: ${error}`);
     return null;
@@ -107,15 +108,16 @@ export async function handleStaticFile(
 
 async function buildStaticFileResponse(
   req: Request,
-  file: ReturnType<typeof Bun.file>,
+  absolutePath: string,
   filePath: string,
 ): Promise<Response> {
   const headers = getStaticFileHeaders(filePath);
+  const stats = await stat(absolutePath);
 
   // Generate ETag from mtime + size (fast, no hashing needed)
   if (config.server.web.staticFiles.etag) {
-    const mtime = file.lastModified;
-    const size = file.size;
+    const mtime = Math.floor(stats.mtimeMs);
+    const size = stats.size;
     const etag = `"${mtime.toString(36)}-${size.toString(36)}"`;
     headers["ETag"] = etag;
     headers["Last-Modified"] = new Date(mtime).toUTCString();
@@ -145,7 +147,13 @@ async function buildStaticFileResponse(
     headers["Cache-Control"] = config.server.web.staticFiles.cacheControl;
   }
 
-  return new Response(file, { headers });
+  headers["Content-Length"] = String(stats.size);
+
+  // Stream the file body (cross-runtime: a Node Readable adapted to a web stream).
+  const body = Readable.toWeb(
+    createReadStream(absolutePath),
+  ) as unknown as ReadableStream;
+  return new Response(body, { headers });
 }
 
 function getStaticFileHeaders(filePath: string): Record<string, string> {
@@ -153,8 +161,7 @@ function getStaticFileHeaders(filePath: string): Record<string, string> {
     "X-SERVER-NAME": config.process.name,
   };
 
-  const mimeType = Bun.file(filePath).type || "application/octet-stream";
-  headers["Content-Type"] = mimeType;
+  headers["Content-Type"] = mimeType(filePath);
   Object.assign(headers, getSecurityHeaders());
 
   return headers;

@@ -13,7 +13,7 @@ export const configTasks = {
   // how many parallel workers we run?
   taskProcessors: await loadFromEnvIfSet(
     "TASK_PROCESSORS",
-    Bun.env.NODE_ENV === "test" ? 0 : 1,
+    process.env.NODE_ENV === "test" ? 0 : 1,
   ),
   // how often should we check the event loop to spawn more taskProcessors?
   checkTimeout: 500,

@@ -19,6 +19,7 @@ import {
 import { Initializer } from "../classes/Initializer";
 import { LogFormat } from "../classes/Logger";
 import { TypedError } from "../classes/TypedError";
+import { sleep } from "../util/runtime";
 import type { TaskInputs } from "./actionts";
 
 const namespace = "resque";
@@ -287,7 +288,7 @@ export class Resque extends Initializer {
     for (const worker of api.resque.workers) {
       worker.running = false;
     }
-    await Bun.sleep(250);
+    await sleep(250);
 
     while (true) {
       const worker = api.resque.workers.pop();

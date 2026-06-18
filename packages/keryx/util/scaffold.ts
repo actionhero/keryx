@@ -1,10 +1,10 @@
-import { Glob } from "bun";
 import fs from "fs";
 import Mustache from "mustache";
 import path from "path";
 import * as readline from "readline";
 import pkg from "../package.json";
 import { loadScaffoldTemplate as loadTemplate } from "./componentRegistry";
+import { glob, readFileText, writeFile } from "./runtime";
 
 export interface ScaffoldOptions {
   includeDb: boolean;
@@ -69,7 +69,7 @@ export async function generateOAuthTemplateContents(): Promise<
   const sourceDir = path.join(import.meta.dirname, "..", "templates");
 
   for (const file of oauthTemplates) {
-    const content = await Bun.file(path.join(sourceDir, file)).text();
+    const content = await readFileText(path.join(sourceDir, file));
     result.set(`templates/${file}`, content);
   }
 
@@ -86,10 +86,9 @@ export async function generateConfigFileContents(): Promise<
 > {
   const result = new Map<string, string>();
   const configDir = path.join(import.meta.dirname, "..", "config");
-  const glob = new Glob("**/*.ts");
 
-  for await (const file of glob.scan(configDir)) {
-    let content = await Bun.file(path.join(configDir, file)).text();
+  for (const file of await glob("**/*.ts", configDir)) {
+    let content = await readFileText(path.join(configDir, file));
 
     // Rewrite relative imports to package imports
     content = content.replace(
@@ -143,7 +142,7 @@ export async function generateBuiltinActionContents(): Promise<
   const actionsDir = path.join(import.meta.dirname, "..", "actions");
 
   for (const file of builtinActions) {
-    let content = await Bun.file(path.join(actionsDir, file)).text();
+    let content = await readFileText(path.join(actionsDir, file));
 
     // Rewrite relative imports to package imports
     content = content.replace(/from ["']\.\.\/api["']/g, 'from "keryx"');
@@ -289,8 +288,7 @@ export async function scaffoldProject(
       console.log(`  ⊘ skipped  ${filePath}`);
       return;
     }
-    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-    await Bun.write(fullPath, content);
+    await writeFile(fullPath, content);
     createdFiles.push(filePath);
   };
 
