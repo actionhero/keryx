@@ -1,6 +1,6 @@
+import { beforeAll, describe, expect, test } from "bun:test";
 import { $ } from "bun";
 import { api } from "keryx";
-import { beforeAll, describe, expect, test } from "vitest";
 import pkg from "./../../package.json";
 import { HOOK_TIMEOUT } from "./../setup";
 
@@ -15,7 +15,7 @@ describe("CLI", () => {
     const { stdout, stderr, exitCode } = await $`./keryx.ts --help`.quiet();
 
     expect(exitCode).toBe(0);
-    expect(stderr).toHaveLength(0);
+    expect(stderr).toBeEmpty();
     expect(stdout.toString()).toContain("Keryx");
     expect(stdout.toString()).toContain("status");
     expect(stdout.toString()).toContain("user:create");
@@ -25,7 +25,7 @@ describe("CLI", () => {
     const { stdout, stderr, exitCode } = await $`./keryx.ts`.quiet().nothrow();
 
     expect(exitCode).toBe(1);
-    expect(stdout).toHaveLength(0);
+    expect(stdout).toBeEmpty();
     expect(stderr.toString()).toContain("Keryx");
   });
 
@@ -33,7 +33,7 @@ describe("CLI", () => {
     const { stdout, stderr, exitCode } = await $`./keryx.ts --version`.quiet();
 
     expect(exitCode).toBe(0);
-    expect(stderr).toHaveLength(0);
+    expect(stderr).toBeEmpty();
     expect(stdout.toString()).toContain(pkg.version);
   });
 
@@ -42,7 +42,7 @@ describe("CLI", () => {
       await $`./keryx.ts "user:create" --help`.quiet();
 
     expect(exitCode).toBe(0);
-    expect(stderr).toHaveLength(0);
+    expect(stderr).toBeEmpty();
 
     expect(stdout.toString()).toContain("--name <value>");
     expect(stdout.toString()).toContain("The user's name");
@@ -59,7 +59,7 @@ describe("CLI", () => {
         await $`./keryx.ts "user:create" --name test --email test@test.com --password testpass123`.quiet();
 
       expect(exitCode).toBe(0);
-      expect(stderr).toHaveLength(0);
+      expect(stderr).toBeEmpty();
 
       const { response } = JSON.parse(stdout.toString());
       expect(response.user.id).toBeGreaterThan(0);
@@ -72,7 +72,7 @@ describe("CLI", () => {
       } = await $`./keryx.ts "session:create" --email test@test.com --password testpass123`.quiet();
 
       expect(exitCode2).toBe(0);
-      expect(stderr2).toHaveLength(0);
+      expect(stderr2).toBeEmpty();
 
       const { response: response2 } = JSON.parse(stdout2.toString());
       expect(response2.user.id).toBeGreaterThan(1);
@@ -92,7 +92,7 @@ describe("CLI", () => {
         .nothrow();
 
       expect(exitCode).toBe(1);
-      expect(stdout).toHaveLength(0);
+      expect(stdout).toBeEmpty();
       expect(stderr.toString()).toContain("unknown command 'foo'");
     });
 
@@ -107,7 +107,7 @@ describe("CLI", () => {
       expect(stderr.toString()).toContain(
         "required option '--password <value>' not specified",
       );
-      expect(stdout).toHaveLength(0);
+      expect(stdout).toBeEmpty();
     });
 
     test("validation from within action", async () => {
@@ -118,7 +118,7 @@ describe("CLI", () => {
           .nothrow();
 
       expect(exitCode).toBe(1);
-      expect(stdout).toHaveLength(0);
+      expect(stdout).toBeEmpty();
 
       const { response } = JSON.parse(stderr.toString());
       expect(response).toEqual({});

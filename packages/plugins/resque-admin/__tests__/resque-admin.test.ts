@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { api } from "keryx";
 import { config } from "keryx/config";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { parseRedisInfo } from "../actions/redisInfo";
 import { resqueAdminPlugin } from "../index";
 import { safeCompare } from "../middleware/password";

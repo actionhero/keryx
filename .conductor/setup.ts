@@ -16,7 +16,7 @@ import { $ } from "bun";
 import { existsSync, readdirSync } from "fs";
 import { join } from "path";
 
-const ROOT_DIR = join(import.meta.dirname, "..");
+const ROOT_DIR = join(import.meta.dir, "..");
 
 // Conductor Cloud (Vercel Sandbox / Amazon Linux 2023) takes a dedicated path:
 // the toolchain is installed by .conductor/cloud-init.sh at snapshot build time,

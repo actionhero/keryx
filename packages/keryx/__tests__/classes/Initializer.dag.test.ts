@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { API } from "../../classes/API";
 import { Initializer } from "../../classes/Initializer";
 import { LogLevel } from "../../classes/Logger";

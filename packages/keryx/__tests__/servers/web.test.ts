@@ -1,6 +1,6 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { z } from "zod";
 import type { Status } from "../../actions/status";
 import { type ActionResponse, api, config } from "../../api";
@@ -44,7 +44,7 @@ describe("actions", () => {
     const res = await fetch(getUrl() + "/api/status");
     expect(res.status).toBe(200);
     const response = (await res.json()) as ActionResponse<Status>;
-    expect(response.name).toContain("test-server");
+    expect(response.name).toInclude("test-server");
   });
 
   test("trying for a non-existent action returns a 404", async () => {
@@ -554,7 +554,7 @@ describe("compression", () => {
     });
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Encoding")).toBe("gzip");
-    expect(res.headers.get("Vary")).toContain("Accept-Encoding");
+    expect(res.headers.get("Vary")).toInclude("Accept-Encoding");
 
     // Decompress and verify valid JSON
     const decompressed = new Response(

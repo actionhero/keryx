@@ -1,5 +1,5 @@
+import { describe, expect, test } from "bun:test";
 import { type ActionResponse } from "keryx";
-import { describe, expect, test } from "vitest";
 import type { Status, StatusMarkdown } from "../../actions/status";
 import { useTestServer } from "./../setup";
 

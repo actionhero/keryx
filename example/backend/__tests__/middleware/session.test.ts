@@ -1,5 +1,5 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { api, CONNECTION_TYPE, Connection, ErrorType, TypedError } from "keryx";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { SessionMiddleware } from "../../middleware/session";
 import { HOOK_TIMEOUT } from "./../setup";
 

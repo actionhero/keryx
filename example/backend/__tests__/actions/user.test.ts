@@ -1,5 +1,5 @@
+import { describe, expect, test } from "bun:test";
 import { type ActionResponse, config, logger } from "keryx";
-import { describe, expect, test } from "vitest";
 import type { SessionCreate } from "../../actions/session";
 import type { UserCreate, UserEdit, UserView } from "../../actions/user";
 import { createTestSession, createTestUser, useTestServer } from "./../setup";

@@ -20,7 +20,7 @@ export type OAuthTemplates = {
   lionSvg: string;
 };
 
-const frameworkTemplatesDir = import.meta.dirname + "/../templates";
+const frameworkTemplatesDir = import.meta.dir + "/../templates";
 
 /**
  * Resolve a template file, checking the user's rootDir first, then falling back

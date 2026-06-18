@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "vitest";
+import { afterAll, describe, expect, test } from "bun:test";
 import { config } from "../../config";
 import { compressResponse } from "../../util/webCompression";
 

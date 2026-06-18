@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { api, CONNECTION_TYPE, Connection, logger } from "../../api";
 import { Action, type ActionMiddleware } from "../../classes/Action";

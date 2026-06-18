@@ -49,7 +49,7 @@
   },
   "scripts": {
     "dev": "bun --watch dev.ts start",
-    "test": "tsc && bunx --bun vitest run",
+    "test": "tsc && bun test",
     "lint": "tsc && biome check .",
     "format": "tsc && biome check --write ."
   }

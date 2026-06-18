@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   Action,
   type ActionParams,
@@ -96,7 +96,7 @@ describe("deepMergeDefaults", () => {
 
 describe("config.plugins", () => {
   test("defaults to an empty array", () => {
-    expect(config.plugins).toBeInstanceOf(Array);
+    expect(config.plugins).toBeArray();
   });
 
   test("accepts KeryxPlugin objects", () => {

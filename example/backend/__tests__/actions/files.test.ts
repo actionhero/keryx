@@ -1,6 +1,6 @@
+import { describe, expect, test } from "bun:test";
 import { type ActionResponse } from "keryx";
 import path from "path";
-import { describe, expect, test } from "vitest";
 import type { FileUpload } from "../../actions/files";
 import { useTestServer } from "./../setup";
 
@@ -30,7 +30,7 @@ describe("status", () => {
     expect(res.status).toBe(200);
     const response = (await res.json()) as ActionResponse<FileUpload>;
     expect(response.params.stringParam).toBe("test");
-    expect(response.params.file.name).toContain("/horn.svg");
+    expect(response.params.file.name).toInclude("/horn.svg");
     expect(response.params.file.type).toBe("image/svg+xml");
     expect(response.params.file.size).toBe(f.size);
   });

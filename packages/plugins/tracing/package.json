@@ -34,7 +34,7 @@
     ".": "./index.ts"
   },
   "scripts": {
-    "test": "bunx --bun vitest run",
+    "test": "bun test",
     "lint": "tsc && biome check .",
     "format": "tsc && biome check --write ."
   },

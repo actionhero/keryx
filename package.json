@@ -21,12 +21,12 @@
     "dev:example-frontend": "cd example/frontend && bun run dev",
     "dev:resque-admin": "cd packages/plugins/resque-admin && bun run dev",
     "tests": "bun test-package && bun test-plugin-tracing && bun test-plugin-resque-admin && bun test-plugin-csrf && bun test-example-backend && bun test-example-frontend",
-    "test-package": "cd packages/keryx && bun run test",
-    "test-plugin-tracing": "cd packages/plugins/tracing && bun run test",
-    "test-plugin-resque-admin": "cd packages/plugins/resque-admin && bun run test",
-    "test-plugin-csrf": "cd packages/plugins/csrf && bun run test",
-    "test-example-backend": "cd example/backend && bun run test",
-    "test-example-frontend": "cd example/frontend && bun run test",
+    "test-package": "cd packages/keryx && bun test",
+    "test-plugin-tracing": "cd packages/plugins/tracing && bun test",
+    "test-plugin-resque-admin": "cd packages/plugins/resque-admin && bun test",
+    "test-plugin-csrf": "cd packages/plugins/csrf && bun test",
+    "test-example-backend": "cd example/backend && bun test",
+    "test-example-frontend": "cd example/frontend && bun test",
     "lint-package": "cd packages/keryx && bun lint",
     "lint-plugin-tracing": "cd packages/plugins/tracing && bun lint",
     "lint-resque-admin": "cd packages/plugins/resque-admin && bun lint",
@@ -55,7 +55,6 @@
   "dependencies": {},
   "devDependencies": {
     "@biomejs/biome": "^2.4.12",
-    "@types/bun": "^1.3.12",
-    "vitest": "4.1.9"
+    "@types/bun": "^1.3.12"
   }
 }

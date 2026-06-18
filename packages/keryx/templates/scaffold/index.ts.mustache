@@ -4,7 +4,7 @@ import { api } from "keryx";
 // actions, initializers, channels, etc. from this directory.
 // Every entry point (keryx.ts, migrations.ts, test setup) should
 // `import "./index"` to ensure rootDir is set before anything runs.
-api.rootDir = import.meta.dirname;
+api.rootDir = import.meta.dir;
 
 // Re-export everything from keryx for convenience
 export * from "keryx";
