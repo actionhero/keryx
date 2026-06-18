@@ -4,8 +4,14 @@ import { ErrorType, TypedError } from "../classes/TypedError";
 import { glob } from "./runtime";
 
 /**
- * Auto-discover and instantiate all exported classes from `.ts`/`.tsx` files in a directory.
- * Files prefixed with `.` are skipped. Used to load actions, initializers, and servers.
+ * Auto-discover and instantiate all exported classes from source modules in a
+ * directory. Used to load actions, initializers, and servers.
+ *
+ * Matches both TypeScript sources (`.ts`/`.tsx`, the dev/source layout under Bun
+ * or Node + a TS loader) and compiled JavaScript (`.js`/`.mjs`/`.cjs`, the
+ * built `dist/` layout a plain-Node consumer runs). Declaration files (`.d.ts`)
+ * and dotfiles are skipped, and at most one module is loaded per basename so a
+ * stray compiled `.js` sitting next to its `.ts` source can't double-instantiate.
  *
  * @param searchDir - Absolute path or relative path (resolved from `api.rootDir`) to scan.
  * @returns Array of instantiated class instances of type `T`.
@@ -17,8 +23,14 @@ export async function globLoader<T>(searchDir: string) {
     ? searchDir
     : path.join(api.rootDir, searchDir);
 
-  for (const file of await glob("**/*.{ts,tsx}", dir)) {
-    if (file.startsWith(".")) continue;
+  const seen = new Set<string>();
+  for (const file of await glob("**/*.{ts,tsx,js,mjs,cjs}", dir)) {
+    if (file.startsWith(".") || file.endsWith(".d.ts")) continue;
+
+    // Collapse `foo.ts` / `foo.js` to a single load per basename.
+    const base = file.replace(/\.(ts|tsx|js|mjs|cjs)$/, "");
+    if (seen.has(base)) continue;
+    seen.add(base);
 
     const fullPath = path.join(dir, file);
     const modules = (await import(fullPath)) as Record<string, unknown>;
