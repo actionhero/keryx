@@ -81,9 +81,9 @@ Loads a value from the environment, if it's set, otherwise returns the default v
 */
 export async function loadFromEnvIfSet<T>(envString: string, defaultValue: T) {
   let val = defaultValue;
-  const valFromEnv = Bun.env[envString];
-  const env = (Bun.env.NODE_ENV || "development").toUpperCase();
-  const valFromEnvNodeEnv = Bun.env[`${envString}_${env}`];
+  const valFromEnv = process.env[envString];
+  const env = (process.env.NODE_ENV || "development").toUpperCase();
+  const valFromEnvNodeEnv = process.env[`${envString}_${env}`];
   const testVal = valFromEnvNodeEnv || valFromEnv;
 
   if (testVal !== undefined) {

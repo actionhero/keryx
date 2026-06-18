@@ -9,6 +9,7 @@ import {
   resolveComponentPath,
   resolveTestPath,
 } from "./componentRegistry";
+import { readFileText, writeFile } from "./runtime";
 
 export { getValidTypes } from "./componentRegistry";
 
@@ -50,7 +51,7 @@ export async function generateComponent(
   }
 
   const view = buildComponentView(def, name);
-  const template = await Bun.file(def.templatePath).text();
+  const template = await readFileText(def.templatePath);
   const content = Mustache.render(template, view);
 
   if (options.dryRun) {
@@ -59,8 +60,7 @@ export async function generateComponent(
     console.log(content);
     createdFiles.push(filePath);
   } else {
-    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-    await Bun.write(fullPath, content);
+    await writeFile(fullPath, content);
     createdFiles.push(filePath);
   }
 
@@ -72,7 +72,7 @@ export async function generateComponent(
       // Silently skip test file if it already exists
     } else {
       const testTemplate = def.testTemplatePath
-        ? await Bun.file(def.testTemplatePath).text()
+        ? await readFileText(def.testTemplatePath)
         : await loadGenerateTemplate("test.ts.mustache");
       const testContent = Mustache.render(testTemplate, view);
 
@@ -80,8 +80,7 @@ export async function generateComponent(
         console.log(`Would create: ${testPath}`);
         createdFiles.push(testPath);
       } else {
-        fs.mkdirSync(path.dirname(testFullPath), { recursive: true });
-        await Bun.write(testFullPath, testContent);
+        await writeFile(testFullPath, testContent);
         createdFiles.push(testPath);
       }
     }

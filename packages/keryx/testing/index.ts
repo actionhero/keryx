@@ -1,6 +1,7 @@
 import { afterAll, beforeAll } from "vitest";
 import { api } from "../api";
 import type { WebServer } from "../servers/web";
+import { sleep } from "../util/runtime";
 
 export {
   createTestSession,
@@ -117,6 +118,6 @@ export async function waitFor(
   const start = Date.now();
   while (!(await condition())) {
     if (Date.now() - start > timeout) throw new Error("waitFor timed out");
-    await Bun.sleep(interval);
+    await sleep(interval);
   }
 }

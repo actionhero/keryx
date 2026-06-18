@@ -1,6 +1,7 @@
 import { expect } from "vitest";
 import { api } from "../api";
 import type { WebServer } from "../servers/web";
+import { sleep } from "../util/runtime";
 
 const wsUrl = () => {
   const web = api.servers.servers.find(
@@ -64,7 +65,7 @@ export const createUser = async (
     }),
   );
 
-  while (messages.length === 0) await Bun.sleep(10);
+  while (messages.length === 0) await sleep(10);
   const response = JSON.parse(messages[0].data);
 
   if (response.error) {
@@ -97,7 +98,7 @@ export const createSession = async (
     }),
   );
 
-  while (messages.length < 2) await Bun.sleep(10);
+  while (messages.length < 2) await sleep(10);
   const response = JSON.parse(messages[1].data);
 
   if (response.error) {
@@ -131,7 +132,7 @@ export const subscribeToChannel = async (
         break;
       }
     }
-    if (!response) await Bun.sleep(10);
+    if (!response) await sleep(10);
   }
   return response;
 };
@@ -151,7 +152,7 @@ export const waitForBroadcastMessages = async (
   messages: MessageEvent[],
   expectedCount: number,
 ) => {
-  await Bun.sleep(100);
+  await sleep(100);
 
   const broadcastMessages: Record<string, any>[] = [];
   for (const message of messages) {

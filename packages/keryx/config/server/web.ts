@@ -42,7 +42,7 @@ export const configServerWeb = {
   },
   includeStackInErrors: await loadFromEnvIfSet(
     "WEB_SERVER_INCLUDE_STACK_IN_ERRORS",
-    (Bun.env.NODE_ENV ?? "development") !== "production",
+    (process.env.NODE_ENV ?? "development") !== "production",
   ),
   securityHeaders: {
     "Content-Security-Policy": await loadFromEnvIfSet(

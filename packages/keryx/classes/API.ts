@@ -1,4 +1,3 @@
-import { Glob } from "bun";
 import fs from "fs";
 import path from "path";
 import { config } from "../config";
@@ -8,6 +7,7 @@ import {
   formatLoadedMessage,
 } from "../util/config";
 import { globLoader } from "../util/glob";
+import { glob } from "../util/runtime";
 import type { Initializer } from "./Initializer";
 import { Logger } from "./Logger";
 import { ErrorType, TypedError } from "./TypedError";
@@ -198,9 +198,14 @@ export class API {
     const configDir = path.join(this.rootDir, "config");
     if (!fs.existsSync(configDir)) return;
 
-    const glob = new Glob("**/*.ts");
-    for await (const file of glob.scan(configDir)) {
-      if (file.startsWith(".")) continue;
+    const seen = new Set<string>();
+    for (const file of await glob("**/*.{ts,tsx,js,mjs,cjs}", configDir)) {
+      if (file.startsWith(".") || file.endsWith(".d.ts")) continue;
+
+      // Collapse `foo.ts` / `foo.js` to a single load per basename.
+      const base = file.replace(/\.(ts|tsx|js|mjs|cjs)$/, "");
+      if (seen.has(base)) continue;
+      seen.add(base);
 
       const fullPath = path.join(configDir, file);
       const mod = await import(fullPath);

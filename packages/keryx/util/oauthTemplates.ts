@@ -2,6 +2,7 @@ import Mustache from "mustache";
 import type { z } from "zod";
 import type { Action } from "../classes/Action";
 import { escapeHtml } from "./oauth";
+import { fileExists, readFileText } from "./runtime";
 import { isSecret } from "./zodMixins";
 
 export type FormField = {
@@ -36,10 +37,10 @@ async function resolveTemplate(
   packageDir: string,
 ): Promise<string> {
   if (rootDir !== packageDir) {
-    const userFile = Bun.file(`${rootDir}/templates/${filename}`);
-    if (await userFile.exists()) return userFile.text();
+    const userFilePath = `${rootDir}/templates/${filename}`;
+    if (await fileExists(userFilePath)) return readFileText(userFilePath);
   }
-  return Bun.file(`${frameworkTemplatesDir}/${filename}`).text();
+  return readFileText(`${frameworkTemplatesDir}/${filename}`);
 }
 
 /**

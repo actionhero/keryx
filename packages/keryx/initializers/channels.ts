@@ -7,20 +7,19 @@ import { ErrorType, TypedError } from "../classes/TypedError";
 import { config } from "../config";
 import { formatLoadedMessage } from "../util/config";
 import { globLoader } from "../util/glob";
+import { readFileText } from "../util/runtime";
 
 const namespace = "channels";
 const PRESENCE_KEY_PREFIX = "presence:";
 const LUA_DIR = join(import.meta.dirname, "..", "lua");
 
-const ADD_PRESENCE_LUA = await Bun.file(
-  join(LUA_DIR, "add-presence.lua"),
-).text();
-const REMOVE_PRESENCE_LUA = await Bun.file(
+const ADD_PRESENCE_LUA = await readFileText(join(LUA_DIR, "add-presence.lua"));
+const REMOVE_PRESENCE_LUA = await readFileText(
   join(LUA_DIR, "remove-presence.lua"),
-).text();
-const REFRESH_PRESENCE_LUA = await Bun.file(
+);
+const REFRESH_PRESENCE_LUA = await readFileText(
   join(LUA_DIR, "refresh-presence.lua"),
-).text();
+);
 
 declare module "keryx" {
   export interface API {
