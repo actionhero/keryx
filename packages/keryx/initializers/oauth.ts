@@ -6,6 +6,7 @@ import {
   appendHeaders,
   buildCorsHeaders,
   getExternalOrigin,
+  getMcpAllowedOrigins,
 } from "../util/http";
 import {
   handleAuthorizeGet,
@@ -60,10 +61,21 @@ export class OAuthInitializer extends Initializer {
       const method = req.method.toUpperCase();
       const origin = getExternalOrigin(req, url);
       const requestOrigin = req.headers.get("origin") ?? undefined;
-      const corsHeaders = buildCorsHeaders(requestOrigin, {
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
-      });
+      // OAuth discovery, dynamic client registration, and token exchange are
+      // performed as browser fetches by browser-based MCP connectors (e.g.
+      // claude.ai). Reflect Access-Control-Allow-Origin for the same connector
+      // origins the MCP endpoint admits, or the browser blocks the responses
+      // (the requests still return 2xx, so nothing errors server-side) and the
+      // connector silently fails to complete. These endpoints are public by
+      // design — protected by PKCE and registration, not by Origin.
+      const corsHeaders = buildCorsHeaders(
+        requestOrigin,
+        {
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        },
+        getMcpAllowedOrigins(),
+      );
 
       // Handle CORS preflight for OAuth endpoints
       if (

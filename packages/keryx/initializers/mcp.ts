@@ -152,8 +152,11 @@ export class McpInitializer extends Initializer {
         requestOrigin,
         {
           "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+          // MCP-Protocol-Version is sent by clients on every request after
+          // initialize (spec 2025-06-18+). Browser connectors preflight it, so
+          // it must be allow-listed or those requests are silently blocked.
           "Access-Control-Allow-Headers":
-            "Content-Type, mcp-session-id, Authorization",
+            "Content-Type, mcp-session-id, mcp-protocol-version, Authorization",
           "Access-Control-Expose-Headers": "mcp-session-id",
         },
         mcpAllowedOrigins,

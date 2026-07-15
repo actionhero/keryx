@@ -95,6 +95,64 @@ describe("oauth initializer", () => {
       expect(res).not.toBeNull();
       expect(res!.status).toBe(204);
     });
+
+    test("reflects browser connector origins even when WEB_SERVER_ALLOWED_ORIGINS is restrictive", async () => {
+      // Simulate a production deploy where WEB_SERVER_ALLOWED_ORIGINS is a
+      // specific allowlist that does NOT include the connector. Browser-based
+      // MCP clients (e.g. claude.ai) fetch the OAuth discovery/registration/
+      // token endpoints cross-origin, so those responses must still carry
+      // Access-Control-Allow-Origin for the connector origin — otherwise the
+      // browser blocks them and the connector silently fails to connect.
+      const original = config.server.web.allowedOrigins;
+      config.server.web.allowedOrigins = "https://app.example.com";
+      try {
+        // claude.ai is in the default MCP_ALLOWED_ORIGINS list.
+        const connectorOrigin = "https://claude.ai";
+        for (const path of [
+          "/.well-known/oauth-protected-resource/mcp",
+          "/.well-known/oauth-authorization-server",
+        ]) {
+          const res = await oauthRequest(path, {
+            method: "GET",
+            headers: { Origin: connectorOrigin },
+          });
+          expect(res).not.toBeNull();
+          expect(res!.headers.get("Access-Control-Allow-Origin")).toBe(
+            connectorOrigin,
+          );
+        }
+
+        // Preflight for dynamic client registration must reflect it too.
+        const preflight = await oauthRequest("/oauth/register", {
+          method: "OPTIONS",
+          headers: {
+            Origin: connectorOrigin,
+            "Access-Control-Request-Method": "POST",
+          },
+        });
+        expect(preflight!.status).toBe(204);
+        expect(preflight!.headers.get("Access-Control-Allow-Origin")).toBe(
+          connectorOrigin,
+        );
+      } finally {
+        config.server.web.allowedOrigins = original;
+      }
+    });
+
+    test("does not reflect a non-allowlisted origin when WEB_SERVER_ALLOWED_ORIGINS is restrictive", async () => {
+      const original = config.server.web.allowedOrigins;
+      config.server.web.allowedOrigins = "https://app.example.com";
+      try {
+        const res = await oauthRequest(
+          "/.well-known/oauth-authorization-server",
+          { method: "GET", headers: { Origin: "https://evil.example.org" } },
+        );
+        expect(res).not.toBeNull();
+        expect(res!.headers.get("Access-Control-Allow-Origin")).toBeNull();
+      } finally {
+        config.server.web.allowedOrigins = original;
+      }
+    });
   });
 
   describe("client registration", () => {
