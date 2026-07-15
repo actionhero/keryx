@@ -10,6 +10,7 @@ import type { Action, ActionParams } from "./Action";
 import { LogFormat } from "./Logger";
 import { StreamingResponse } from "./StreamingResponse";
 import { ErrorType, TypedError } from "./TypedError";
+import { UIResponse } from "./UIResponse";
 
 /**
  * Per-invocation context passed to {@link BeforeActHook} and {@link AfterActHook}.
@@ -424,6 +425,10 @@ export class Connection<
           if (updatedResponse instanceof StreamingResponse) {
             logger.warn(
               `Middleware cannot replace a StreamingResponse for action '${action.name}'`,
+            );
+          } else if (updatedResponse instanceof UIResponse) {
+            logger.warn(
+              `Middleware cannot replace a UIResponse for action '${action.name}'`,
             );
           } else {
             updatedResponse = middlewareResponse.updatedResponse;

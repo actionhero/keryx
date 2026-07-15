@@ -40,6 +40,7 @@ For example: \`/guide/actions.md\`, \`/reference/config.md\`
 - Tasks: /guide/tasks.md
 - Middleware: /guide/middleware.md
 - MCP Server: /guide/mcp.md
+- MCP Apps (Dynamic UIs): /guide/mcp-apps.md
 - Configuration: /guide/config.md
 - Plugins: /guide/plugins.md
 - CLI: /guide/cli.md
@@ -192,6 +193,7 @@ export default defineConfig({
             { text: "Tasks", link: "/guide/tasks" },
             { text: "Middleware", link: "/guide/middleware" },
             { text: "MCP", link: "/guide/mcp" },
+            { text: "MCP Apps", link: "/guide/mcp-apps" },
             { text: "Configuration", link: "/guide/config" },
             { text: "Plugins", link: "/guide/plugins" },
           ],

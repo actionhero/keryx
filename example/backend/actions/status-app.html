@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Server Status</title>
+    <style>
+      :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+      body { margin: 0; padding: 16px; }
+      main { max-width: 420px; margin: 0 auto; }
+      header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+      h1 { font-size: 1.1rem; margin: 0; }
+      .pill { font-size: .75rem; padding: 2px 8px; border-radius: 999px; background: rgba(127,127,127,.18); }
+      dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; }
+      dt { color: rgba(127,127,127,.9); }
+      dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
+      footer { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+      button { padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(127,127,127,.4); background: transparent; color: inherit; cursor: pointer; }
+      button:disabled { opacity: .5; cursor: default; }
+      #updated { font-size: .75rem; color: rgba(127,127,127,.9); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header><h1>Server Status</h1><span id="name" class="pill">&mdash;</span></header>
+      <dl>
+        <dt>Process ID</dt><dd id="pid">&mdash;</dd>
+        <dt>Version</dt><dd id="version">&mdash;</dd>
+        <dt>Uptime</dt><dd id="uptime">&mdash;</dd>
+        <dt>Memory</dt><dd id="memory">&mdash;</dd>
+      </dl>
+      <footer><button id="refresh">Refresh</button><span id="updated"></span></footer>
+    </main>
+    <script type="module">
+      import { App } from "https://esm.sh/@modelcontextprotocol/ext-apps";
+
+      const app = new App({ name: "Server Status", version: "1.0.0" });
+      const el = (id) => document.getElementById(id);
+
+      function formatUptime(ms) {
+        if (ms == null) return "—";
+        const s = Math.floor(ms / 1000);
+        const h = Math.floor(s / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        return `${h}h ${m}m ${s % 60}s`;
+      }
+
+      function render(data) {
+        if (!data) return;
+        el("name").textContent = data.name || "server";
+        el("pid").textContent = data.pid != null ? String(data.pid) : "—";
+        el("version").textContent = data.version || "—";
+        el("uptime").textContent = formatUptime(data.uptime);
+        el("memory").textContent =
+          data.consumedMemoryMB != null ? `${data.consumedMemoryMB} MB` : "—";
+        el("updated").textContent = `Updated ${new Date().toLocaleTimeString()}`;
+      }
+
+      // The host pushes this tool's structuredContent when the app first renders.
+      app.ontoolresult = (result) => render(result.structuredContent);
+
+      // The Refresh button proactively re-calls the `status` tool on the server.
+      el("refresh").addEventListener("click", async () => {
+        el("refresh").disabled = true;
+        try {
+          const result = await app.callServerTool({ name: "status", arguments: {} });
+          let data = result.structuredContent;
+          if (!data && result.content && result.content[0]) {
+            try {
+              data = JSON.parse(result.content[0].text);
+            } catch {
+              data = null;
+            }
+          }
+          render(data);
+        } finally {
+          el("refresh").disabled = false;
+        }
+      });
+
+      app.connect();
+    </script>
+  </body>
+</html>

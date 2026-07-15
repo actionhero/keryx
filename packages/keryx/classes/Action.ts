@@ -7,6 +7,56 @@ export enum MCP_RESPONSE_FORMAT {
   MARKDOWN = "markdown",
 }
 
+/**
+ * MIME type for MCP App UI resources, per the MCP Apps extension.
+ * A `ui://` resource declared via an action's `mcp.ui` config is served with this type.
+ * @see {@link https://modelcontextprotocol.io/extensions/apps/overview}
+ */
+export const MCP_APP_MIME_TYPE = "text/html;profile=mcp-app";
+
+/**
+ * Configures an action as an **MCP App** — a tool whose result renders an interactive
+ * HTML UI in the host (Claude, Claude Desktop, VS Code Copilot, …) inside a sandboxed iframe.
+ *
+ * When set, Keryx registers a `ui://` resource that serves `html`, links the action's tool
+ * to it via the tool's `_meta.ui.resourceUri`, and — when `run()` returns a `UIResponse` —
+ * delivers `structuredContent` to the app for rendering.
+ *
+ * @see {@link https://modelcontextprotocol.io/extensions/apps/overview}
+ */
+export type McpUiConfig = {
+  /**
+   * Self-contained HTML for the app UI. Keep external assets minimal (or inline them) so the
+   * default deny-by-default CSP applies. To serve HTML from a file, read it yourself
+   * (e.g. `await Bun.file(path).text()`) and pass the string here.
+   */
+  html: string;
+  /** The `ui://` resource URI. Defaults to `ui://<tool-name>`. */
+  resourceUri?: string;
+  /** Content-Security-Policy allowances for external origins the app may reach. */
+  csp?: {
+    /** Origins the app may `connect` to (fetch/XHR/WebSocket). */
+    connectDomains?: string[];
+    /** Origins the app may load sub-resources (scripts, styles, images, fonts) from. */
+    resourceDomains?: string[];
+    /** Origins the app may embed in nested frames. */
+    frameDomains?: string[];
+    /** Origins allowed in the app's `<base href>`. */
+    baseUriDomains?: string[];
+  };
+  /** Additional iframe capabilities the app requests (subject to host/user consent). */
+  permissions?: {
+    camera?: Record<string, never>;
+    microphone?: Record<string, never>;
+    geolocation?: Record<string, never>;
+    clipboardWrite?: Record<string, never>;
+  };
+  /** Hint that the host should render a border/frame around the app. */
+  prefersBorder?: boolean;
+  /** Logical domain grouping for the app (host-specific display/isolation hint). */
+  domain?: string;
+};
+
 export enum HTTP_METHOD {
   GET = "GET",
   POST = "POST",
@@ -51,6 +101,13 @@ export type McpActionConfig = {
     /** Human-readable display title for the prompt */
     title?: string;
   };
+  /**
+   * Register this action as an **MCP App** (a dynamic UI). The tool is linked to an
+   * auto-registered `ui://` HTML resource, and the action's `run()` should return a
+   * {@link UIResponse} to deliver structured data to the app.
+   * @see {@link https://modelcontextprotocol.io/extensions/apps/overview}
+   */
+  ui?: McpUiConfig;
   /**
    * Response format for MCP tool calls.
    * `MCP_RESPONSE_FORMAT.JSON` (default) returns `JSON.stringify(response)`.

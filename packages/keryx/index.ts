@@ -19,8 +19,12 @@ import "./initializers/signals";
 import "./initializers/swagger";
 
 export * from "./api";
-export type { ActionMiddleware } from "./classes/Action";
-export { HTTP_METHOD, MCP_RESPONSE_FORMAT } from "./classes/Action";
+export type { ActionMiddleware, McpUiConfig } from "./classes/Action";
+export {
+  HTTP_METHOD,
+  MCP_APP_MIME_TYPE,
+  MCP_RESPONSE_FORMAT,
+} from "./classes/Action";
 export type { ChannelMiddleware } from "./classes/Channel";
 export { CHANNEL_NAME_PATTERN } from "./classes/Channel";
 export type {
@@ -34,6 +38,7 @@ export { LogLevel } from "./classes/Logger";
 export type { KeryxPlugin, PluginGenerator } from "./classes/Plugin";
 export { SSEResponse, StreamingResponse } from "./classes/StreamingResponse";
 export { ErrorStatusCodes, ErrorType, TypedError } from "./classes/TypedError";
+export { UIResponse } from "./classes/UIResponse";
 export type { KeryxConfig } from "./config";
 export type { OnEnqueueHook } from "./initializers/actionts";
 export type {
