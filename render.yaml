@@ -35,6 +35,15 @@ services:
         value: "true"
       - key: RATE_LIMIT_ENABLED
         value: "true"
+      # 10x the framework defaults (20 / 200 / 5) to accommodate MCP clients
+      # like Cursor that make many requests while connecting (OAuth discovery,
+      # dynamic client registration, and repeated initialize attempts).
+      - key: RATE_LIMIT_UNAUTH_LIMIT
+        value: "200"
+      - key: RATE_LIMIT_AUTH_LIMIT
+        value: "2000"
+      - key: RATE_LIMIT_OAUTH_REGISTER_LIMIT
+        value: "50"
       - key: TASKS_ENABLED
         value: "true"
       - key: APPLICATION_URL
