@@ -55,3 +55,25 @@ describe("greeting:prompt", () => {
     );
   });
 });
+
+describe("status:app (MCP App)", () => {
+  test("GET /status/app returns the structuredContent (UIResponse serializes via toJSON)", async () => {
+    const res = await fetch(getUrl() + "/api/status/app");
+    expect(res.status).toBe(200);
+
+    // Over HTTP a UIResponse serializes to its structuredContent, so the same
+    // action is useful outside of MCP too.
+    const payload = (await res.json()) as {
+      name: string;
+      pid: number;
+      version: string;
+      uptime: number;
+      consumedMemoryMB: number;
+    };
+    expect(payload.name).toBeDefined();
+    expect(typeof payload.pid).toBe("number");
+    expect(payload.version).toBeDefined();
+    expect(payload.uptime).toBeGreaterThanOrEqual(0);
+    expect(payload.consumedMemoryMB).toBeGreaterThan(0);
+  });
+});

@@ -71,6 +71,7 @@ The full `mcp` property is of type `McpActionConfig`:
 | `isSignupAction` | `boolean`             | —       | Tag as the signup action for the OAuth flow                                        |
 | `resource`       | `object`              | —       | Expose this action as an MCP resource (see [Resources](#resources) below)          |
 | `prompt`         | `object`              | —       | Expose this action as an MCP prompt (see [Prompts](#prompts) below)                |
+| `ui`             | `McpUiConfig`         | —       | Render the tool's result as an interactive UI (see [MCP Apps](./mcp-apps.md))      |
 | `responseFormat` | `MCP_RESPONSE_FORMAT` | `JSON`  | Response format for MCP tool calls (see [Response Format](#response-format) below) |
 
 The `isLoginAction` and `isSignupAction` markers tell the OAuth system which actions to invoke when users authenticate through the MCP authorization page. These actions must return `OAuthActionResponse` (`{ user: { id: number } }`).

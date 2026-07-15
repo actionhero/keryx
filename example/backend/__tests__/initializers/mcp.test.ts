@@ -502,6 +502,62 @@ describe("mcp initializer (enabled)", () => {
       expect(content).toBeArray();
       expect(content.length).toBeGreaterThan(0);
     });
+
+    describe("MCP Apps (dynamic UIs)", () => {
+      test("app tool declares _meta.ui.resourceUri in tools/list", async () => {
+        const result = await client.listTools();
+        const tool = result.tools.find((t) => t.name === "status-app");
+        expect(tool).toBeTruthy();
+        expect((tool!._meta as any)?.ui?.resourceUri).toBe("ui://status-app");
+      });
+
+      test("the ui:// resource is listed", async () => {
+        const result = await client.listResources();
+        const uris = result.resources.map((r) => r.uri);
+        expect(uris).toContain("ui://status-app");
+      });
+
+      test("resources/read returns app HTML with the MCP Apps mime type and _meta.ui", async () => {
+        const result = await client.readResource({ uri: "ui://status-app" });
+        expect(result.contents.length).toBeGreaterThan(0);
+        const content = result.contents[0];
+        expect(content.uri).toBe("ui://status-app");
+        expect(content.mimeType).toBe("text/html;profile=mcp-app");
+        const text = (content as { text: string }).text;
+        expect(text).toContain("<!doctype html>");
+        expect(text).toContain("ext-apps");
+        const ui = (content._meta as any)?.ui;
+        expect(ui?.prefersBorder).toBe(true);
+        expect(ui?.csp?.resourceDomains).toContain("https://esm.sh");
+      });
+
+      test("app tool call returns structuredContent plus a text summary", async () => {
+        const result = await client.callTool({
+          name: "status-app",
+          arguments: {},
+        });
+        expect(result.isError).toBeFalsy();
+
+        const structured = result.structuredContent as Record<string, unknown>;
+        expect(structured).toBeTruthy();
+        for (const key of [
+          "name",
+          "pid",
+          "version",
+          "uptime",
+          "consumedMemoryMB",
+        ]) {
+          expect(structured).toHaveProperty(key);
+        }
+
+        const content = result.content as Array<{
+          type: string;
+          text?: string;
+        }>;
+        expect(content[0].type).toBe("text");
+        expect(content[0].text).toContain("is running");
+      });
+    });
   });
 
   describe("OAuth endpoints", () => {

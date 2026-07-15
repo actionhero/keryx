@@ -11,11 +11,12 @@ import type {
 import { randomUUID } from "crypto";
 import * as z4mini from "zod/v4-mini";
 import { api, logger } from "../api";
-import type { Action } from "../classes/Action";
-import { MCP_RESPONSE_FORMAT } from "../classes/Action";
+import type { Action, McpUiConfig } from "../classes/Action";
+import { MCP_APP_MIME_TYPE, MCP_RESPONSE_FORMAT } from "../classes/Action";
 import { CONNECTION_TYPE, Connection } from "../classes/Connection";
 import { StreamingResponse } from "../classes/StreamingResponse";
 import { ErrorType, TypedError } from "../classes/TypedError";
+import { UIResponse } from "../classes/UIResponse";
 import { config } from "../config";
 import pkg from "../package.json";
 import { appendHeaders } from "../util/http";
@@ -135,9 +136,33 @@ export function createMcpServer(): McpServer {
 
   registerTools(mcpServer);
   registerResources(mcpServer);
+  registerUiResources(mcpServer);
   registerPrompts(mcpServer);
 
   return mcpServer;
+}
+
+/**
+ * Compute the `ui://` resource URI for an action's MCP App.
+ * Defaults to `ui://<tool-name>` when `mcp.ui.resourceUri` is not set.
+ */
+function uiResourceUri(action: Action): string {
+  return action.mcp?.ui?.resourceUri ?? `ui://${formatToolName(action.name)}`;
+}
+
+/**
+ * Build the MCP Apps `_meta.ui` object from an action's `mcp.ui` config,
+ * omitting empty sub-objects so the resource metadata stays minimal.
+ */
+function buildUiMeta(ui: McpUiConfig): Record<string, unknown> {
+  const meta: Record<string, unknown> = {};
+  if (ui.csp && Object.keys(ui.csp).length > 0) meta.csp = ui.csp;
+  if (ui.permissions && Object.keys(ui.permissions).length > 0) {
+    meta.permissions = ui.permissions;
+  }
+  if (ui.prefersBorder !== undefined) meta.prefersBorder = ui.prefersBorder;
+  if (ui.domain !== undefined) meta.domain = ui.domain;
+  return meta;
 }
 
 function registerTools(mcpServer: McpServer) {
@@ -151,6 +176,7 @@ function registerTools(mcpServer: McpServer) {
     const toolConfig: {
       description?: string;
       inputSchema?: any;
+      _meta?: Record<string, unknown>;
     } = {};
 
     if (action.description) {
@@ -160,6 +186,12 @@ function registerTools(mcpServer: McpServer) {
     toolConfig.inputSchema = action.inputs
       ? sanitizeSchemaForMcp(action.inputs)
       : z4mini.strictObject({});
+
+    // Link MCP App tools to their `ui://` resource so the host can preload and
+    // render the UI. See https://modelcontextprotocol.io/extensions/apps/overview
+    if (action.mcp?.ui) {
+      toolConfig._meta = { ui: { resourceUri: uiResourceUri(action) } };
+    }
 
     mcpServer.registerTool(
       toolName,
@@ -225,6 +257,15 @@ function registerTools(mcpServer: McpServer) {
             }
             return {
               content: [{ type: "text" as const, text: accumulated }],
+            };
+          }
+
+          // MCP App responses carry both a text block (added to model context)
+          // and structuredContent (delivered to the app UI for rendering).
+          if (response instanceof UIResponse) {
+            return {
+              content: [{ type: "text" as const, text: response.text }],
+              structuredContent: response.structuredContent,
             };
           }
 
@@ -320,6 +361,50 @@ function registerResources(mcpServer: McpServer) {
         (mcpUri: URL, extra: any) => readCb(mcpUri, {}, extra),
       );
     }
+  }
+}
+
+/**
+ * Register a `ui://` HTML resource for every action that declares `mcp.ui`.
+ * The resource serves the app's self-contained HTML with the MCP Apps MIME type
+ * and any `_meta.ui` (CSP, permissions, etc.). The matching tool is linked to it
+ * via `_meta.ui.resourceUri` in `registerTools()`.
+ */
+function registerUiResources(mcpServer: McpServer) {
+  const registered = new Set<string>();
+  for (const action of api.actions.actions) {
+    const ui = action.mcp?.ui;
+    if (!ui) continue;
+
+    const resourceUri = uiResourceUri(action);
+    if (registered.has(resourceUri)) {
+      logger.warn(
+        `Skipping duplicate MCP App UI resource '${resourceUri}' (action '${action.name}')`,
+      );
+      continue;
+    }
+    registered.add(resourceUri);
+
+    const uiMeta = buildUiMeta(ui);
+    const hasMeta = Object.keys(uiMeta).length > 0;
+    const metadata: Record<string, unknown> = { mimeType: MCP_APP_MIME_TYPE };
+    if (hasMeta) metadata._meta = { ui: uiMeta };
+
+    mcpServer.registerResource(
+      `${formatToolName(action.name)}-ui`,
+      resourceUri,
+      metadata,
+      (mcpUri: URL) => ({
+        contents: [
+          {
+            uri: mcpUri.toString(),
+            mimeType: MCP_APP_MIME_TYPE,
+            text: ui.html,
+            ...(hasMeta ? { _meta: { ui: uiMeta } } : {}),
+          },
+        ],
+      }),
+    );
   }
 }
 
