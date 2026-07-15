@@ -37,6 +37,17 @@ export async function handleRegister(req: Request): Promise<Response> {
     }
   }
 
+  // `application_type` is required of clients per MCP 2026-07-28 / SEP-837, but
+  // remains optional here for backwards compatibility; default to the OIDC
+  // default of "web" when omitted (RFC 7591).
+  const applicationType = body.application_type ?? "web";
+  if (applicationType !== "web" && applicationType !== "native") {
+    return oauthError(
+      "invalid_client_metadata",
+      'application_type must be "web" or "native"',
+    );
+  }
+
   const clientId = randomUUID();
   const client: OAuthClient = {
     client_id: clientId,
@@ -45,6 +56,7 @@ export async function handleRegister(req: Request): Promise<Response> {
     grant_types: body.grant_types ?? ["authorization_code"],
     response_types: body.response_types ?? ["code"],
     token_endpoint_auth_method: body.token_endpoint_auth_method ?? "none",
+    application_type: applicationType,
   };
 
   await api.redis.redis.set(

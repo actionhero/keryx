@@ -59,7 +59,10 @@ async function getAccessToken(): Promise<string> {
   const metaMatch = authHtml.match(
     /<meta name="redirect-url" content="([^"]+)"\s*\/?>/,
   );
-  const code = new URL(metaMatch![1]).searchParams.get("code")!;
+  const redirectUrl = new URL(metaMatch![1]);
+  // RFC 9207 (MCP 2026-07-28 / SEP-2468): the success redirect must carry `iss`.
+  expect(redirectUrl.searchParams.get("iss")).toBe(baseUrl());
+  const code = redirectUrl.searchParams.get("code")!;
 
   // Exchange code for token
   const tokenRes = await fetch(`${baseUrl()}/oauth/token`, {
@@ -524,6 +527,7 @@ describe("mcp initializer (enabled)", () => {
       expect(body.registration_endpoint).toContain("/oauth/register");
       expect(body.response_types_supported).toContain("code");
       expect(body.code_challenge_methods_supported).toContain("S256");
+      expect(body.authorization_response_iss_parameter_supported).toBe(true);
     });
 
     test("OAuth client registration works", async () => {
@@ -540,6 +544,35 @@ describe("mcp initializer (enabled)", () => {
       expect(body.client_id).toBeTruthy();
       expect(body.redirect_uris).toEqual(["http://localhost:3000/callback"]);
       expect(body.client_name).toBe("Test Client");
+    });
+
+    test("OAuth registration honors application_type (SEP-837)", async () => {
+      const res = await fetch(`${baseUrl()}/oauth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          redirect_uris: ["http://localhost:3000/callback"],
+          client_name: "Native Client",
+          application_type: "native",
+        }),
+      });
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.application_type).toBe("native");
+    });
+
+    test("OAuth registration rejects an unknown application_type", async () => {
+      const res = await fetch(`${baseUrl()}/oauth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          redirect_uris: ["http://localhost:3000/callback"],
+          application_type: "bogus",
+        }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe("invalid_client_metadata");
     });
 
     test("OAuth registration rejects malformed redirect_uris", async () => {

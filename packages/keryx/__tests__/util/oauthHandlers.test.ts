@@ -107,6 +107,12 @@ describe("handleMetadata", () => {
     expect(body.revocation_endpoint_auth_methods_supported).toEqual(["none"]);
     expect(body.client_id_metadata_document_supported).toBe(false);
   });
+
+  test("advertises RFC 9207 iss parameter support (MCP 2026-07-28)", async () => {
+    const res = handleMetadata("https://example.com");
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.authorization_response_iss_parameter_supported).toBe(true);
+  });
 });
 
 describe("handleRegister", () => {
@@ -153,6 +159,54 @@ describe("handleRegister", () => {
     expect(body.grant_types).toEqual(["authorization_code"]);
     expect(body.response_types).toEqual(["code"]);
     expect(body.token_endpoint_auth_method).toBe("none");
+  });
+
+  test("defaults application_type to web when omitted (SEP-837)", async () => {
+    const req = new Request("http://localhost/oauth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        redirect_uris: ["http://localhost:9999/cb"],
+      }),
+    });
+    const res = await handleRegister(req);
+    const body = (await res.json()) as OAuthClient;
+    expect(body.application_type).toBe("web");
+  });
+
+  test("stores and echoes a declared application_type (SEP-837)", async () => {
+    const req = new Request("http://localhost/oauth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        redirect_uris: ["http://localhost:9999/cb"],
+        application_type: "native",
+      }),
+    });
+    const res = await handleRegister(req);
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as OAuthClient;
+    expect(body.application_type).toBe("native");
+
+    const stored = await api.redis.redis.get(`oauth:client:${body.client_id}`);
+    expect((JSON.parse(stored!) as OAuthClient).application_type).toBe(
+      "native",
+    );
+  });
+
+  test("rejects an unknown application_type with invalid_client_metadata", async () => {
+    const req = new Request("http://localhost/oauth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        redirect_uris: ["http://localhost:9999/cb"],
+        application_type: "bogus",
+      }),
+    });
+    const res = await handleRegister(req);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("invalid_client_metadata");
   });
 });
 
@@ -666,6 +720,7 @@ describe("handleAuthorizePost", () => {
         response_type: "code",
       }),
       templates,
+      "https://example.com",
     );
     expect(res.status).toBe(200);
     const html = await res.text();
@@ -683,6 +738,7 @@ describe("handleAuthorizePost", () => {
         response_type: "code",
       }),
       templates,
+      "https://example.com",
     );
     const html = await res.text();
     expect(html).toContain("Invalid redirect URI");
@@ -699,6 +755,7 @@ describe("handleAuthorizePost", () => {
         response_type: "code",
       }),
       templates,
+      "https://example.com",
     );
     const html = await res.text();
     expect(html).toContain("Invalid redirect URI");
@@ -715,6 +772,7 @@ describe("handleAuthorizePost", () => {
         response_type: "code",
       }),
       templates,
+      "https://example.com",
     );
     const html = await res.text();
     expect(html).toContain("S256");
@@ -734,6 +792,7 @@ describe("handleAuthorizePost", () => {
         // No mode => login path
       }),
       templates,
+      "https://example.com",
     );
     const html = await res.text();
     expect(html.toLowerCase()).toContain("no login action");
@@ -751,6 +810,7 @@ describe("handleAuthorizePost", () => {
         mode: "signup",
       }),
       templates,
+      "https://example.com",
     );
     const html = await res.text();
     expect(html.toLowerCase()).toContain("no signup action");
@@ -764,7 +824,11 @@ describe("handleAuthorizePost", () => {
       headers: { "Content-Type": "multipart/form-data" },
       body: "not-actually-multipart",
     });
-    const res = await handleAuthorizePost(req, templates);
+    const res = await handleAuthorizePost(
+      req,
+      templates,
+      "https://example.com",
+    );
     expect(res.status).toBe(400);
   });
 });

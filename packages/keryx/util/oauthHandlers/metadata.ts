@@ -30,6 +30,9 @@ export function handleMetadata(origin: string): Response {
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code", "refresh_token"],
     code_challenge_methods_supported: ["S256"],
+    // RFC 9207 — return the `iss` parameter on authorization responses so
+    // clients can guard against mix-up attacks (MCP 2026-07-28 / SEP-2468).
+    authorization_response_iss_parameter_supported: true,
     token_endpoint_auth_methods_supported: ["none"],
     introspection_endpoint_auth_methods_supported: ["none"],
     revocation_endpoint_auth_methods_supported: ["none"],
