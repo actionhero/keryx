@@ -232,6 +232,8 @@ MCP clients authenticate using OAuth 2.1 with PKCE (Proof Key for Code Exchange)
 The OAuth implementation includes several hardening measures:
 
 - **Redirect URI validation** — URIs registered via `/oauth/register` must not contain fragments or userinfo, and must use HTTPS for non-localhost addresses. When exchanging authorization codes, the redirect URI must match the registered URI exactly (origin + pathname).
+- **Issuer identification (`iss`)** — the authorization response redirect includes an `iss` parameter identifying this authorization server, and `/.well-known/oauth-authorization-server` advertises `authorization_response_iss_parameter_supported: true`. Clients validate `iss` to defend against mix-up attacks ([RFC 9207](https://datatracker.ietf.org/doc/html/rfc9207), MCP 2026-07-28 / SEP-2468).
+- **Client `application_type`** — `POST /oauth/register` accepts an `application_type` of `"web"` (the default) or `"native"`, stored on the client record so native/CLI clients are not misclassified as web clients (MCP 2026-07-28 / SEP-837). Any other value is rejected with `invalid_client_metadata`.
 - **Registration rate limiting** — `POST /oauth/register` has a separate, stricter rate limit (default: 5 requests per hour per IP) to prevent abuse. See `RATE_LIMIT_OAUTH_REGISTER_LIMIT` and `RATE_LIMIT_OAUTH_REGISTER_WINDOW_MS` in [Configuration](/guide/config).
 - **CORS** — OAuth and MCP endpoints respect the `allowedOrigins` configuration. When `allowedOrigins` is `"*"`, credentials headers are not sent, per the browser spec. Set a specific origin in production for credentialed requests to work.
 

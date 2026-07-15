@@ -90,10 +90,19 @@ async function runAuthAction(
   }
 }
 
-/** Handle the OAuth authorize form POST (signin/signup). */
+/**
+ * Handle the OAuth authorize form POST (signin/signup).
+ *
+ * @param req - The incoming form POST request.
+ * @param templates - Loaded OAuth HTML templates for rendering the auth/success pages.
+ * @param origin - The externally-visible origin of this authorization server. Used
+ *   as the `iss` (issuer) value on the authorization-code redirect per RFC 9207
+ *   (MCP 2026-07-28 / SEP-2468); matches the `issuer` advertised in AS metadata.
+ */
 export async function handleAuthorizePost(
   req: Request,
   templates: OAuthTemplates,
+  origin: string,
 ): Promise<Response> {
   let fields: Record<string, string>;
   try {
@@ -163,6 +172,8 @@ export async function handleAuthorizePost(
 
   const redirectUrl = new URL(oauthParams.redirectUri);
   redirectUrl.searchParams.set("code", code);
+  // RFC 9207 — advertise the issuer so the client can detect mix-up attacks.
+  redirectUrl.searchParams.set("iss", origin);
   if (oauthParams.state)
     redirectUrl.searchParams.set("state", oauthParams.state);
 

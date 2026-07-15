@@ -5,6 +5,12 @@ export type OAuthClient = {
   grant_types?: string[];
   response_types?: string[];
   token_endpoint_auth_method?: string;
+  /**
+   * OpenID Connect `application_type` (`"web"` | `"native"`), declared at
+   * registration per MCP 2026-07-28 / SEP-837 so the authorization server does
+   * not misclassify native/CLI clients as web clients. Defaults to `"web"`.
+   */
+  application_type?: "web" | "native";
 };
 
 export type AuthCode = {
