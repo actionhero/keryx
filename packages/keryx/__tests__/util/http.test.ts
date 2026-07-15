@@ -4,23 +4,27 @@ import {
   appendHeaders,
   buildCorsHeaders,
   getExternalOrigin,
+  getMcpAllowedOrigins,
   isOriginAllowed,
 } from "../../util/http";
 
 let originalAllowedOrigins: string;
 let originalApplicationUrl: string;
 let originalOauthTrustProxy: boolean;
+let originalMcpAllowedOrigins: string;
 
 beforeAll(() => {
   originalAllowedOrigins = config.server.web.allowedOrigins;
   originalApplicationUrl = config.server.web.applicationUrl;
   originalOauthTrustProxy = config.server.mcp.oauthTrustProxy;
+  originalMcpAllowedOrigins = config.server.mcp.allowedOrigins;
 });
 
 afterAll(() => {
   config.server.web.allowedOrigins = originalAllowedOrigins;
   config.server.web.applicationUrl = originalApplicationUrl;
   config.server.mcp.oauthTrustProxy = originalOauthTrustProxy;
+  config.server.mcp.allowedOrigins = originalMcpAllowedOrigins;
 });
 
 describe("isOriginAllowed", () => {
@@ -43,6 +47,41 @@ describe("isOriginAllowed", () => {
   test("whitespace in list is trimmed", () => {
     config.server.web.allowedOrigins = " https://a.com , https://b.com ";
     expect(isOriginAllowed("https://b.com")).toBe(true);
+  });
+
+  test("extraAllowedOrigins permits an origin not in the web list", () => {
+    config.server.web.allowedOrigins = "https://a.com";
+    expect(isOriginAllowed("https://claude.ai", ["https://claude.ai"])).toBe(
+      true,
+    );
+    expect(isOriginAllowed("https://evil.com", ["https://claude.ai"])).toBe(
+      false,
+    );
+  });
+
+  test("wildcard short-circuits extraAllowedOrigins", () => {
+    config.server.web.allowedOrigins = "*";
+    expect(isOriginAllowed("https://anything.com", [])).toBe(true);
+  });
+});
+
+describe("getMcpAllowedOrigins", () => {
+  test("includes the applicationUrl origin and configured origins", () => {
+    config.server.web.applicationUrl = "https://myapp.example.com";
+    config.server.mcp.allowedOrigins = "https://claude.ai,https://claude.com";
+    const origins = getMcpAllowedOrigins();
+    expect(origins).toContain("https://myapp.example.com");
+    expect(origins).toContain("https://claude.ai");
+    expect(origins).toContain("https://claude.com");
+  });
+
+  test("trims whitespace and drops empty entries", () => {
+    config.server.web.applicationUrl = "https://myapp.example.com";
+    config.server.mcp.allowedOrigins = " https://claude.ai , , https://x.com ";
+    const origins = getMcpAllowedOrigins();
+    expect(origins).toContain("https://claude.ai");
+    expect(origins).toContain("https://x.com");
+    expect(origins).not.toContain("");
   });
 });
 
@@ -73,6 +112,15 @@ describe("buildCorsHeaders", () => {
     });
     expect(headers["Access-Control-Allow-Methods"]).toBe("GET, POST");
     expect(headers["Access-Control-Allow-Origin"]).toBe("*");
+  });
+
+  test("reflects an origin allowed only via extraAllowedOrigins", () => {
+    config.server.web.allowedOrigins = "https://app.com";
+    const headers = buildCorsHeaders("https://claude.ai", undefined, [
+      "https://claude.ai",
+    ]);
+    expect(headers["Access-Control-Allow-Origin"]).toBe("https://claude.ai");
+    expect(headers["Vary"]).toBe("Origin");
   });
 });
 

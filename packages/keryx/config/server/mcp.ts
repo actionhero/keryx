@@ -4,6 +4,16 @@ import { loadFromEnvIfSet } from "../../util/config";
 export const configServerMcp = {
   enabled: await loadFromEnvIfSet("MCP_SERVER_ENABLED", false),
   route: await loadFromEnvIfSet("MCP_SERVER_ROUTE", "/mcp"),
+  allowedOrigins: await loadFromEnvIfSet(
+    "MCP_ALLOWED_ORIGINS",
+    [
+      "https://claude.ai", // Anthropic Claude web connector
+      "https://claude.com", // Anthropic Claude web connector
+      "https://chatgpt.com", // OpenAI ChatGPT connectors
+      "https://vscode.dev", // VS Code for the Web
+      "https://github.dev", // github.dev web editor
+    ].join(","),
+  ),
   instructions: await loadFromEnvIfSet(
     "MCP_SERVER_INSTRUCTIONS",
     pkg.description as string,

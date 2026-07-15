@@ -237,6 +237,7 @@ The OAuth implementation includes several hardening measures:
 - **Client `application_type`** — `POST /oauth/register` accepts an `application_type` of `"web"` (the default) or `"native"`, stored on the client record so native/CLI clients are not misclassified as web clients (MCP 2026-07-28 / SEP-837). Any other value is rejected with `invalid_client_metadata`.
 - **Registration rate limiting** — `POST /oauth/register` has a separate, stricter rate limit (default: 5 requests per hour per IP) to prevent abuse. See `RATE_LIMIT_OAUTH_REGISTER_LIMIT` and `RATE_LIMIT_OAUTH_REGISTER_WINDOW_MS` in [Configuration](/guide/config).
 - **CORS** — OAuth and MCP endpoints respect the `allowedOrigins` configuration. When `allowedOrigins` is `"*"`, credentials headers are not sent, per the browser spec. Set a specific origin in production for credentialed requests to work.
+- **Browser MCP clients** — The MCP endpoint admits browser requests whose `Origin` is in `MCP_ALLOWED_ORIGINS` (comma-separated), in addition to `APPLICATION_URL` and `WEB_SERVER_ALLOWED_ORIGINS`. It defaults to the popular browser-based connectors (`https://claude.ai`, `https://claude.com`, `https://chatgpt.com`, `https://vscode.dev`, `https://github.dev`), so web connectors work out of the box even when `WEB_SERVER_ALLOWED_ORIGINS` is locked down. Requests with no `Origin` (CLI and other non-browser clients) always pass — the OAuth bearer token is the security boundary. The origin gate and the `Access-Control-Allow-Origin` response share one allowlist, so they never disagree.
 
 ## Session Management
 
@@ -297,6 +298,7 @@ When messages are broadcast through the PubSub system (e.g., chat messages sent 
 | -------------------- | -------------------------- | ------------------- | ---------------------------------------- |
 | `enabled`            | `MCP_SERVER_ENABLED`       | `false`             | Enable the MCP server                    |
 | `route`              | `MCP_SERVER_ROUTE`         | `"/mcp"`            | URL path for the MCP endpoint            |
+| `allowedOrigins`     | `MCP_ALLOWED_ORIGINS`      | Claude/ChatGPT/VS Code Web | Browser origins allowed to reach the MCP endpoint |
 | `instructions`       | `MCP_SERVER_INSTRUCTIONS`  | package description | Instructions shown to MCP clients        |
 | `oauthClientTtl`     | `MCP_OAUTH_CLIENT_TTL`     | `2592000`           | OAuth client registration TTL (seconds)  |
 | `oauthCodeTtl`       | `MCP_OAUTH_CODE_TTL`       | `300`               | Authorization code TTL (seconds)         |
