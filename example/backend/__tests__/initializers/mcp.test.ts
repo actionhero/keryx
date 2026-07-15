@@ -176,8 +176,24 @@ describe("mcp initializer (enabled)", () => {
     const res = await fetch(mcpUrl(), { method: "OPTIONS" });
     expect(res.status).toBe(204);
     expect(res.headers.get("access-control-allow-methods")).toBeTruthy();
-    expect(res.headers.get("access-control-allow-headers")).toContain(
-      "mcp-session-id",
+    const allowHeaders = res.headers.get("access-control-allow-headers") ?? "";
+    expect(allowHeaders).toContain("mcp-session-id");
+    // Clients send MCP-Protocol-Version on every request after initialize;
+    // browser connectors preflight it, so it must be allow-listed.
+    expect(allowHeaders.toLowerCase()).toContain("mcp-protocol-version");
+  });
+
+  test("OPTIONS reflects a browser connector origin", async () => {
+    const res = await fetch(mcpUrl(), {
+      method: "OPTIONS",
+      headers: {
+        Origin: "https://claude.ai",
+        "Access-Control-Request-Method": "POST",
+      },
+    });
+    expect(res.status).toBe(204);
+    expect(res.headers.get("access-control-allow-origin")).toBe(
+      "https://claude.ai",
     );
   });
 
