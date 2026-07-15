@@ -225,4 +225,87 @@ describe("mcpServer utilities (integration)", () => {
       }
     });
   });
+
+  describe("origin gate", () => {
+    let originalApplicationUrl: string;
+    let originalAllowedOrigins: string;
+    let originalMcpAllowedOrigins: string;
+
+    beforeAll(() => {
+      originalApplicationUrl = config.server.web.applicationUrl;
+      originalAllowedOrigins = config.server.web.allowedOrigins;
+      originalMcpAllowedOrigins = config.server.mcp.allowedOrigins;
+      // Simulate a public deployment with a locked-down web CORS allowlist, so
+      // the MCP-specific allowlist is what admits browser connector origins.
+      config.server.web.applicationUrl = "https://api.example.com";
+      config.server.web.allowedOrigins = "https://app.example.com";
+      config.server.mcp.allowedOrigins = "https://claude.ai,https://claude.com";
+    });
+
+    afterAll(() => {
+      config.server.web.applicationUrl = originalApplicationUrl;
+      config.server.web.allowedOrigins = originalAllowedOrigins;
+      config.server.mcp.allowedOrigins = originalMcpAllowedOrigins;
+    });
+
+    test("request with no Origin passes (preflight 204)", async () => {
+      const res = await fetch(mcpUrl(), {
+        method: "OPTIONS",
+        headers: { "Access-Control-Request-Method": "POST" },
+      });
+      expect(res.status).toBe(204);
+    });
+
+    test("request with no Origin reaches auth (POST 401, not 403)", async () => {
+      const res = await fetch(mcpUrl(), { method: "POST" });
+      expect(res.status).toBe(401);
+    });
+
+    test("allowlisted origin passes preflight and reflects CORS", async () => {
+      const res = await fetch(mcpUrl(), {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://claude.ai",
+          "Access-Control-Request-Method": "POST",
+        },
+      });
+      expect(res.status).toBe(204);
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
+        "https://claude.ai",
+      );
+    });
+
+    test("allowlisted origin POST reaches auth (not 403)", async () => {
+      const res = await fetch(mcpUrl(), {
+        method: "POST",
+        headers: { Origin: "https://claude.ai" },
+      });
+      expect(res.status).toBe(401);
+    });
+
+    test("applicationUrl origin passes", async () => {
+      const res = await fetch(mcpUrl(), {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://api.example.com",
+          "Access-Control-Request-Method": "POST",
+        },
+      });
+      expect(res.status).toBe(204);
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
+        "https://api.example.com",
+      );
+    });
+
+    test("non-allowlisted origin is rejected with 403", async () => {
+      const res = await fetch(mcpUrl(), {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://evil.com",
+          "Access-Control-Request-Method": "POST",
+        },
+      });
+      expect(res.status).toBe(403);
+    });
+  });
 });

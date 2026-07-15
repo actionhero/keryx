@@ -312,6 +312,7 @@ See the [Security guide](/guide/security) for details on how rate limiting works
 | -------------------- | -------------------------- | ------------------- |
 | `enabled`            | `MCP_SERVER_ENABLED`       | `false`             |
 | `route`              | `MCP_SERVER_ROUTE`         | `"/mcp"`            |
+| `allowedOrigins`     | `MCP_ALLOWED_ORIGINS`      | Claude/ChatGPT/VS Code Web |
 | `instructions`       | `MCP_SERVER_INSTRUCTIONS`  | package description |
 | `oauthClientTtl`     | `MCP_OAUTH_CLIENT_TTL`     | `2592000`           |
 | `oauthCodeTtl`       | `MCP_OAUTH_CODE_TTL`       | `300`               |

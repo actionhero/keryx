@@ -2,12 +2,49 @@ import { config } from "../config";
 
 /**
  * Check whether a request origin is permitted by the configured allowed-origins list.
+ *
+ * @param origin - The request `Origin` to check.
+ * @param extraAllowedOrigins - Additional origins to permit beyond
+ *                `WEB_SERVER_ALLOWED_ORIGINS`. Used by the MCP endpoint to admit
+ *                browser connector origins (see {@link getMcpAllowedOrigins}) so
+ *                the origin gate and CORS reflection share one allowlist. When
+ *                `WEB_SERVER_ALLOWED_ORIGINS` is `"*"`, all origins are allowed and
+ *                this list is not consulted.
  */
-export function isOriginAllowed(origin: string): boolean {
+export function isOriginAllowed(
+  origin: string,
+  extraAllowedOrigins: string[] = [],
+): boolean {
   const allowedOrigins = config.server.web.allowedOrigins;
   if (allowedOrigins === "*") return true;
   const allowed = allowedOrigins.split(",").map((o) => o.trim());
-  return allowed.includes(origin);
+  return allowed.includes(origin) || extraAllowedOrigins.includes(origin);
+}
+
+/**
+ * Compute the extra origins permitted to reach the MCP endpoint from a browser,
+ * on top of `WEB_SERVER_ALLOWED_ORIGINS`. Always includes the `applicationUrl`
+ * origin (the server's own domain) plus the configurable `MCP_ALLOWED_ORIGINS`
+ * list (defaults to the popular browser-based agent connector origins).
+ *
+ * Passed to both {@link buildCorsHeaders} and {@link isOriginAllowed} in the MCP
+ * request handler so the 403 origin gate and the CORS `Access-Control-Allow-Origin`
+ * reflection can never disagree.
+ */
+export function getMcpAllowedOrigins(): string[] {
+  const origins: string[] = [];
+  const appUrl = config.server.web.applicationUrl;
+  if (appUrl) origins.push(new URL(appUrl).origin);
+  const configured = config.server.mcp.allowedOrigins;
+  if (configured) {
+    origins.push(
+      ...configured
+        .split(",")
+        .map((o) => o.trim())
+        .filter(Boolean),
+    );
+  }
+  return origins;
 }
 
 /**
@@ -16,17 +53,24 @@ export function isOriginAllowed(origin: string): boolean {
  * @param requestOrigin - The `Origin` header from the incoming request (if any).
  * @param extra - Additional CORS headers to merge (e.g. `Access-Control-Allow-Methods`).
  *                Any key not already set will be added.
+ * @param extraAllowedOrigins - Additional origins to permit beyond
+ *                `WEB_SERVER_ALLOWED_ORIGINS` when deciding whether to reflect
+ *                `Access-Control-Allow-Origin` (see {@link isOriginAllowed}).
  */
 export function buildCorsHeaders(
   requestOrigin: string | undefined,
   extra?: Record<string, string>,
+  extraAllowedOrigins: string[] = [],
 ): Record<string, string> {
   const headers: Record<string, string> = { ...extra };
   const allowedOrigins = config.server.web.allowedOrigins;
 
   if (allowedOrigins === "*" && !requestOrigin) {
     headers["Access-Control-Allow-Origin"] = "*";
-  } else if (requestOrigin && isOriginAllowed(requestOrigin)) {
+  } else if (
+    requestOrigin &&
+    isOriginAllowed(requestOrigin, extraAllowedOrigins)
+  ) {
     headers["Access-Control-Allow-Origin"] = requestOrigin;
     headers["Vary"] = "Origin";
   }

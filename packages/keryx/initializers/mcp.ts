@@ -6,7 +6,12 @@ import { Initializer } from "../classes/Initializer";
 import { ErrorType, TypedError } from "../classes/TypedError";
 import { config } from "../config";
 import { ansi } from "../util/ansi";
-import { buildCorsHeaders, getExternalOrigin } from "../util/http";
+import {
+  buildCorsHeaders,
+  getExternalOrigin,
+  getMcpAllowedOrigins,
+  isOriginAllowed,
+} from "../util/http";
 import {
   createMcpServer,
   formatToolName,
@@ -142,26 +147,29 @@ export class McpInitializer extends Initializer {
     ): Promise<Response> => {
       const method = req.method.toUpperCase();
       const requestOrigin = req.headers.get("origin") ?? undefined;
-      const corsHeaders = buildCorsHeaders(requestOrigin, {
-        "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers":
-          "Content-Type, mcp-session-id, Authorization",
-        "Access-Control-Expose-Headers": "mcp-session-id",
-      });
+      const mcpAllowedOrigins = getMcpAllowedOrigins();
+      const corsHeaders = buildCorsHeaders(
+        requestOrigin,
+        {
+          "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+          "Access-Control-Allow-Headers":
+            "Content-Type, mcp-session-id, Authorization",
+          "Access-Control-Expose-Headers": "mcp-session-id",
+        },
+        mcpAllowedOrigins,
+      );
 
-      // Reject requests from unrecognized origins when APPLICATION_URL is set
-      if (requestOrigin) {
-        const appUrl = config.server.web.applicationUrl;
-        if (appUrl && !appUrl.startsWith("http://localhost")) {
-          const allowedOrigin = new URL(appUrl).origin;
-          if (requestOrigin !== allowedOrigin) {
-            return mcpJsonResponse(
-              { error: "Origin not allowed" },
-              403,
-              corsHeaders,
-            );
-          }
-        }
+      // Reject browser requests from unrecognized origins. Requests with no
+      // Origin (non-browser clients like the Claude Code CLI) always pass; the
+      // bearer token is the real security boundary for this public endpoint.
+      // Uses the same allowlist as buildCorsHeaders above so the 403 gate and
+      // the Access-Control-Allow-Origin reflection can never disagree.
+      if (requestOrigin && !isOriginAllowed(requestOrigin, mcpAllowedOrigins)) {
+        return mcpJsonResponse(
+          { error: "Origin not allowed" },
+          403,
+          corsHeaders,
+        );
       }
 
       // Handle OPTIONS for CORS preflight
