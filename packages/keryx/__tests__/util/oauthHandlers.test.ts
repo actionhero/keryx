@@ -194,6 +194,24 @@ describe("handleRegister", () => {
     );
   });
 
+  test("registers a native client with a custom-scheme redirect URI", async () => {
+    const req = new Request("http://localhost/oauth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        redirect_uris: ["vscode://anysphere.cursor-retrieval/callback"],
+        application_type: "native",
+      }),
+    });
+    const res = await handleRegister(req);
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as OAuthClient;
+    expect(body.client_id).toBeTruthy();
+    expect(body.redirect_uris).toEqual([
+      "vscode://anysphere.cursor-retrieval/callback",
+    ]);
+  });
+
   test("rejects an unknown application_type with invalid_client_metadata", async () => {
     const req = new Request("http://localhost/oauth/register", {
       method: "POST",
