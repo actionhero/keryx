@@ -8,7 +8,6 @@ import {
   type AuthPageParams,
   type OAuthTemplates,
   renderAuthPage,
-  renderSuccessPage,
 } from "../oauthTemplates";
 import { clientKey, codeKey } from "./keys";
 import type { AuthCode, OAuthClient } from "./types";
@@ -177,5 +176,15 @@ export async function handleAuthorizePost(
   if (oauthParams.state)
     redirectUrl.searchParams.set("state", oauthParams.state);
 
-  return renderSuccessPage(redirectUrl.toString(), templates);
+  // RFC 6749 §4.1.2: complete authorization with a 302 redirect to the client's
+  // (already-validated) redirect_uri. A top-level redirect is required for
+  // browser-based MCP connectors (e.g. claude.ai): their callback is served with
+  // X-Frame-Options/frame-ancestors, so any attempt to reach it from an iframe or
+  // sub-context is blocked by the browser and the auth code never arrives — a
+  // silent failure. A plain 302 also can't be blocked by CSP or popup rules and
+  // works equally for localhost CLI callbacks.
+  return new Response(null, {
+    status: 302,
+    headers: { Location: redirectUrl.toString() },
+  });
 }

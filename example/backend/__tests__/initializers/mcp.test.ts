@@ -55,12 +55,14 @@ async function getAccessToken(): Promise<string> {
     }).toString(),
     redirect: "manual",
   });
-  const authHtml = await authRes.text();
-  const metaMatch = authHtml.match(
-    /<meta name="redirect-url" content="([^"]+)"\s*\/?>/,
-  );
-  const redirectUrl = new URL(metaMatch![1]);
-  // RFC 9207 (MCP 2026-07-28 / SEP-2468): the success redirect must carry `iss`.
+  // RFC 6749 §4.1.2: authorization completes with a 302 redirect to the
+  // client's redirect_uri (not an HTML page). A top-level redirect is required
+  // for browser MCP connectors whose callback refuses framing (e.g. claude.ai).
+  expect(authRes.status).toBe(302);
+  const location = authRes.headers.get("location")!;
+  expect(location).toBeTruthy();
+  const redirectUrl = new URL(location);
+  // RFC 9207 (MCP 2026-07-28 / SEP-2468): the redirect must carry `iss`.
   expect(redirectUrl.searchParams.get("iss")).toBe(baseUrl());
   const code = redirectUrl.searchParams.get("code")!;
 
