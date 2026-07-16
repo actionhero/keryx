@@ -1,6 +1,7 @@
 import { Action, type ActionParams, api, HTTP_METHOD, UIResponse } from "keryx";
 import { z } from "zod";
 import pkg from "../package.json";
+import { checkDependencies } from "./status";
 
 /**
  * Exposes server status as an MCP resource at `keryx://status`.
@@ -108,6 +109,7 @@ export class StatusDashboardApp implements Action {
   async run() {
     const consumedMemoryMB =
       Math.round((process.memoryUsage().heapUsed / 1024 / 1024) * 100) / 100;
+    const { healthy, checks } = await checkDependencies();
 
     return new UIResponse(
       {
@@ -116,6 +118,8 @@ export class StatusDashboardApp implements Action {
         version: pkg.version,
         uptime: new Date().getTime() - api.bootTime,
         consumedMemoryMB,
+        healthy,
+        checks,
       },
       { text: `Server ${api.process.name} is running (v${pkg.version}).` },
     );

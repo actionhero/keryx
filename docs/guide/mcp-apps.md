@@ -93,6 +93,8 @@ new UIResponse(structuredContent, { text: "optional model-facing summary" });
 
 Over non-MCP transports (HTTP, WebSocket, CLI) a `UIResponse` serializes to its `structuredContent` via `toJSON()`, so the same action still returns useful JSON everywhere. A `GET` to the action's web route returns the structured object directly.
 
+`UIResponse` is generic over the shape of `structuredContent`. When you build one from an object literal, the field types are inferred and flow through to `run()`'s return type — and from there into the generated OpenAPI/MCP response schema, so the app UI has a fully-typed payload to bind against rather than an opaque object.
+
 ## The UI side
 
 Inside the HTML, talk to the host with the [`@modelcontextprotocol/ext-apps`](https://github.com/modelcontextprotocol/ext-apps) `App` class (a thin wrapper over the `ui/` `postMessage` protocol):

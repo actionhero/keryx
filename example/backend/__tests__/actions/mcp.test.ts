@@ -69,11 +69,18 @@ describe("status:app (MCP App)", () => {
       version: string;
       uptime: number;
       consumedMemoryMB: number;
+      healthy: boolean;
+      checks: { database: boolean; redis: boolean };
     };
     expect(payload.name).toBeDefined();
     expect(typeof payload.pid).toBe("number");
     expect(payload.version).toBeDefined();
     expect(payload.uptime).toBeGreaterThanOrEqual(0);
     expect(payload.consumedMemoryMB).toBeGreaterThan(0);
+    // status:app now projects the same health field set as /status so the app
+    // UI has live runtime state to bind against, not just text.
+    expect(typeof payload.healthy).toBe("boolean");
+    expect(typeof payload.checks.database).toBe("boolean");
+    expect(typeof payload.checks.redis).toBe("boolean");
   });
 });

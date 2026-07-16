@@ -599,9 +599,13 @@ describe("mcp initializer (enabled)", () => {
           "version",
           "uptime",
           "consumedMemoryMB",
+          "healthy",
+          "checks",
         ]) {
           expect(structured).toHaveProperty(key);
         }
+        expect(structured.checks).toHaveProperty("database");
+        expect(structured.checks).toHaveProperty("redis");
 
         const content = result.content as Array<{
           type: string;

@@ -11,6 +11,8 @@
       header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
       h1 { font-size: 1.1rem; margin: 0; }
       .pill { font-size: .75rem; padding: 2px 8px; border-radius: 999px; background: rgba(127,127,127,.18); }
+      .pill.healthy { background: rgba(40,167,69,.22); color: #1e7e34; }
+      .pill.unhealthy { background: rgba(220,53,69,.22); color: #c82333; }
       dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; }
       dt { color: rgba(127,127,127,.9); }
       dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
@@ -24,10 +26,13 @@
     <main>
       <header><h1>Server Status</h1><span id="name" class="pill">&mdash;</span></header>
       <dl>
+        <dt>Health</dt><dd id="health">&mdash;</dd>
         <dt>Process ID</dt><dd id="pid">&mdash;</dd>
         <dt>Version</dt><dd id="version">&mdash;</dd>
         <dt>Uptime</dt><dd id="uptime">&mdash;</dd>
         <dt>Memory</dt><dd id="memory">&mdash;</dd>
+        <dt>Database</dt><dd id="database">&mdash;</dd>
+        <dt>Redis</dt><dd id="redis">&mdash;</dd>
       </dl>
       <footer><button id="refresh">Refresh</button><span id="updated"></span></footer>
     </main>
@@ -45,6 +50,11 @@
         return `${h}h ${m}m ${s % 60}s`;
       }
 
+      function boolText(v) {
+        if (v == null) return "—";
+        return v ? "✓" : "✗";
+      }
+
       function render(data) {
         if (!data) return;
         el("name").textContent = data.name || "server";
@@ -53,6 +63,18 @@
         el("uptime").textContent = formatUptime(data.uptime);
         el("memory").textContent =
           data.consumedMemoryMB != null ? `${data.consumedMemoryMB} MB` : "—";
+
+        const health = el("health");
+        if (data.healthy == null) {
+          health.textContent = "—";
+          health.className = "pill";
+        } else {
+          health.textContent = data.healthy ? "Healthy" : "Unhealthy";
+          health.className = `pill ${data.healthy ? "healthy" : "unhealthy"}`;
+        }
+        el("database").textContent = boolText(data.checks?.database);
+        el("redis").textContent = boolText(data.checks?.redis);
+
         el("updated").textContent = `Updated ${new Date().toLocaleTimeString()}`;
       }
 

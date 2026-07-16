@@ -19,11 +19,18 @@
  * its `structuredContent` via {@link UIResponse.toJSON}, so the same action still
  * returns useful JSON everywhere.
  *
+ * The class is generic over the shape of `structuredContent`. When you construct a
+ * `UIResponse` from an object literal, `T` is inferred, so the field types flow through
+ * to the action's `run()` return type — and from there into the generated OpenAPI/MCP
+ * response schema, giving the app UI a fully-typed payload to bind against.
+ *
  * Use the static factory {@link UIResponse.from} or the constructor directly.
  */
-export class UIResponse {
+export class UIResponse<
+  T extends Record<string, unknown> = Record<string, unknown>,
+> {
   /** Structured data delivered to the app UI for rendering (not added to model context). */
-  readonly structuredContent: Record<string, unknown>;
+  readonly structuredContent: T;
   /**
    * Text representation added to the model's context. Defaults to
    * `JSON.stringify(structuredContent)` when not provided.
@@ -33,15 +40,12 @@ export class UIResponse {
   /**
    * @param structuredContent - The structured data the app UI will render. Must be a
    *   JSON-serializable object; it is delivered to the app verbatim and is not added to
-   *   the model's context.
+   *   the model's context. Its shape is captured as `T` so downstream schemas stay typed.
    * @param options - Optional model-facing text.
    * @param options.text - Text representation added to the model's context. When omitted,
    *   defaults to `JSON.stringify(structuredContent)`.
    */
-  constructor(
-    structuredContent: Record<string, unknown>,
-    options?: { text?: string },
-  ) {
+  constructor(structuredContent: T, options?: { text?: string }) {
     this.structuredContent = structuredContent;
     this.text = options?.text ?? JSON.stringify(structuredContent);
   }
@@ -51,12 +55,12 @@ export class UIResponse {
    *
    * @param structuredContent - The structured data the app UI will render.
    * @param options - Optional model-facing text (see the constructor).
-   * @returns A new `UIResponse`.
+   * @returns A new `UIResponse` whose `structuredContent` type is inferred from the argument.
    */
-  static from(
-    structuredContent: Record<string, unknown>,
+  static from<T extends Record<string, unknown>>(
+    structuredContent: T,
     options?: { text?: string },
-  ): UIResponse {
+  ): UIResponse<T> {
     return new UIResponse(structuredContent, options);
   }
 
@@ -66,7 +70,7 @@ export class UIResponse {
    *
    * @returns The `structuredContent` object.
    */
-  toJSON(): Record<string, unknown> {
+  toJSON(): T {
     return this.structuredContent;
   }
 }
