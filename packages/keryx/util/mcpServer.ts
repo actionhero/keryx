@@ -363,9 +363,24 @@ export async function adoptMcpSession(
  * Actions with `mcp.tool === false` are excluded from tool registration.
  */
 export function createMcpServer(): McpServer {
+  // Advertise the MCP Apps UI extension so hosts negotiate UI support during
+  // `initialize` (spec 2026-01-26, SEP-1724). Only declared when at least one
+  // action ships a UI, keeping the capability surface minimal.
+  const hasUiActions = api.actions.actions.some((a: Action) => a.mcp?.ui);
   const mcpServer = new McpServer(
     { name: pkg.name, version: pkg.version },
-    { instructions: config.server.mcp.instructions },
+    {
+      instructions: config.server.mcp.instructions,
+      ...(hasUiActions
+        ? {
+            capabilities: {
+              extensions: {
+                [UI_EXTENSION_ID]: { mimeTypes: [MCP_APP_MIME_TYPE] },
+              },
+            },
+          }
+        : {}),
+    },
   );
 
   registerTools(mcpServer);
@@ -375,6 +390,12 @@ export function createMcpServer(): McpServer {
 
   return mcpServer;
 }
+
+/**
+ * MCP Apps extension identifier used for capability negotiation during `initialize`.
+ * @see https://github.com/modelcontextprotocol/ext-apps
+ */
+const UI_EXTENSION_ID = "io.modelcontextprotocol/ui";
 
 /**
  * Compute the `ui://` resource URI for an action's MCP App.
@@ -496,6 +517,8 @@ function registerTools(mcpServer: McpServer) {
 
           // MCP App responses carry both a text block (added to model context)
           // and structuredContent (delivered to the app UI for rendering).
+          // ext-apps hosts render the UI from the tool's `_meta.ui.resourceUri`
+          // and the separate `ui://` resource — the content array stays text-only.
           if (response instanceof UIResponse) {
             return {
               content: [{ type: "text" as const, text: response.text }],
