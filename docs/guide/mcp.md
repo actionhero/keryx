@@ -241,9 +241,31 @@ The OAuth implementation includes several hardening measures:
 
 ## Session Management
 
-Each authenticated MCP connection creates its own `McpServer` instance. Sessions are tracked via the `mcp-session-id` header — the MCP SDK generates a UUID per session and includes it in all subsequent requests.
+Each authenticated MCP connection creates its own `McpServer` instance. Sessions are tracked via the `mcp-session-id` header — the MCP SDK generates a UUID per session at `initialize` and the client includes it on every subsequent request.
 
-When a session closes, the transport and server instance are cleaned up automatically.
+### Cluster-wide sessions (multi-node)
+
+Sessions are recorded in a **shared Redis registry** (`mcp:session:<id>`), so any node in a cluster can serve any session — the same way keryx already scales WebSocket clients using the shared session store and Redis PubSub. When you run more than one keryx process behind a load balancer:
+
+- **Source of truth is Redis, not local memory.** Every request validates the `mcp-session-id` against the registry. The live transport/`McpServer` objects stay node-local (like a WebSocket socket — they can't move), but they're a cache, not the authority.
+- **Lazy adoption.** If a request lands on a node that doesn't hold the transport (the load balancer routed it elsewhere), that node re-materializes the session locally from the shared record and serves the request. No sticky-session configuration is required.
+- **Idle TTL.** The registry entry has a TTL (`MCP_SESSION_TTL`, default 24h) that is refreshed on every request, so idle sessions are reclaimed automatically.
+- **`DELETE` is cluster-wide.** An HTTP `DELETE` to the MCP route removes the shared record, so every node then returns `404` for that session id.
+- **The standalone `GET` SSE stream** is held by whichever node the client's `GET` lands on; because PubSub notifications already fan out across the cluster, notifications reach that node regardless of where the session was created.
+
+### Error semantics (per the Streamable HTTP spec)
+
+- **Unknown or expired `mcp-session-id` → `404 Not Found`** (JSON, no SSE stream is opened). This is the client's cue to re-`initialize` and recover automatically — for example after the session's TTL lapses or a `DELETE`.
+- **A non-`initialize` `POST` with no `mcp-session-id` → `400 Bad Request`.** Only `initialize` may open a new session.
+- **A session id owned by a different OAuth client → `403 Forbidden`.**
+
+### Lifecycle hooks in a cluster
+
+- `onConnect` fires **once**, on the node that runs the real `initialize` handshake. Adopting a session on another node does not re-fire it.
+- `onDisconnect` fires **once cluster-wide**, on the node whose `DELETE` (or true teardown) removes the shared record. A node shutting down does **not** fire it — the session may still be live and adoptable elsewhere.
+- `onMessage` fires per inbound request, on whichever node handles it.
+
+> **Tip:** sticky sessions (session affinity) are still a useful optimization — they keep a client on the node that already holds its transport and avoid re-adoption — but they are not required for correctness.
 
 ## OAuth Templates
 
@@ -301,6 +323,7 @@ When messages are broadcast through the PubSub system (e.g., chat messages sent 
 | `instructions`       | `MCP_SERVER_INSTRUCTIONS`  | package description | Instructions shown to MCP clients        |
 | `oauthClientTtl`     | `MCP_OAUTH_CLIENT_TTL`     | `2592000`           | OAuth client registration TTL (seconds)  |
 | `oauthCodeTtl`       | `MCP_OAUTH_CODE_TTL`       | `300`               | Authorization code TTL (seconds)         |
+| `sessionTtl`         | `MCP_SESSION_TTL`          | `86400`             | Shared MCP session registry TTL, refreshed on activity (seconds) |
 | `markdownDepthLimit` | `MCP_MARKDOWN_DEPTH_LIMIT` | `5`                 | Max nesting depth for markdown rendering |
 
 ## Testing

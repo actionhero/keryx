@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { randomUUID } from "crypto";
 import { api, logger } from "../api";
 import { Initializer } from "../classes/Initializer";
@@ -13,13 +14,19 @@ import {
   isOriginAllowed,
 } from "../util/http";
 import {
+  adoptMcpSession,
   createMcpServer,
+  forgetMcpSession,
   formatToolName,
   handleTransportRequest,
   type McpAuthInfo,
   mcpJsonResponse,
   parseToolName,
+  readMcpSessionRecord,
+  refreshMcpSessionTtl,
   sanitizeSchemaForMcp,
+  terminateMcpSession,
+  writeMcpSessionRecord,
 } from "../util/mcpServer";
 import type { PubSubMessage } from "./pubsub";
 
@@ -49,6 +56,24 @@ export type OnMcpMessageHook = (
 export type OnMcpDisconnectHook = (sessionId: string) => Promise<void> | void;
 
 const namespace = "mcp";
+
+/**
+ * Pull the negotiated `protocolVersion` out of an `initialize` request body
+ * (single message or batch) so it can be stored in the shared session registry
+ * and replayed when the session is adopted on another node.
+ */
+function extractInitProtocolVersion(body: unknown): string | undefined {
+  const messages = Array.isArray(body) ? body : [body];
+  for (const message of messages) {
+    if (isInitializeRequest(message)) {
+      const protocolVersion = (
+        message as { params?: { protocolVersion?: unknown } }
+      ).params?.protocolVersion;
+      if (typeof protocolVersion === "string") return protocolVersion;
+    }
+  }
+  return undefined;
+}
 
 declare module "keryx" {
   export interface API {
@@ -217,6 +242,28 @@ export class McpInitializer extends Initializer {
       const sessionId = req.headers.get("mcp-session-id");
 
       if (method === "POST" && !sessionId) {
+        // Only an `initialize` request may create a new session. Any other
+        // request without a session id is a protocol error → 400. We must gate
+        // here rather than delegating, otherwise a non-initialize POST spins up
+        // an McpServer that never initializes and leaks into `mcpServers`.
+        let body: unknown;
+        try {
+          body = await req.clone().json();
+        } catch {
+          return mcpJsonResponse({ error: "Invalid JSON" }, 400, corsHeaders);
+        }
+        const isInit = Array.isArray(body)
+          ? body.some(isInitializeRequest)
+          : isInitializeRequest(body);
+        if (!isInit) {
+          return mcpJsonResponse(
+            { error: "Mcp-Session-Id header required" },
+            400,
+            corsHeaders,
+          );
+        }
+        const protocolVersion = extractInitProtocolVersion(body);
+
         // New session — create a new McpServer + transport
         const mcpServer = createMcpServer();
         mcpServers.push(mcpServer);
@@ -226,29 +273,26 @@ export class McpInitializer extends Initializer {
           sessionIdGenerator: () => randomUUID(),
           enableJsonResponse: true,
           onsessioninitialized: async (sid) => {
+            // Publish to the shared registry first so any node in the cluster
+            // can validate/adopt the session, then register locally + fire
+            // onConnect (once, on this originating node only).
+            await writeMcpSessionRecord(sid, {
+              clientId: sessionClientId,
+              protocolVersion,
+              createdAt: Date.now(),
+            });
             transports.set(sid, { transport, clientId: sessionClientId });
             for (const hook of api.hooks.mcp.onConnectHooks) {
               await hook(sid);
             }
           },
-          onsessionclosed: (sid) => {
-            transports.delete(sid);
-            const idx = mcpServers.indexOf(mcpServer);
-            if (idx !== -1) mcpServers.splice(idx, 1);
-          },
+          // Fires on explicit client DELETE: terminate the session cluster-wide.
+          onsessionclosed: (sid) => terminateMcpSession(sid, mcpServer),
         });
-
-        transport.onclose = async () => {
-          const sid = transport.sessionId;
-          if (sid) {
-            transports.delete(sid);
-            for (const hook of api.hooks.mcp.onDisconnectHooks) {
-              await hook(sid);
-            }
-          }
-          const idx = mcpServers.indexOf(mcpServer);
-          if (idx !== -1) mcpServers.splice(idx, 1);
-        };
+        // Fires on any close (incl. server shutdown): local cleanup only, so a
+        // node bouncing never removes a session other nodes may still serve.
+        transport.onclose = () =>
+          forgetMcpSession(transport.sessionId, mcpServer);
 
         await mcpServer.connect(transport);
 
@@ -259,8 +303,18 @@ export class McpInitializer extends Initializer {
       }
 
       if (sessionId) {
-        const session = transports.get(sessionId);
-        if (!session) {
+        // The shared Redis registry — not the node-local map — is the source of
+        // truth for session existence and ownership, so a request that a load
+        // balancer routes to any node resolves consistently.
+        const record = await readMcpSessionRecord(sessionId);
+        if (!record) {
+          // Unknown/expired session → 404 (the client's cue to re-`initialize`).
+          // Evict any stale local transport so it can never bypass this gate.
+          const stale = transports.get(sessionId);
+          if (stale) {
+            transports.delete(sessionId);
+            void stale.transport.close();
+          }
           return mcpJsonResponse(
             { error: "Session not found" },
             404,
@@ -268,7 +322,7 @@ export class McpInitializer extends Initializer {
           );
         }
 
-        if (session.clientId !== authInfo.clientId) {
+        if (record.clientId !== authInfo.clientId) {
           return mcpJsonResponse(
             { error: "Token does not match session" },
             403,
@@ -276,15 +330,23 @@ export class McpInitializer extends Initializer {
           );
         }
 
+        // Use the live local transport, or adopt the session onto this node by
+        // re-materializing it from the shared record.
+        let transport = transports.get(sessionId)?.transport;
+        if (!transport) {
+          transport = await adoptMcpSession(
+            sessionId,
+            record.clientId,
+            record.protocolVersion,
+          );
+        }
+
+        await refreshMcpSessionTtl(sessionId);
+
         for (const hook of api.hooks.mcp.onMessageHooks) {
           await hook(sessionId);
         }
-        return handleTransportRequest(
-          session.transport,
-          req,
-          authInfo,
-          corsHeaders,
-        );
+        return handleTransportRequest(transport, req, authInfo, corsHeaders);
       }
 
       // GET/DELETE without session ID

@@ -29,4 +29,10 @@ export const configServerMcp = {
   ), // 30 days, in seconds
   oauthTrustProxy: await loadFromEnvIfSet("MCP_OAUTH_TRUST_PROXY", false),
   markdownDepthLimit: await loadFromEnvIfSet("MCP_MARKDOWN_DEPTH_LIMIT", 5),
+  // TTL (seconds) for the shared MCP session registry in Redis. Every MCP
+  // request refreshes it, so this is an idle timeout: a session is reclaimed
+  // once no node has served a request for it within this window. Because the
+  // registry is shared, any node in a cluster can serve any session until it
+  // expires. Defaults to 24 hours.
+  sessionTtl: await loadFromEnvIfSet("MCP_SESSION_TTL", 60 * 60 * 24),
 };
