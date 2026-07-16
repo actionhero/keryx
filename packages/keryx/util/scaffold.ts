@@ -62,7 +62,6 @@ export async function generateOAuthTemplateContents(): Promise<
   const result = new Map<string, string>();
   const oauthTemplates = [
     "oauth-authorize.html",
-    "oauth-success.html",
     "oauth-common.css",
     "lion.svg",
   ];

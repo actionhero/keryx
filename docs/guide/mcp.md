@@ -252,9 +252,8 @@ The authorization page (login/signup form) is rendered from [Mustache](https://m
 | File                   | Purpose                              |
 | ---------------------- | ------------------------------------ |
 | `oauth-authorize.html` | Login/signup form with tab switching |
-| `oauth-success.html`   | Success page after authorization     |
-| `oauth-common.css`     | Shared styles for both pages         |
-| `lion.svg`             | Decorative SVG included in the pages |
+| `oauth-common.css`     | Shared styles for the page           |
+| `lion.svg`             | Decorative SVG included in the page  |
 
 These files are scaffolded into your project by `keryx new` and kept in sync by `keryx upgrade`.
 

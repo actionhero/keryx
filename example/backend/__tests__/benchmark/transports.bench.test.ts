@@ -89,11 +89,9 @@ async function getAccessToken(): Promise<string> {
     }).toString(),
     redirect: "manual",
   });
-  const authHtml = await authRes.text();
-  const metaMatch = authHtml.match(
-    /<meta name="redirect-url" content="([^"]+)"\s*\/?>/,
-  );
-  const code = new URL(metaMatch![1]).searchParams.get("code")!;
+  const code = new URL(authRes.headers.get("location")!).searchParams.get(
+    "code",
+  )!;
 
   const tokenRes = await fetch(`${base}/oauth/token`, {
     method: "POST",

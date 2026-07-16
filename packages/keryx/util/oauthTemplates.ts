@@ -15,7 +15,6 @@ export type FormField = {
 
 export type OAuthTemplates = {
   authTemplate: string;
-  successTemplate: string;
   commonCss: string;
   lionSvg: string;
 };
@@ -43,7 +42,7 @@ async function resolveTemplate(
 }
 
 /**
- * Load all 4 OAuth template files, resolving from user project first, then framework.
+ * Load the OAuth template files, resolving from user project first, then framework.
  * @param rootDir - The user app's root directory.
  * @param packageDir - The framework package directory.
  * @returns An object containing all template strings.
@@ -52,15 +51,12 @@ export async function loadOAuthTemplates(
   rootDir: string,
   packageDir: string,
 ): Promise<OAuthTemplates> {
-  const [authTemplate, successTemplate, commonCss, lionSvg] = await Promise.all(
-    [
-      resolveTemplate("oauth-authorize.html", rootDir, packageDir),
-      resolveTemplate("oauth-success.html", rootDir, packageDir),
-      resolveTemplate("oauth-common.css", rootDir, packageDir),
-      resolveTemplate("lion.svg", rootDir, packageDir),
-    ],
-  );
-  return { authTemplate, successTemplate, commonCss, lionSvg };
+  const [authTemplate, commonCss, lionSvg] = await Promise.all([
+    resolveTemplate("oauth-authorize.html", rootDir, packageDir),
+    resolveTemplate("oauth-common.css", rootDir, packageDir),
+    resolveTemplate("lion.svg", rootDir, packageDir),
+  ]);
+  return { authTemplate, commonCss, lionSvg };
 }
 
 /**
@@ -205,28 +201,6 @@ export function renderAuthPage(
       signinFieldsHtml,
       signupFieldsHtml,
     },
-    { commonCss: templates.commonCss, lionSvg: templates.lionSvg },
-  );
-
-  return new Response(html, {
-    status: 200,
-    headers: { "Content-Type": "text/html; charset=utf-8" },
-  });
-}
-
-/**
- * Render the OAuth success/redirect page.
- * @param redirectUrl - The URL to redirect the user to after authorization.
- * @param templates - Loaded OAuth template strings.
- * @returns An HTML Response.
- */
-export function renderSuccessPage(
-  redirectUrl: string,
-  templates: OAuthTemplates,
-): Response {
-  const html = Mustache.render(
-    templates.successTemplate,
-    { redirectUrl },
     { commonCss: templates.commonCss, lionSvg: templates.lionSvg },
   );
 
