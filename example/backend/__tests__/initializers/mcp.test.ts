@@ -1282,6 +1282,213 @@ describe("mcp initializer (enabled)", () => {
   });
 });
 
+describe("mcp multi-node sessions", () => {
+  let accessToken: string;
+
+  beforeAll(async () => {
+    config.server.mcp.enabled = true;
+    config.rateLimit.enabled = false;
+    await api.start();
+    accessToken = await getAccessToken();
+  }, HOOK_TIMEOUT);
+
+  afterAll(async () => {
+    const keys = await api.redis.redis.keys("mcp:session:*");
+    if (keys.length > 0) await api.redis.redis.del(...keys);
+    await api.stop();
+    config.server.mcp.enabled = false;
+    config.rateLimit.enabled = true;
+  }, HOOK_TIMEOUT);
+
+  const jsonHeaders = (token: string, sessionId?: string) => ({
+    "Content-Type": "application/json",
+    Accept: "application/json, text/event-stream",
+    Authorization: `Bearer ${token}`,
+    "mcp-protocol-version": "2025-03-26",
+    ...(sessionId ? { "mcp-session-id": sessionId } : {}),
+  });
+
+  const toolsListBody = (id: number) =>
+    JSON.stringify({ jsonrpc: "2.0", id, method: "tools/list", params: {} });
+
+  /** Initialize a fresh MCP session and return its server-assigned session id. */
+  async function initSession(token: string): Promise<string> {
+    const res = await fetch(mcpUrl(), {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "test-client", version: "1.0.0" },
+        },
+      }),
+    });
+    expect(res.status).toBe(200);
+    const sessionId = res.headers.get("mcp-session-id");
+    expect(sessionId).toBeTruthy();
+    return sessionId!;
+  }
+
+  test("non-initialize POST without a session id returns 400 without leaking an McpServer", async () => {
+    const before = api.mcp.mcpServers.length;
+    const res = await fetch(mcpUrl(), {
+      method: "POST",
+      headers: jsonHeaders(accessToken),
+      body: toolsListBody(1),
+    });
+    expect(res.status).toBe(400);
+    // No SSE stream — the error is delivered as JSON, the client's cue to re-initialize.
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(res.headers.get("content-type") ?? "").not.toContain(
+      "text/event-stream",
+    );
+    // The orphan-McpServer leak (create-before-initialize) must not happen.
+    expect(api.mcp.mcpServers.length).toBe(before);
+  });
+
+  test("malformed JSON without a session id returns 400", async () => {
+    const res = await fetch(mcpUrl(), {
+      method: "POST",
+      headers: jsonHeaders(accessToken),
+      body: "{ not valid json",
+    });
+    expect(res.status).toBe(400);
+  });
+
+  test("unknown session id returns 404 as JSON, never an SSE stream", async () => {
+    const res = await fetch(mcpUrl(), {
+      method: "POST",
+      headers: jsonHeaders(accessToken, "does-not-exist"),
+      body: toolsListBody(1),
+    });
+    expect(res.status).toBe(404);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(res.headers.get("content-type") ?? "").not.toContain(
+      "text/event-stream",
+    );
+  });
+
+  test("initialize writes a shared session record to Redis", async () => {
+    const sessionId = await initSession(accessToken);
+    const raw = await api.redis.redis.get(`mcp:session:${sessionId}`);
+    expect(raw).toBeTruthy();
+    const record = JSON.parse(raw!) as {
+      clientId: string;
+      protocolVersion?: string;
+      createdAt: number;
+    };
+    expect(typeof record.clientId).toBe("string");
+    expect(record.createdAt).toBeNumber();
+    expect(record.protocolVersion).toBe("2025-03-26");
+  });
+
+  test("a request on a node without the local transport adopts the session and succeeds", async () => {
+    const sessionId = await initSession(accessToken);
+    // Simulate the request landing on a different node: drop this node's live
+    // transport, leaving only the shared Redis record behind.
+    expect(api.mcp.transports.has(sessionId)).toBe(true);
+    api.mcp.transports.delete(sessionId);
+
+    const res = await fetch(mcpUrl(), {
+      method: "POST",
+      headers: jsonHeaders(accessToken, sessionId),
+      body: toolsListBody(2),
+    });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { result?: { tools?: unknown } };
+    expect(Array.isArray(json.result?.tools)).toBe(true);
+    // Adoption re-materialized a local transport for the session.
+    expect(api.mcp.transports.has(sessionId)).toBe(true);
+  });
+
+  test("adoption still enforces client ownership (403 for a different client's token)", async () => {
+    const sessionId = await initSession(accessToken);
+    api.mcp.transports.delete(sessionId);
+    const attackerToken = await getAccessToken();
+
+    const res = await fetch(mcpUrl(), {
+      method: "POST",
+      headers: jsonHeaders(attackerToken, sessionId),
+      body: toolsListBody(2),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  test("DELETE removes the shared record so every node then returns 404", async () => {
+    const sessionId = await initSession(accessToken);
+
+    const del = await fetch(mcpUrl(), {
+      method: "DELETE",
+      headers: jsonHeaders(accessToken, sessionId),
+    });
+    expect(del.status).toBe(200);
+    expect(await api.redis.redis.get(`mcp:session:${sessionId}`)).toBeNull();
+
+    const res = await fetch(mcpUrl(), {
+      method: "POST",
+      headers: jsonHeaders(accessToken, sessionId),
+      body: toolsListBody(3),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  test("a stale local transport cannot bypass the shared 404", async () => {
+    const sessionId = await initSession(accessToken);
+    expect(api.mcp.transports.has(sessionId)).toBe(true);
+    // Kill the shared record but leave the local transport in place.
+    await api.redis.redis.del(`mcp:session:${sessionId}`);
+
+    const res = await fetch(mcpUrl(), {
+      method: "POST",
+      headers: jsonHeaders(accessToken, sessionId),
+      body: toolsListBody(4),
+    });
+    expect(res.status).toBe(404);
+    // The stale transport was evicted so it can never serve a dead session.
+    expect(api.mcp.transports.has(sessionId)).toBe(false);
+  });
+
+  test("onConnect fires once at creation (not on adoption); onDisconnect once on DELETE", async () => {
+    let connects = 0;
+    let disconnects = 0;
+    const connectedSids: string[] = [];
+    api.hooks.mcp.onConnect((sid) => {
+      connects++;
+      connectedSids.push(sid);
+    });
+    api.hooks.mcp.onDisconnect(() => {
+      disconnects++;
+    });
+
+    const sessionId = await initSession(accessToken);
+    expect(connectedSids).toContain(sessionId);
+    const connectsAfterCreate = connects;
+
+    // Adopt on a "foreign node" — must NOT re-fire onConnect.
+    api.mcp.transports.delete(sessionId);
+    const adopted = await fetch(mcpUrl(), {
+      method: "POST",
+      headers: jsonHeaders(accessToken, sessionId),
+      body: toolsListBody(5),
+    });
+    expect(adopted.status).toBe(200);
+    expect(connects).toBe(connectsAfterCreate);
+
+    // Explicit DELETE terminates the session cluster-wide exactly once.
+    const disconnectsBefore = disconnects;
+    const del = await fetch(mcpUrl(), {
+      method: "DELETE",
+      headers: jsonHeaders(accessToken, sessionId),
+    });
+    expect(del.status).toBe(200);
+    expect(disconnects).toBe(disconnectsBefore + 1);
+  });
+});
+
 // --- Helper functions ---
 
 function randomString(length: number): string {

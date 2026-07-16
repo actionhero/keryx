@@ -2,11 +2,13 @@ import {
   McpServer,
   ResourceTemplate,
 } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
-import type {
-  ServerNotification,
-  ServerRequest,
+import {
+  DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
+  type ServerNotification,
+  type ServerRequest,
+  SUPPORTED_PROTOCOL_VERSIONS,
 } from "@modelcontextprotocol/sdk/types.js";
 import { randomUUID } from "crypto";
 import * as z4mini from "zod/v4-mini";
@@ -121,6 +123,230 @@ export function mcpJsonResponse(
       ...extraHeaders,
     },
   });
+}
+
+/**
+ * A record in the shared (Redis-backed) MCP session registry. This is the
+ * cluster-wide source of truth for whether a Streamable HTTP session exists and
+ * which OAuth client owns it. The live transport/`McpServer` objects are
+ * node-local (like a WebSocket socket) and are re-materialized on demand via
+ * {@link adoptMcpSession} when a request lands on a node that doesn't hold them.
+ */
+export interface McpSessionRecord {
+  /** OAuth client id bound to the session; enforced on every request (403 on mismatch). */
+  clientId: string;
+  /** Protocol version negotiated at `initialize`, replayed when adopting on another node. */
+  protocolVersion?: string;
+  /** Creation timestamp (ms since epoch). */
+  createdAt: number;
+}
+
+/** Redis key for a session registry record. */
+export function mcpSessionKey(sessionId: string): string {
+  return `mcp:session:${sessionId}`;
+}
+
+/**
+ * Write (or overwrite) a session registry record with the configured TTL.
+ * Called once, on the node that runs the real `initialize` handshake.
+ *
+ * @param sessionId - The transport session id (`Mcp-Session-Id`).
+ * @param record - The record to persist.
+ */
+export async function writeMcpSessionRecord(
+  sessionId: string,
+  record: McpSessionRecord,
+): Promise<void> {
+  await api.redis.redis.set(
+    mcpSessionKey(sessionId),
+    JSON.stringify(record),
+    "EX",
+    config.server.mcp.sessionTtl,
+  );
+}
+
+/**
+ * Read a session registry record. Returns `null` when the session is unknown or
+ * expired — the caller must treat that as a 404 (the client's cue to re-`initialize`).
+ *
+ * @param sessionId - The transport session id (`Mcp-Session-Id`).
+ */
+export async function readMcpSessionRecord(
+  sessionId: string,
+): Promise<McpSessionRecord | null> {
+  const raw = await api.redis.redis.get(mcpSessionKey(sessionId));
+  return raw ? (JSON.parse(raw) as McpSessionRecord) : null;
+}
+
+/**
+ * Refresh the TTL on a session registry record. Called on every request so the
+ * TTL behaves as an idle timeout across the cluster.
+ *
+ * @param sessionId - The transport session id (`Mcp-Session-Id`).
+ */
+export async function refreshMcpSessionTtl(sessionId: string): Promise<void> {
+  await api.redis.redis.expire(
+    mcpSessionKey(sessionId),
+    config.server.mcp.sessionTtl,
+  );
+}
+
+/**
+ * Delete a session registry record.
+ *
+ * @param sessionId - The transport session id (`Mcp-Session-Id`).
+ * @returns The number of keys removed (`1` if this call actually deleted the
+ *   record, `0` if it was already gone) — used to fire `onDisconnect` hooks
+ *   exactly once across the cluster.
+ */
+export async function deleteMcpSessionRecord(
+  sessionId: string,
+): Promise<number> {
+  return api.redis.redis.del(mcpSessionKey(sessionId));
+}
+
+/**
+ * Local teardown of an MCP session: drop the transport and its `McpServer` from
+ * this node's in-memory maps. Does NOT touch the shared Redis registry, because
+ * this also runs on server shutdown (`transport.close()` → `onclose`), where the
+ * session may still be live and adoptable on other nodes.
+ *
+ * @param sessionId - The transport session id, or `undefined` if never initialized.
+ * @param mcpServer - The `McpServer` bound to the closing transport.
+ */
+export function forgetMcpSession(
+  sessionId: string | undefined,
+  mcpServer: McpServer,
+): void {
+  if (sessionId) api.mcp.transports.delete(sessionId);
+  const idx = api.mcp.mcpServers.indexOf(mcpServer);
+  if (idx !== -1) api.mcp.mcpServers.splice(idx, 1);
+}
+
+/**
+ * Full teardown triggered by an explicit client `DELETE` (`onsessionclosed`):
+ * drop local state, delete the shared Redis record (so every node then 404s),
+ * and — exactly once across the cluster, gated on the delete actually removing
+ * the key — run the `onDisconnect` hooks.
+ *
+ * @param sessionId - The transport session id being terminated.
+ * @param mcpServer - The `McpServer` bound to the closing transport.
+ */
+export async function terminateMcpSession(
+  sessionId: string,
+  mcpServer: McpServer,
+): Promise<void> {
+  forgetMcpSession(sessionId, mcpServer);
+  const removed = await deleteMcpSessionRecord(sessionId);
+  if (removed === 1) {
+    for (const hook of api.hooks.mcp.onDisconnectHooks) {
+      await hook(sessionId);
+    }
+  }
+}
+
+/**
+ * Drive a synthetic `initialize` request through a freshly-created transport so
+ * it enters `{ sessionId, initialized: true }` state without a real client
+ * round-trip. The initialize response is discarded; awaiting it guarantees the
+ * connected `McpServer` finished its handshake before the caller dispatches the
+ * real request. Uses only the SDK's public `handleRequest` API.
+ *
+ * @param transport - A connected transport whose `sessionIdGenerator` returns the target session id.
+ * @param protocolVersion - The version negotiated on the originating node, if known.
+ */
+async function driveSyntheticInitialize(
+  transport: WebStandardStreamableHTTPServerTransport,
+  protocolVersion: string | undefined,
+): Promise<void> {
+  const negotiatedVersion =
+    protocolVersion &&
+    (SUPPORTED_PROTOCOL_VERSIONS as readonly string[]).includes(protocolVersion)
+      ? protocolVersion
+      : DEFAULT_NEGOTIATED_PROTOCOL_VERSION;
+
+  const initBody = {
+    jsonrpc: "2.0" as const,
+    id: `keryx-adopt-${randomUUID()}`,
+    method: "initialize",
+    params: {
+      protocolVersion: negotiatedVersion,
+      capabilities: {},
+      clientInfo: { name: "keryx-adopt", version: pkg.version },
+    },
+  };
+
+  // Accept must list both content types and Content-Type must be JSON, or the
+  // SDK rejects the POST before it ever inspects the (pre-parsed) body.
+  const req = new Request("http://keryx.internal/mcp", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+    },
+  });
+
+  await transport.handleRequest(req, { parsedBody: initBody });
+}
+
+/** In-flight adoptions, keyed by session id, so concurrent requests for the same
+ * not-yet-local session share one transport instead of racing to build several. */
+const adoptionsInFlight = new Map<
+  string,
+  Promise<WebStandardStreamableHTTPServerTransport>
+>();
+
+/**
+ * Re-materialize a session that exists in the shared registry but has no live
+ * transport on this node (e.g. a load balancer routed a later request to a
+ * different node than the one that ran `initialize`). Creates a fresh
+ * `McpServer` + transport bound to `sessionId`, drives a synthetic `initialize`
+ * to bring it to initialized state, registers it locally, and returns it ready
+ * to serve the real request.
+ *
+ * Adopted transports intentionally do NOT re-run `onConnect` hooks or re-write
+ * the Redis record — those already happened on the originating node. They DO
+ * wire teardown so a `DELETE` routed here still terminates the session cluster-wide.
+ *
+ * @param sessionId - The transport session id to adopt.
+ * @param clientId - The OAuth client id that owns the session (from the registry record).
+ * @param protocolVersion - The negotiated protocol version from the registry record, if any.
+ * @returns The connected, initialized transport (also registered in `api.mcp.transports`).
+ */
+export async function adoptMcpSession(
+  sessionId: string,
+  clientId: string,
+  protocolVersion: string | undefined,
+): Promise<WebStandardStreamableHTTPServerTransport> {
+  const inFlight = adoptionsInFlight.get(sessionId);
+  if (inFlight) return inFlight;
+
+  const promise = (async () => {
+    const mcpServer = createMcpServer();
+    api.mcp.mcpServers.push(mcpServer);
+
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: () => sessionId,
+      enableJsonResponse: true,
+      // Local registration only — no hooks, no registry write (see doc above).
+      onsessioninitialized: (sid) => {
+        api.mcp.transports.set(sid, { transport, clientId });
+      },
+      onsessionclosed: (sid) => terminateMcpSession(sid, mcpServer),
+    });
+    transport.onclose = () => forgetMcpSession(transport.sessionId, mcpServer);
+
+    await mcpServer.connect(transport);
+    await driveSyntheticInitialize(transport, protocolVersion);
+    return transport;
+  })();
+
+  adoptionsInFlight.set(sessionId, promise);
+  try {
+    return await promise;
+  } finally {
+    adoptionsInFlight.delete(sessionId);
+  }
 }
 
 /**
