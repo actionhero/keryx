@@ -1,6 +1,26 @@
 /**
- * Validate an OAuth redirect URI per RFC 6749 / OAuth 2.1 rules:
- * no fragments, no userinfo, and HTTPS required for non-localhost URIs.
+ * Schemes that must never be accepted as redirect URIs. They can execute code or
+ * read local resources if a client (or the browser) ever navigates to them, so
+ * we reject them outright even though `/oauth/register` is open (RFC 7591).
+ */
+const DANGEROUS_SCHEMES = new Set([
+  "javascript:",
+  "data:",
+  "vbscript:",
+  "file:",
+]);
+
+/**
+ * Validate an OAuth redirect URI. Rules by scheme:
+ * - `https:` — allowed for any host (remote web callbacks).
+ * - `http:` — allowed only for loopback hosts (`localhost`, `127.0.0.1`, `[::1]`).
+ * - `javascript:` / `data:` / `vbscript:` / `file:` — always rejected.
+ * - any other scheme — treated as a private-use / custom URI scheme for a native
+ *   app (e.g. `vscode://`, `cursor://`, `com.example.app:/callback`) and allowed
+ *   per RFC 8252 §7.1. Reverse-DNS form is not required, since real clients
+ *   (`vscode://`) don't use it.
+ *
+ * Fragments and userinfo are rejected for every scheme.
  *
  * @param uri - The redirect URI to validate.
  * @returns `{ valid: true }` or `{ valid: false, error: string }`.
@@ -24,18 +44,27 @@ export function validateRedirectUri(uri: string): {
     return { valid: false, error: "Redirect URI must not contain userinfo" };
   }
 
-  const isLocalhost =
-    parsed.hostname === "localhost" ||
-    parsed.hostname === "127.0.0.1" ||
-    parsed.hostname === "[::1]";
-
-  if (!isLocalhost && parsed.protocol !== "https:") {
+  if (DANGEROUS_SCHEMES.has(parsed.protocol)) {
     return {
       valid: false,
-      error: "Redirect URI must use HTTPS for non-localhost URIs",
+      error: `Redirect URI scheme "${parsed.protocol}" is not allowed`,
     };
   }
 
+  if (parsed.protocol === "http:") {
+    const isLoopback =
+      parsed.hostname === "localhost" ||
+      parsed.hostname === "127.0.0.1" ||
+      parsed.hostname === "[::1]";
+    if (!isLoopback) {
+      return {
+        valid: false,
+        error: "Redirect URI must use HTTPS for non-localhost URIs",
+      };
+    }
+  }
+
+  // https: and private-use/custom schemes (native apps) are allowed.
   return { valid: true };
 }
 

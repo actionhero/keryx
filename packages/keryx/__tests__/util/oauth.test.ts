@@ -34,6 +34,42 @@ describe("validateRedirectUri", () => {
     expect(result.error).toContain("HTTPS");
   });
 
+  test("accepts vscode:// private-use scheme", () => {
+    expect(validateRedirectUri("vscode://vscode.dev/callback")).toEqual({
+      valid: true,
+    });
+  });
+
+  test("accepts cursor:// private-use scheme", () => {
+    expect(
+      validateRedirectUri("cursor://anysphere.cursor-retrieval/callback"),
+    ).toEqual({ valid: true });
+  });
+
+  test("accepts reverse-DNS private-use scheme", () => {
+    expect(validateRedirectUri("com.example.app:/oauth/callback")).toEqual({
+      valid: true,
+    });
+  });
+
+  test("rejects javascript: scheme", () => {
+    const result = validateRedirectUri("javascript:alert(1)");
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain("not allowed");
+  });
+
+  test("rejects data: scheme", () => {
+    const result = validateRedirectUri("data:text/html,x");
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain("not allowed");
+  });
+
+  test("rejects file: scheme", () => {
+    const result = validateRedirectUri("file:///etc/passwd");
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain("not allowed");
+  });
+
   test("rejects unparseable URI", () => {
     const result = validateRedirectUri("not-a-url");
     expect(result.valid).toBe(false);
