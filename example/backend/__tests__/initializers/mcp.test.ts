@@ -978,13 +978,8 @@ describe("mcp initializer (enabled)", () => {
         body: authForm.toString(),
         redirect: "manual",
       });
-      expect(authRes.status).toBe(200);
-      const authHtml = await authRes.text();
-      const metaMatch = authHtml.match(
-        /<meta name="redirect-url" content="([^"]+)"\s*\/?>/,
-      );
-      expect(metaMatch).toBeTruthy();
-      const redirectUrl = new URL(metaMatch![1]);
+      expect(authRes.status).toBe(302);
+      const redirectUrl = new URL(authRes.headers.get("location")!);
       const code = redirectUrl.searchParams.get("code");
       expect(code).toBeTruthy();
       expect(redirectUrl.searchParams.get("state")).toBe("test-state");
@@ -1093,7 +1088,7 @@ describe("mcp initializer (enabled)", () => {
         }).toString(),
         redirect: "manual",
       });
-      expect(signupRes.status).toBe(200);
+      expect(signupRes.status).toBe(302);
       // We don't exchange this code — the user is now created in the DB
 
       // --- 2. Sign in as the created user via OAuth signin ---
@@ -1116,14 +1111,9 @@ describe("mcp initializer (enabled)", () => {
         }).toString(),
         redirect: "manual",
       });
-      expect(signinRes.status).toBe(200);
+      expect(signinRes.status).toBe(302);
 
-      const signinHtml = await signinRes.text();
-      const signinMetaMatch = signinHtml.match(
-        /<meta name="redirect-url" content="([^"]+)"\s*\/?>/,
-      );
-      expect(signinMetaMatch).toBeTruthy();
-      const signinRedirect = new URL(signinMetaMatch![1]);
+      const signinRedirect = new URL(signinRes.headers.get("location")!);
       const signinCode = signinRedirect.searchParams.get("code");
       expect(signinCode).toBeTruthy();
       expect(signinRedirect.searchParams.get("state")).toBe("signin");

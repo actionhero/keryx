@@ -93,7 +93,7 @@ async function runAuthAction(
  * Handle the OAuth authorize form POST (signin/signup).
  *
  * @param req - The incoming form POST request.
- * @param templates - Loaded OAuth HTML templates for rendering the auth/success pages.
+ * @param templates - Loaded OAuth HTML templates for re-rendering the auth page on error.
  * @param origin - The externally-visible origin of this authorization server. Used
  *   as the `iss` (issuer) value on the authorization-code redirect per RFC 9207
  *   (MCP 2026-07-28 / SEP-2468); matches the `issuer` advertised in AS metadata.

@@ -28,7 +28,7 @@ Options:
 - `--no-example` — skip the example action
 - `--force` — scaffold into an existing directory; files that already exist are left untouched (merge-skip, never overwrite)
 
-`keryx new` also scaffolds OAuth template files into `templates/` (login/signup page, success page, shared CSS, and the lion SVG). These are customizable — see the [MCP guide](/guide/mcp#oauth-templates) for details.
+`keryx new` also scaffolds OAuth template files into `templates/` (login/signup page, shared CSS, and the lion SVG). These are customizable — see the [MCP guide](/guide/mcp#oauth-templates) for details.
 
 ### `keryx generate`
 
