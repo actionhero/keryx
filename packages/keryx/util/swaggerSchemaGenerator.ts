@@ -134,6 +134,10 @@ export function typeToJsonSchema(
 
       if (!propType) continue;
 
+      // Skip methods — they are not JSON-serializable data and would otherwise
+      // leak into the response schema as empty objects (e.g. a `toJSON` helper).
+      if (propType.getCallSignatures().length > 0) continue;
+
       properties[propName] = typeToJsonSchema(propType, newVisited);
 
       // Check if property is optional

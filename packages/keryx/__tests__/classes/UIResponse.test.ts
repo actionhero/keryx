@@ -29,4 +29,18 @@ describe("UIResponse", () => {
     // So HTTP/WS/CLI transports serialize the data, not { structuredContent, text }.
     expect(JSON.parse(JSON.stringify(res))).toEqual(data);
   });
+
+  test("infers the structuredContent shape as a type parameter", () => {
+    // The generic parameter flows the field types through to `run()`'s return
+    // type, which is what lets the swagger/MCP generator declare the fields.
+    const res = new UIResponse({ name: "server", pid: 42, healthy: true });
+    // Type-level check: these accesses only compile because T was inferred.
+    const name: string = res.structuredContent.name;
+    const pid: number = res.structuredContent.pid;
+    const healthy: boolean = res.structuredContent.healthy;
+    expect(name).toBe("server");
+    expect(pid).toBe(42);
+    expect(healthy).toBe(true);
+    expect(res.toJSON().name).toBe("server");
+  });
 });

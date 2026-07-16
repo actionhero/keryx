@@ -3,7 +3,7 @@ import { Action, api, HTTP_METHOD, MCP_RESPONSE_FORMAT } from "keryx";
 import { z } from "zod";
 import pkg from "../package.json";
 
-async function checkDependencies() {
+export async function checkDependencies() {
   let databaseHealthy = false;
   try {
     if (api.db?.db) {
