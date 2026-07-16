@@ -324,21 +324,29 @@ export async function adoptMcpSession(
   const promise = (async () => {
     const mcpServer = createMcpServer();
     api.mcp.mcpServers.push(mcpServer);
+    try {
+      const transport = new WebStandardStreamableHTTPServerTransport({
+        sessionIdGenerator: () => sessionId,
+        enableJsonResponse: true,
+        // Local registration only — no hooks, no registry write (see doc above).
+        onsessioninitialized: (sid) => {
+          api.mcp.transports.set(sid, { transport, clientId });
+        },
+        onsessionclosed: (sid) => terminateMcpSession(sid, mcpServer),
+      });
+      transport.onclose = () =>
+        forgetMcpSession(transport.sessionId, mcpServer);
 
-    const transport = new WebStandardStreamableHTTPServerTransport({
-      sessionIdGenerator: () => sessionId,
-      enableJsonResponse: true,
-      // Local registration only — no hooks, no registry write (see doc above).
-      onsessioninitialized: (sid) => {
-        api.mcp.transports.set(sid, { transport, clientId });
-      },
-      onsessionclosed: (sid) => terminateMcpSession(sid, mcpServer),
-    });
-    transport.onclose = () => forgetMcpSession(transport.sessionId, mcpServer);
-
-    await mcpServer.connect(transport);
-    await driveSyntheticInitialize(transport, protocolVersion);
-    return transport;
+      await mcpServer.connect(transport);
+      await driveSyntheticInitialize(transport, protocolVersion);
+      return transport;
+    } catch (e) {
+      // Adoption failed partway (e.g. the synthetic initialize errored) — drop
+      // the McpServer we optimistically registered so it can't linger in the
+      // broadcast list nor leave a half-initialized transport behind.
+      forgetMcpSession(sessionId, mcpServer);
+      throw e;
+    }
   })();
 
   adoptionsInFlight.set(sessionId, promise);
