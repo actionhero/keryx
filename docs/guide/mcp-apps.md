@@ -31,6 +31,8 @@ tool call ─▶ UIResponse ─▶ { content: [text], structuredContent: {…} }
                              model context          app rendering
 ```
 
+Keryx advertises the `io.modelcontextprotocol/ui` extension capability during `initialize` (when any action declares `mcp.ui`) so compliant hosts negotiate UI support.
+
 ## Declaring a UI
 
 Add a `ui` block to an action's `mcp` config. The only required field is `html` — a self-contained HTML document for the app.
@@ -162,6 +164,10 @@ To see an app render you need a host that supports MCP Apps. Two easy options:
 - **Claude** — expose your local server with a tunnel (e.g. `npx cloudflared tunnel --url http://localhost:8080`) and add it as a [custom connector](https://support.anthropic.com/en/articles/11175166).
 
 For automated tests, assert the wiring over a normal MCP session: the tool's `_meta.ui.resourceUri` appears in `tools/list`, the `ui://` resource reads back HTML with the `text/html;profile=mcp-app` MIME type, and a `tools/call` returns `structuredContent`. See `example/backend/__tests__/initializers/mcp.test.ts`.
+
+::: warning Rendering is up to the host
+Whether an app actually renders is controlled entirely by the host. MCP Apps is new, and support varies — some clients gate it behind a server-side flag or have version-specific regressions (e.g. a host may negotiate the `io.modelcontextprotocol/ui` capability and list the `ui://` resource, yet never call `resources/read`, falling back to raw text). If a compliant host like the ext-apps basic-host renders your app but another client doesn't, the gap is on the client side, not in your server.
+:::
 
 ## See also
 

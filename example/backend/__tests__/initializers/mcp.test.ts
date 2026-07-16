@@ -174,6 +174,41 @@ describe("mcp initializer (enabled)", () => {
     expect(sessionId).toBeTruthy();
   });
 
+  test("initialize advertises the MCP Apps UI extension capability", async () => {
+    const res = await fetch(mcpUrl(), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "test-client", version: "1.0.0" },
+        },
+      }),
+    });
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as {
+      result?: {
+        capabilities?: {
+          extensions?: Record<string, { mimeTypes?: string[] }>;
+        };
+      };
+    };
+    const ext = body.result?.capabilities?.extensions;
+    expect(ext?.["io.modelcontextprotocol/ui"]).toBeTruthy();
+    expect(ext?.["io.modelcontextprotocol/ui"]?.mimeTypes).toContain(
+      "text/html;profile=mcp-app",
+    );
+  });
+
   test("OPTIONS returns 204 with CORS headers", async () => {
     const res = await fetch(mcpUrl(), { method: "OPTIONS" });
     expect(res.status).toBe(204);
@@ -574,6 +609,10 @@ describe("mcp initializer (enabled)", () => {
         }>;
         expect(content[0].type).toBe("text");
         expect(content[0].text).toContain("is running");
+
+        // ext-apps hosts render the UI from `_meta.ui.resourceUri` + the `ui://`
+        // resource, so the content array stays text-only (no embedded resource).
+        expect(content.every((c) => c.type === "text")).toBe(true);
       });
     });
   });
