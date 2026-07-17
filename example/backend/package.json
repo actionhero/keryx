@@ -14,8 +14,8 @@
     "dev": "bun --watch keryx.ts start",
     "migrations": "bun run migrations.ts",
     "benchmark": "bun test __tests__/benchmark/",
-    "lint": "tsc && biome check .",
-    "format": "tsc && biome check --write ."
+    "lint": "tsc && tsc -p ui && biome check .",
+    "format": "tsc && tsc -p ui && biome check --write ."
   },
   "dependencies": {
     "@keryxjs/csrf": "workspace:*",

@@ -1,5 +1,3 @@
-/// <reference lib="dom" />
-
 import { App } from "@modelcontextprotocol/ext-apps";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
