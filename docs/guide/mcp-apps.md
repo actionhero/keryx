@@ -87,11 +87,15 @@ Write your entrypoint against [`mountMcpApp`](#mountmcpapp). It connects to the 
 
 ```ts
 // mcpApp/status.ts
+import type { ActionResponse } from "keryx";
 import { mountMcpApp } from "@keryxjs/mcp-app";
+import type { Status } from "../actions/status";
 
-type Status = { name: string; pid: number; uptime: number };
+// Reuse the action's response type instead of redefining it — the UI binds to
+// exactly what the tool returns. See Typed Clients.
+type StatusData = ActionResponse<Status>;
 
-mountMcpApp<Status>({
+mountMcpApp<StatusData>({
   name: "Server Status",
   render: (data, root) => {
     root.innerHTML = `<h1>${data.name}</h1><p>PID ${data.pid}</p>`;
@@ -101,6 +105,10 @@ mountMcpApp<Status>({
 ```
 
 `root` defaults to the `#root` element in the shell Keryx generates, so a minimal app needs no HTML of its own. When you want custom markup or CSS, provide your own shell — see [Custom HTML shell](#custom-html-shell).
+
+::: tip Type the UI off your action
+`import type` a server action and use [`ActionResponse<A>`](./typed-clients.md) for the render payload — the `import type` is erased at bundle time, so no server code reaches the browser, and your UI stays in sync with the tool's return type. This is the same zero-tooling pattern the frontend uses.
+:::
 
 ### TypeScript
 
