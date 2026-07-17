@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { Action, type ActionParams, api, HTTP_METHOD, UIResponse } from "keryx";
 import { z } from "zod";
 import pkg from "../package.json";
@@ -68,20 +69,33 @@ export class GreetingPrompt implements Action {
 }
 
 /**
- * Self-contained HTML for the Server Status MCP App, loaded from a sibling `.html` file.
+ * Self-contained HTML for the Server Status MCP App.
  *
- * Keryx never reads files for you — a `UIResponse` action just needs an HTML string — so we
- * read it ourselves at module load. Keeping the UI in its own `.html` file gives you real
- * editor support (syntax highlighting, formatting) instead of a giant template literal.
- *
- * `status-app.html` uses the `@modelcontextprotocol/ext-apps` `App` class (loaded from a CDN,
- * hence the `csp.resourceDomains` allowance below) to talk to the host over postMessage.
- * Production apps typically bundle their UI (e.g. Vite + vite-plugin-singlefile) and read the
- * built single-file HTML here instead.
+ * Keryx accepts an HTML string and does not prescribe a build system. This example bundles
+ * the typed client and `@modelcontextprotocol/ext-apps` into its HTML at module load so the
+ * sandbox does not need network access or CSP allowances.
  */
-const STATUS_DASHBOARD_HTML = await Bun.file(
+const statusDashboardTemplate = await Bun.file(
   new URL("./status-app.html", import.meta.url),
 ).text();
+const statusClientBuild = await Bun.build({
+  entrypoints: [
+    fileURLToPath(new URL("../ui/status-app-client.ts", import.meta.url)),
+  ],
+  target: "browser",
+  format: "esm",
+  minify: true,
+});
+if (!statusClientBuild.success || !statusClientBuild.outputs[0]) {
+  throw new Error(
+    `Could not build status app client: ${statusClientBuild.logs.join("\n")}`,
+  );
+}
+const statusClientScript = await statusClientBuild.outputs[0].text();
+const STATUS_DASHBOARD_HTML = statusDashboardTemplate.replace(
+  "/* STATUS_APP_CLIENT */",
+  () => statusClientScript,
+);
 
 /**
  * An MCP App: a tool that renders live server status as an interactive dashboard.
@@ -99,8 +113,6 @@ export class StatusDashboardApp implements Action {
     tool: true,
     ui: {
       html: STATUS_DASHBOARD_HTML,
-      // The UI imports the ext-apps App class from a CDN, so allow it in the app's CSP.
-      csp: { resourceDomains: ["https://esm.sh"] },
       prefersBorder: true,
     },
   };

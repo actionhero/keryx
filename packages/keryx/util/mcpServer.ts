@@ -534,8 +534,19 @@ function registerTools(mcpServer: McpServer) {
                 })
               : JSON.stringify(response);
 
+          // Promote plain object responses to structuredContent so MCP Apps can
+          // bind without JSON.parse (same shape UIResponse already provides).
+          const structuredContent =
+            format === MCP_RESPONSE_FORMAT.JSON &&
+            response !== null &&
+            typeof response === "object" &&
+            !Array.isArray(response)
+              ? (response as Record<string, unknown>)
+              : undefined;
+
           return {
             content: [{ type: "text" as const, text }],
+            ...(structuredContent ? { structuredContent } : {}),
           };
         } finally {
           connection.destroy();
