@@ -14,14 +14,14 @@
     "dev": "bun --watch keryx.ts start",
     "migrations": "bun run migrations.ts",
     "benchmark": "bun test __tests__/benchmark/",
-    "lint": "tsc && tsc -p ui && biome check .",
-    "format": "tsc && tsc -p ui && biome check --write ."
+    "lint": "tsc && tsc -p mcpApp && biome check .",
+    "format": "tsc && tsc -p mcpApp && biome check --write ."
   },
   "dependencies": {
     "@keryxjs/csrf": "workspace:*",
+    "@keryxjs/mcp-app": "workspace:*",
     "@keryxjs/resque-admin": "workspace:*",
     "@keryxjs/tracing": "workspace:*",
-    "@modelcontextprotocol/ext-apps": "^1.7.4",
     "commander": "^14.0.3",
     "drizzle-orm": "^0.45.2",
     "drizzle-zod": "^0.8.3",

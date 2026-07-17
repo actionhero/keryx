@@ -26,11 +26,29 @@ export const MCP_APP_MIME_TYPE = "text/html;profile=mcp-app";
  */
 export type McpUiConfig = {
   /**
-   * Self-contained HTML for the app UI. Keep external assets minimal (or inline them) so the
-   * default deny-by-default CSP applies. To serve HTML from a file, read it yourself
-   * (e.g. `await Bun.file(path).text()`) and pass the string here.
+   * Browser entrypoint for the app UI. Keryx bundles it at boot (with Bun's browser
+   * bundler) and inlines the result into {@link McpUiConfig.html} — or a default
+   * self-contained shell — to produce the served HTML. Point it at a `.ts`/`.tsx`
+   * file, e.g. `new URL("./app/status.ts", import.meta.url)`.
+   *
+   * Provide `client`, `html`, or both. With only `client`, Keryx wraps the bundle in a
+   * default shell (a document containing a `<div id="root">`). With both, `html` is the
+   * shell the bundle is inlined into. See {@link McpUiConfig.html}.
    */
-  html: string;
+  client?: string | URL;
+  /**
+   * Self-contained HTML for the app UI. Keep external assets minimal (or inline them) so the
+   * default deny-by-default CSP applies.
+   *
+   * - **Without `client`:** served verbatim — you inline your own scripts/styles. To serve
+   *   HTML from a file, read it yourself (e.g. `await Bun.file(path).text()`) and pass the string.
+   * - **With `client`:** treated as the shell the bundled client is inlined into — at an empty
+   *   `<script type="module"></script>`, else a placeholder comment (`MCP_APP_CLIENT`), else
+   *   appended before `</body>`.
+   *
+   * At least one of `client` or `html` must be set.
+   */
+  html?: string;
   /** The `ui://` resource URI. Defaults to `ui://<tool-name>`. */
   resourceUri?: string;
   /** Content-Security-Policy allowances for external origins the app may reach. */

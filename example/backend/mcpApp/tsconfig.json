@@ -1,0 +1,6 @@
+{
+  // Browser code for MCP Apps. Extends the DOM-enabled base shipped by
+  // @keryxjs/mcp-app so DOM types stay out of the Bun server program.
+  "extends": "@keryxjs/mcp-app/tsconfig.mcp-app.json",
+  "include": ["**/*.ts"]
+}

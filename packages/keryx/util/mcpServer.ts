@@ -22,6 +22,7 @@ import { UIResponse } from "../classes/UIResponse";
 import { config } from "../config";
 import pkg from "../package.json";
 import { appendHeaders } from "../util/http";
+import { getResolvedMcpAppHtml } from "../util/mcpAppBundler";
 import { toMarkdown } from "../util/toMarkdown";
 
 /**
@@ -653,6 +654,10 @@ function registerUiResources(mcpServer: McpServer) {
     }
     registered.add(resourceUri);
 
+    // HTML is resolved (client bundled + inlined) once at boot; fall back to a
+    // verbatim `html` string for actions registered outside the boot pass.
+    const html = getResolvedMcpAppHtml(action) ?? ui.html ?? "";
+
     const uiMeta = buildUiMeta(ui);
     const hasMeta = Object.keys(uiMeta).length > 0;
     const metadata: Record<string, unknown> = { mimeType: MCP_APP_MIME_TYPE };
@@ -667,7 +672,7 @@ function registerUiResources(mcpServer: McpServer) {
           {
             uri: mcpUri.toString(),
             mimeType: MCP_APP_MIME_TYPE,
-            text: ui.html,
+            text: html,
             ...(hasMeta ? { _meta: { ui: uiMeta } } : {}),
           },
         ],
