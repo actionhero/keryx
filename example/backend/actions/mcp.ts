@@ -1,4 +1,3 @@
-import { fileURLToPath } from "node:url";
 import { Action, type ActionParams, api, HTTP_METHOD, UIResponse } from "keryx";
 import { z } from "zod";
 import pkg from "../package.json";
@@ -69,40 +68,14 @@ export class GreetingPrompt implements Action {
 }
 
 /**
- * Self-contained HTML for the Server Status MCP App.
- *
- * Keryx accepts an HTML string and does not prescribe a build system. This example bundles
- * the typed client and `@modelcontextprotocol/ext-apps` into its HTML at module load so the
- * sandbox does not need network access or CSP allowances.
- */
-const statusDashboardTemplate = await Bun.file(
-  new URL("./status-app.html", import.meta.url),
-).text();
-const statusClientBuild = await Bun.build({
-  entrypoints: [
-    fileURLToPath(new URL("../ui/status-app-client.ts", import.meta.url)),
-  ],
-  target: "browser",
-  format: "esm",
-  minify: true,
-});
-if (!statusClientBuild.success || !statusClientBuild.outputs[0]) {
-  throw new Error(
-    `Could not build status app client: ${statusClientBuild.logs.join("\n")}`,
-  );
-}
-const statusClientScript = await statusClientBuild.outputs[0].text();
-const STATUS_DASHBOARD_HTML = statusDashboardTemplate.replace(
-  "/* STATUS_APP_CLIENT */",
-  () => statusClientScript,
-);
-
-/**
  * An MCP App: a tool that renders live server status as an interactive dashboard.
  *
  * Declaring `mcp.ui` registers a `ui://status-app` HTML resource and links this tool to it.
- * `run()` returns a {@link UIResponse} so the host delivers `structuredContent` to the app
- * for rendering while still adding a text summary to the model's context.
+ * `mcp.ui.client` points at the browser entrypoint Keryx bundles for you — with no `html`,
+ * Keryx wraps the bundle in a default self-contained shell (a `<div id="root">` document),
+ * so this app needs no HTML file of its own. `run()` returns a {@link UIResponse} so the host
+ * delivers `structuredContent` to the app for rendering while still adding a text summary to
+ * the model's context.
  */
 export class StatusDashboardApp implements Action {
   name = "status:app";
@@ -112,7 +85,7 @@ export class StatusDashboardApp implements Action {
   mcp = {
     tool: true,
     ui: {
-      html: STATUS_DASHBOARD_HTML,
+      client: new URL("../mcpApp/status.ts", import.meta.url),
       prefersBorder: true,
     },
   };

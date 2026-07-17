@@ -1,6 +1,10 @@
 {
-  // Browser code for MCP Apps. Kept as a separate TS project so the DOM lib
-  // doesn't leak into the server program (which uses Bun's WebSocket types).
+  // Shared TypeScript base for MCP App browser code (the client bundled into a
+  // `ui://` resource). Kept DOM-enabled and free of Bun's server globals so the
+  // DOM `WebSocket` type does not clash with Bun's. Consumers extend this from
+  // their own browser directory:
+  //
+  //   { "extends": "@keryxjs/mcp-app/tsconfig.mcp-app.json", "include": ["**/*.ts"] }
   "compilerOptions": {
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "target": "ESNext",
@@ -19,6 +23,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true
-  },
-  "include": ["**/*.ts"]
+  }
 }

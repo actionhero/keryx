@@ -1,0 +1,11 @@
+{
+  // This package IS browser code, so it uses the shared DOM base directly. `bun`
+  // types are added only so the test files (bun:test) typecheck; the browser
+  // source never references Bun globals.
+  "extends": "./tsconfig.mcp-app.json",
+  "compilerOptions": {
+    "types": ["bun"]
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules"]
+}

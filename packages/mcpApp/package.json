@@ -1,0 +1,57 @@
+{
+  "name": "@keryxjs/mcp-app",
+  "version": "0.1.0",
+  "module": "index.ts",
+  "type": "module",
+  "license": "MIT",
+  "description": "Browser client for Keryx MCP Apps — mount an interactive UI that renders your action's structured data and stays fresh.",
+  "author": "Evan Tahler <evan@evantahler.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/actionhero/keryx.git",
+    "directory": "packages/mcpApp"
+  },
+  "homepage": "https://keryxjs.com/guide/mcp-apps",
+  "bugs": {
+    "url": "https://github.com/actionhero/keryx/issues"
+  },
+  "keywords": [
+    "keryx",
+    "mcp",
+    "model-context-protocol",
+    "mcp-apps",
+    "mcp-ui",
+    "browser",
+    "ui"
+  ],
+  "files": [
+    "extract.ts",
+    "index.ts",
+    "tsconfig.mcp-app.json",
+    "README.md"
+  ],
+  "exports": {
+    ".": "./index.ts",
+    "./tsconfig.mcp-app.json": "./tsconfig.mcp-app.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/ext-apps": "^1.7.4",
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "peerDependencies": {
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.12",
+    "typescript": "^6.0.3",
+    "zod": "^4.3.6"
+  },
+  "scripts": {
+    "test": "tsc && bun test",
+    "lint": "tsc && biome check .",
+    "format": "tsc && biome check --write ."
+  }
+}

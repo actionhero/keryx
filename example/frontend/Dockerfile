@@ -4,6 +4,7 @@ WORKDIR /app
 # Install dependencies (cache layer)
 COPY package.json bun.lock* ./
 COPY packages/keryx/package.json packages/keryx/
+COPY packages/mcpApp/package.json packages/mcpApp/
 COPY packages/plugins/tracing/package.json packages/plugins/tracing/
 COPY packages/plugins/resque-admin/package.json packages/plugins/resque-admin/
 COPY packages/plugins/csrf/package.json packages/plugins/csrf/

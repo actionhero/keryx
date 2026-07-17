@@ -13,6 +13,7 @@ import {
   getMcpAllowedOrigins,
   isOriginAllowed,
 } from "../util/http";
+import { resolveMcpAppUiResources } from "../util/mcpAppBundler";
 import {
   adoptMcpSession,
   createMcpServer,
@@ -161,6 +162,11 @@ export class McpInitializer extends Initializer {
         }
       }
     }
+
+    // Bundle every MCP App UI (mcp.ui.client) once, before any session can be
+    // created, so per-session resource registration serves pre-built HTML and a
+    // bundle error fails startup fast.
+    await resolveMcpAppUiResources();
 
     // Build handleRequest — each new session creates a fresh McpServer
     const transports = api.mcp.transports;
