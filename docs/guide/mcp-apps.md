@@ -104,19 +104,21 @@ import { App } from "@modelcontextprotocol/ext-apps";
 
 const app = new App({ name: "Server Status", version: "1.0.0" });
 
-// The host pushes this tool's structuredContent when the app first renders.
+// Register handlers BEFORE connect(). The host pushes this tool's result after
+// the ui/initialize handshake — but some hosts miss that window, so also hydrate
+// yourself once connect() resolves.
 app.ontoolresult = (result) => render(result.structuredContent);
 
-// Proactively call any tool on your Keryx server.
 async function refresh() {
   const result = await app.callServerTool({ name: "status", arguments: {} });
   render(result.structuredContent);
 }
 
-app.connect();
+await app.connect();
+await refresh(); // reliable first paint even if ontoolresult never fired
 ```
 
-Because every Keryx action is already a tool, your app can call any of them with `callServerTool` — no separate API to build.
+Because every Keryx action is already a tool, your app can call any of them with `callServerTool` — no separate API to build. JSON object tool results include `structuredContent` automatically, so apps can bind without `JSON.parse`.
 
 ## `McpUiConfig` options
 

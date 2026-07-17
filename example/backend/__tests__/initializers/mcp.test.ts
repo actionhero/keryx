@@ -541,6 +541,14 @@ describe("mcp initializer (enabled)", () => {
       const parsed = JSON.parse(content[0].text!);
       expect(parsed).toHaveProperty("name");
       expect(typeof parsed).toBe("object");
+
+      // Plain object JSON tools also expose structuredContent so MCP Apps can
+      // bind without JSON.parse (e.g. status-app's Refresh button).
+      const structured = result.structuredContent as Record<string, unknown>;
+      expect(structured).toBeTruthy();
+      expect(structured).toHaveProperty("name");
+      expect(structured).toHaveProperty("pid");
+      expect(structured).toHaveProperty("healthy");
     });
 
     test("tool invocation with missing required param returns isError", async () => {
@@ -578,10 +586,12 @@ describe("mcp initializer (enabled)", () => {
         expect(content.mimeType).toBe("text/html;profile=mcp-app");
         const text = (content as { text: string }).text;
         expect(text).toContain("<!doctype html>");
-        expect(text).toContain("ext-apps");
+        expect(text).toContain("ui/initialize");
+        expect(text).not.toContain("STATUS_APP_CLIENT");
+        expect(text).not.toContain("https://esm.sh");
         const ui = (content._meta as any)?.ui;
         expect(ui?.prefersBorder).toBe(true);
-        expect(ui?.csp?.resourceDomains).toContain("https://esm.sh");
+        expect(ui?.csp).toBeUndefined();
       });
 
       test("app tool call returns structuredContent plus a text summary", async () => {
