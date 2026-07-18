@@ -325,7 +325,7 @@ export async function scaffoldProject(
           zod: "^4.3.6",
           ...(options.includeDb
             ? {
-                "drizzle-orm": "^0.45.1",
+                "drizzle-orm": "^0.45.2",
                 "drizzle-zod": "^0.8.3",
               }
             : {}),
@@ -333,7 +333,7 @@ export async function scaffoldProject(
         devDependencies: {
           "@biomejs/biome": "^2.4.8",
           "@types/bun": "latest",
-          ...(options.includeDb ? { "drizzle-kit": "^0.20.18" } : {}),
+          ...(options.includeDb ? { "drizzle-kit": "^0.31.10" } : {}),
         },
       },
       null,

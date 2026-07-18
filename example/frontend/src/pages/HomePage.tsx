@@ -1,4 +1,3 @@
-import { Button } from "react-bootstrap";
 import { Link } from "react-router-dom";
 
 import { useAuth } from "../hooks/useAuth";
@@ -15,22 +14,17 @@ export default function HomePage() {
         for realtime AI, CLI, and web applications.
       </p>
       {user ? (
-        <Button as={Link as never} to="/chat" variant="primary" size="lg">
+        <Link to="/chat" className="btn btn-primary btn-lg">
           Open Chat
-        </Button>
+        </Link>
       ) : (
         <div className="d-flex gap-3 justify-content-center">
-          <Button as={Link as never} to="/sign-in" variant="primary" size="lg">
+          <Link to="/sign-in" className="btn btn-primary btn-lg">
             Sign In
-          </Button>
-          <Button
-            as={Link as never}
-            to="/sign-up"
-            variant="outline-primary"
-            size="lg"
-          >
+          </Link>
+          <Link to="/sign-up" className="btn btn-outline-primary btn-lg">
             Sign Up
-          </Button>
+          </Link>
         </div>
       )}
     </div>
