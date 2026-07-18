@@ -676,7 +676,7 @@ export class Actions extends Initializer {
       details.queues[queue] = { length: length };
     }
 
-    details.leader = await api.resque.queue.leader();
+    details.leader = (await api.resque.queue.leader()) ?? "";
 
     return details;
   };

@@ -85,6 +85,24 @@ describe("scaffoldProject", () => {
     expect(pkg.dependencies["drizzle-orm"]).toBeDefined();
     expect(pkg.dependencies["drizzle-zod"]).toBeDefined();
     expect(pkg.devDependencies["drizzle-kit"]).toBeDefined();
+    // `lint`/`format` run `tsc`, so a fresh app must ship its own typescript (#510)
+    expect(pkg.devDependencies.typescript).toBeDefined();
+  });
+
+  test("tsconfig types match the @types/bun package (#510)", async () => {
+    await scaffoldProject("ts-project", targetDir("ts-project"), {
+      includeDb: true,
+      includeExample: true,
+    });
+
+    const tsconfig = JSON.parse(
+      fs.readFileSync(
+        path.join(targetDir("ts-project"), "tsconfig.json"),
+        "utf-8",
+      ),
+    );
+    // `@types/bun` provides the `bun` types package, not `bun-types`
+    expect(tsconfig.compilerOptions.types).toEqual(["bun"]);
   });
 
   test("skips db files when includeDb is false", async () => {
