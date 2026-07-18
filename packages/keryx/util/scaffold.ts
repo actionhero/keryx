@@ -173,7 +173,7 @@ export function generateTsconfigContents(): string {
           target: "ESNext",
           module: "ESNext",
           moduleResolution: "bundler",
-          types: ["bun-types"],
+          types: ["bun"],
           strict: true,
           skipLibCheck: true,
           noEmit: true,
@@ -333,6 +333,7 @@ export async function scaffoldProject(
         devDependencies: {
           "@biomejs/biome": "^2.4.8",
           "@types/bun": "latest",
+          typescript: "^7.0.2",
           ...(options.includeDb ? { "drizzle-kit": "^0.31.10" } : {}),
         },
       },
