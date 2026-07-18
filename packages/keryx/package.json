@@ -1,6 +1,6 @@
 {
   "name": "keryx",
-  "version": "0.38.0",
+  "version": "0.38.1",
   "module": "index.ts",
   "type": "module",
   "license": "MIT",
@@ -92,7 +92,7 @@
     "node-resque": "^9.5.2",
     "pg": "^8.20.0",
     "ts-morph": "^28.0.0",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "commander": "^14.0.3",
     "@types/mustache": "^4.2.6",
     "@types/pg": "^8.20.0"
