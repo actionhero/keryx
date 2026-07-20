@@ -2,6 +2,7 @@ import Mustache from "mustache";
 import type { z } from "zod";
 import type { Action } from "../classes/Action";
 import { escapeHtml } from "./oauth";
+import { resolveThemeCss } from "./theme";
 import { isSecret } from "./zodMixins";
 
 export type FormField = {
@@ -17,6 +18,8 @@ export type OAuthTemplates = {
   authTemplate: string;
   commonCss: string;
   lionSvg: string;
+  /** App's shared theme CSS, inlined after {@link commonCss} so its overrides win. */
+  themeCss: string;
 };
 
 const frameworkTemplatesDir = import.meta.dir + "/../templates";
@@ -51,12 +54,13 @@ export async function loadOAuthTemplates(
   rootDir: string,
   packageDir: string,
 ): Promise<OAuthTemplates> {
-  const [authTemplate, commonCss, lionSvg] = await Promise.all([
+  const [authTemplate, commonCss, lionSvg, themeCss] = await Promise.all([
     resolveTemplate("oauth-authorize.html", rootDir, packageDir),
     resolveTemplate("oauth-common.css", rootDir, packageDir),
     resolveTemplate("lion.svg", rootDir, packageDir),
+    resolveThemeCss(),
   ]);
-  return { authTemplate, commonCss, lionSvg };
+  return { authTemplate, commonCss, lionSvg, themeCss };
 }
 
 /**
@@ -201,7 +205,11 @@ export function renderAuthPage(
       signinFieldsHtml,
       signupFieldsHtml,
     },
-    { commonCss: templates.commonCss, lionSvg: templates.lionSvg },
+    {
+      commonCss: templates.commonCss,
+      lionSvg: templates.lionSvg,
+      themeCss: templates.themeCss,
+    },
   );
 
   return new Response(html, {

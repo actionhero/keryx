@@ -1,0 +1,6 @@
+// Preprocessor fixture: Bun cannot compile this natively, so resolveThemeCss
+// must reject it with a targeted, actionable error.
+$primary: #ff00aa;
+.keryx-theme-fixture {
+  color: $primary;
+}

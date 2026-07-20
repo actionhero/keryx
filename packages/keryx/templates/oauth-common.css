@@ -1,12 +1,31 @@
+:root {
+  /* Theme tokens. Override any subset from a theme's own :root (config.server.web.theme),
+     which is inlined after this file so its declarations win by cascade order. */
+  --keryx-font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --keryx-color-primary: #2f5266;
+  --keryx-color-primary-hover: #3a6a84;
+  --keryx-color-accent: #e14e3a;
+  --keryx-bg: linear-gradient(
+    135deg,
+    var(--keryx-color-primary) 0%,
+    var(--keryx-color-primary-hover) 50%,
+    var(--keryx-color-accent) 100%
+  );
+  --keryx-surface: #fff;
+  --keryx-color-text: #555;
+  --keryx-color-text-muted: #666;
+  --keryx-color-border: #ddd;
+  --keryx-radius: 12px;
+}
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 body {
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  background: linear-gradient(135deg, #2f5266 0%, #3a6a84 50%, #e14e3a 100%);
+  font-family: var(--keryx-font-family);
+  background: var(--keryx-bg);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -14,8 +33,8 @@ body {
   min-height: 100vh;
 }
 .container {
-  background: #fff;
-  border-radius: 12px;
+  background: var(--keryx-surface);
+  border-radius: var(--keryx-radius);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
   padding: 36px;
   width: 100%;
@@ -23,7 +42,7 @@ body {
 }
 h2 {
   margin-bottom: 20px;
-  color: #2f5266;
+  color: var(--keryx-color-primary);
 }
 .error {
   background: #fef2f0;
@@ -46,14 +65,14 @@ h2 {
   cursor: pointer;
   border-bottom: 2px solid transparent;
   margin-bottom: -2px;
-  color: #666;
+  color: var(--keryx-color-text-muted);
   transition:
     color 0.2s,
     border-color 0.2s;
 }
 .tab.active {
-  border-bottom-color: #2f5266;
-  color: #2f5266;
+  border-bottom-color: var(--keryx-color-primary);
+  color: var(--keryx-color-primary);
   font-weight: 600;
 }
 .form-section {
@@ -66,7 +85,7 @@ label {
   display: block;
   margin-bottom: 4px;
   font-weight: 500;
-  color: #555;
+  color: var(--keryx-color-text);
   font-size: 14px;
 }
 input[type="text"],
@@ -74,7 +93,7 @@ input[type="email"],
 input[type="password"] {
   width: 100%;
   padding: 10px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--keryx-color-border);
   border-radius: 6px;
   font-size: 14px;
   margin-bottom: 12px;
@@ -84,13 +103,14 @@ input[type="password"] {
 }
 input:focus {
   outline: none;
-  border-color: #2f5266;
-  box-shadow: 0 0 0 2px rgba(47, 82, 102, 0.2);
+  border-color: var(--keryx-color-primary);
+  box-shadow: 0 0 0 2px
+    color-mix(in srgb, var(--keryx-color-primary) 20%, transparent);
 }
 button {
   width: 100%;
   padding: 12px;
-  background: #2f5266;
+  background: var(--keryx-color-primary);
   color: #fff;
   border: none;
   border-radius: 6px;
@@ -100,14 +120,14 @@ button {
   transition: background 0.2s;
 }
 button:hover {
-  background: #3a6a84;
+  background: var(--keryx-color-primary-hover);
 }
 .checkmark {
   width: 64px;
   height: 64px;
   margin: 0 auto 16px;
   border-radius: 50%;
-  background: rgba(47, 82, 102, 0.1);
+  background: color-mix(in srgb, var(--keryx-color-primary) 10%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -115,14 +135,14 @@ button:hover {
 .checkmark svg {
   width: 32px;
   height: 32px;
-  stroke: #2f5266;
+  stroke: var(--keryx-color-primary);
   fill: none;
   stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 p {
-  color: #666;
+  color: var(--keryx-color-text-muted);
   font-size: 14px;
   margin-bottom: 8px;
 }

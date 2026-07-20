@@ -309,6 +309,35 @@ Each field object in `signinFields` / `signupFields` has: `name`, `label`, `type
 
 To customize the look and feel, edit the template files in your project's `templates/` directory. The Mustache loops and hidden OAuth fields must be preserved for the flow to work — but you can change all styling, layout, and field rendering.
 
+### Shared Theme
+
+For branding, prefer a shared **theme** over cloning the template files. Set [`config.server.web.theme`](./config.md#web-server) to a `.css` file (or a `.ts`/`.js` entrypoint that default-exports a CSS string), and Keryx inlines it into both the OAuth page **and** your [MCP App shells](./mcp-apps.md) — one source of truth for palette and fonts.
+
+The shipped `oauth-common.css` reads from a small set of CSS custom properties, so a theme only needs to redeclare the subset it wants. The theme is inlined **after** `oauth-common.css`, so its `:root` declarations win by cascade order:
+
+```css
+/* your theme.css */
+:root {
+  --keryx-color-primary: #6b46c1;
+  --keryx-color-primary-hover: #553c9a;
+  --keryx-color-accent: #ec4899;
+  --keryx-font-family: "Inter", system-ui, sans-serif;
+}
+```
+
+| Variable                      | Controls                                              |
+| ----------------------------- | ---------------------------------------------------- |
+| `--keryx-font-family`         | Page font stack                                      |
+| `--keryx-color-primary`       | Headings, buttons, focus rings, active tab, gradient |
+| `--keryx-color-primary-hover` | Button hover, gradient midpoint                      |
+| `--keryx-color-accent`        | Gradient endpoint                                    |
+| `--keryx-bg`                  | Page background (a gradient of the colors above)     |
+| `--keryx-surface`             | Card background                                       |
+| `--keryx-color-text`          | Form label text                                      |
+| `--keryx-color-text-muted`    | Secondary/muted text                                 |
+| `--keryx-color-border`        | Input borders                                        |
+| `--keryx-radius`              | Card corner radius                                   |
+
 ## PubSub Notifications
 
 When messages are broadcast through the PubSub system (e.g., chat messages sent via Redis PubSub), they are forwarded to all connected MCP clients as MCP logging messages. This allows AI agents to receive real-time notifications about events happening in your application.

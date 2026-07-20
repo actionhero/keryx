@@ -206,6 +206,9 @@ Example JSON output:
 | `allowedMethods`       | `WEB_SERVER_ALLOWED_METHODS`         | `"HEAD, GET, POST, PUT, PATCH, DELETE, OPTIONS"` |
 | `allowedHeaders`       | `WEB_SERVER_ALLOWED_HEADERS`         | `"Content-Type"`                                 |
 | `includeStackInErrors` | `WEB_SERVER_INCLUDE_STACK_IN_ERRORS` | `true` (dev) / `false` (prod)                    |
+| `theme`                | `WEB_SERVER_THEME`                   | `""`                                             |
+
+`theme` is an optional path (relative to your app's root, or absolute) to a stylesheet that Keryx compiles once at boot and inlines into every framework-rendered HTML surface — the [OAuth authorization page](./mcp.md#oauth-templates) and [MCP App shells](./mcp-apps.md). It accepts a `.css` file (bundled through `bun build`, so `@import`s resolve) or a `.ts`/`.js` entrypoint that default-exports a CSS string (compute the CSS from your design tokens). `.scss`/`.sass` are not compiled natively — precompile them to `.css` first. The value is cached at boot, so restart to pick up changes.
 
 #### Static Files
 

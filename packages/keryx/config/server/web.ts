@@ -12,6 +12,11 @@ export const configServerWeb = {
     `http://${host}:${port}`,
   ),
   apiRoute: await loadFromEnvIfSet("WEB_SERVER_API_ROUTE", "/api"),
+  // Optional path (relative to the app's rootDir, or absolute) to a theme
+  // stylesheet inlined into every framework-rendered HTML surface: the OAuth
+  // authorization page and MCP App shells. Accepts a `.css` file or a
+  // `.ts`/`.js` entrypoint that default-exports a CSS string. Empty = no theme.
+  theme: await loadFromEnvIfSet("WEB_SERVER_THEME", ""),
   allowedOrigins: await loadFromEnvIfSet("WEB_SERVER_ALLOWED_ORIGINS", "*"),
   allowedMethods: await loadFromEnvIfSet(
     "WEB_SERVER_ALLOWED_METHODS",

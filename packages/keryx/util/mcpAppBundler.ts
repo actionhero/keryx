@@ -2,6 +2,8 @@ import { fileURLToPath } from "node:url";
 import { api, logger } from "../api";
 import type { Action, McpUiConfig } from "../classes/Action";
 import { ErrorType, TypedError } from "../classes/TypedError";
+import { spawnBunBuild } from "./bunBuild";
+import { resolveThemeCss } from "./theme";
 
 /**
  * Default self-contained HTML shell for an MCP App declared with only `mcp.ui.client`.
@@ -16,6 +18,7 @@ export const DEFAULT_MCP_APP_SHELL = `<!doctype html>
     <style>
       :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
       body { margin: 0; padding: 16px; }
+      /* MCP_APP_THEME */
     </style>
   </head>
   <body>
@@ -27,6 +30,8 @@ export const DEFAULT_MCP_APP_SHELL = `<!doctype html>
 
 /** Placeholder comment a shell may use to mark where the bundled client is inlined. */
 const COMMENT_PLACEHOLDER = "/* MCP_APP_CLIENT */";
+/** Placeholder comment a shell may use to mark where the shared theme CSS is inlined. */
+const THEME_PLACEHOLDER = "/* MCP_APP_THEME */";
 /** Matches an empty `<script type="module">` tag (the preferred, declarative injection point). */
 const EMPTY_MODULE_SCRIPT = /<script\s+type=["']module["']>\s*<\/script>/;
 
@@ -35,11 +40,6 @@ const resolvedUiHtml = new Map<Action, string>();
 
 /**
  * Bundle a browser entrypoint into a single minified ESM string.
- *
- * Runs `bun build` in a **child process** rather than the in-process `Bun.build` API:
- * once the server has started, Bun has memory-mapped its loaded modules (e.g. zod), and
- * the in-process bundler fails to re-read them ("Unseekable reading file"). A fresh
- * process sidesteps that and is only paid once, at boot.
  *
  * @param client - Path or `file:` URL to the browser entrypoint (`.ts`/`.tsx`/`.js`).
  * @returns The minified, bundled client script.
@@ -55,31 +55,10 @@ export async function bundleMcpAppClient(
         ? fileURLToPath(new URL(client))
         : client;
 
-  const proc = Bun.spawn(
-    [
-      process.execPath,
-      "build",
-      entrypoint,
-      "--target=browser",
-      "--format=esm",
-      "--minify",
-    ],
-    { stdout: "pipe", stderr: "pipe" },
+  return spawnBunBuild(
+    [entrypoint, "--target=browser", "--format=esm", "--minify"],
+    `MCP App client "${entrypoint}"`,
   );
-  const [script, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-
-  if (exitCode !== 0 || script.trim().length === 0) {
-    throw new TypedError({
-      message: `Failed to bundle MCP App client "${entrypoint}":\n${stderr || "no output"}`,
-      type: ErrorType.SERVER_INITIALIZATION,
-    });
-  }
-
-  return script;
 }
 
 /**
@@ -107,21 +86,50 @@ function injectClientScript(shell: string, script: string): string {
 }
 
 /**
+ * Inline the shared theme CSS into an HTML shell. Prefers a `MCP_APP_THEME` placeholder
+ * comment (so custom shells position the theme precisely), then inserts a `<style>` block
+ * before `</head>`, then before `</body>`, and finally appends as a last resort. When the
+ * theme is empty and no placeholder is present, the shell is returned unchanged.
+ *
+ * Uses a replacer function so `$`-sequences in the CSS are inserted literally.
+ */
+export function injectThemeCss(shell: string, themeCss: string): string {
+  if (shell.includes(THEME_PLACEHOLDER)) {
+    return shell.replace(THEME_PLACEHOLDER, () => themeCss);
+  }
+  if (!themeCss) return shell;
+  const styleTag = `<style>${themeCss}</style>`;
+  if (shell.includes("</head>")) {
+    return shell.replace("</head>", () => `${styleTag}</head>`);
+  }
+  if (shell.includes("</body>")) {
+    return shell.replace("</body>", () => `${styleTag}</body>`);
+  }
+  return `${shell}${styleTag}`;
+}
+
+/**
  * Compute the served HTML for an MCP App's `mcp.ui` config.
  *
  * - With `client`: bundles it and inlines the result into `html` (or {@link DEFAULT_MCP_APP_SHELL}).
- * - With only `html`: returns it verbatim.
+ * - With only `html`: returns it as-is.
+ *
+ * In both cases the app's shared theme CSS ({@link resolveThemeCss}) is inlined — into the
+ * `MCP_APP_THEME` placeholder when present, otherwise as a `<style>` block. When no theme is
+ * configured, custom `html` shells are returned byte-for-byte verbatim.
  *
  * @param ui - The action's `mcp.ui` config.
  * @returns The self-contained HTML to serve as the `ui://` resource.
  * @throws {TypedError} When neither `client` nor `html` is set, or bundling fails.
  */
 export async function resolveMcpAppHtml(ui: McpUiConfig): Promise<string> {
+  const themeCss = await resolveThemeCss();
   if (ui.client) {
     const script = await bundleMcpAppClient(ui.client);
-    return injectClientScript(ui.html ?? DEFAULT_MCP_APP_SHELL, script);
+    const shell = injectClientScript(ui.html ?? DEFAULT_MCP_APP_SHELL, script);
+    return injectThemeCss(shell, themeCss);
   }
-  if (ui.html !== undefined) return ui.html;
+  if (ui.html !== undefined) return injectThemeCss(ui.html, themeCss);
   throw new TypedError({
     message: "mcp.ui requires either `client` or `html` to be set",
     type: ErrorType.ACTION_VALIDATION,
