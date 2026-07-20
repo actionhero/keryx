@@ -1,0 +1,6 @@
+:root {
+  --keryx-color-primary: #ff00aa;
+}
+.keryx-theme-fixture {
+  color: var(--keryx-color-primary);
+}
