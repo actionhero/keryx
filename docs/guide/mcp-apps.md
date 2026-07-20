@@ -187,6 +187,8 @@ Your render function can then target elements in that shell directly instead of 
 
 App shells render in a **sandboxed iframe**, so they cannot `<link>` to a stylesheet on your origin — shared branding must be **inlined source**. Set [`config.server.web.theme`](./config.md#web-server) to a `.css` file (or a `.ts`/`.js` entrypoint that default-exports a CSS string) and Keryx inlines that CSS into every shell at boot — the same theme it applies to the [OAuth authorization page](./mcp.md#shared-theme), so both Keryx-rendered surfaces stay consistent.
 
+The default shell already inlines Keryx's shared `--keryx-*` [design tokens](./mcp.md#shared-theme), so your render code can reference the palette (`color: var(--keryx-color-primary)`) and inherits the shared font by default — even before you configure a theme. Your configured theme is inlined **after** the tokens, so it overrides them.
+
 The default shell picks the theme up automatically. In a custom `html` shell, mark where the theme should land with a `/* MCP_APP_THEME */` comment (mirroring `/* MCP_APP_CLIENT */`); if you omit it, Keryx inserts a `<style>` block into `<head>`. When no theme is configured, custom shells are served byte-for-byte verbatim.
 
 ```html

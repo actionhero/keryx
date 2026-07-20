@@ -2,7 +2,7 @@ import Mustache from "mustache";
 import type { z } from "zod";
 import type { Action } from "../classes/Action";
 import { escapeHtml } from "./oauth";
-import { resolveThemeCss } from "./theme";
+import { DEFAULT_THEME_CSS, resolveThemeCss } from "./theme";
 import { isSecret } from "./zodMixins";
 
 export type FormField = {
@@ -206,6 +206,7 @@ export function renderAuthPage(
       signupFieldsHtml,
     },
     {
+      defaultThemeCss: DEFAULT_THEME_CSS,
       commonCss: templates.commonCss,
       lionSvg: templates.lionSvg,
       themeCss: templates.themeCss,

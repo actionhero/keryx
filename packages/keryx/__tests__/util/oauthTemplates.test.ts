@@ -82,6 +82,17 @@ describe("renderAuthPage", () => {
   test("omits theme CSS when no theme is configured", () => {
     expect(templates.themeCss).toBe("");
   });
+
+  test("inlines the shared default theme tokens even with no user theme", async () => {
+    const response = renderAuthPage(baseParams({}), templates, actions);
+    const html = await response.text();
+    // The shared DEFAULT_THEME_CSS tokens are present as the baseline...
+    expect(html).toContain("--keryx-color-primary: #2f5266");
+    // ...and appear before the styles that consume them.
+    expect(html.indexOf("--keryx-color-primary: #2f5266")).toBeLessThan(
+      html.indexOf(".container"),
+    );
+  });
 });
 
 describe("loadOAuthTemplates theming", () => {

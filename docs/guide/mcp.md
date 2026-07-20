@@ -313,7 +313,7 @@ To customize the look and feel, edit the template files in your project's `templ
 
 For branding, prefer a shared **theme** over cloning the template files. Set [`config.server.web.theme`](./config.md#web-server) to a `.css` file (or a `.ts`/`.js` entrypoint that default-exports a CSS string), and Keryx inlines it into both the OAuth page **and** your [MCP App shells](./mcp-apps.md) — one source of truth for palette and fonts.
 
-The shipped `oauth-common.css` reads from a small set of CSS custom properties, so a theme only needs to redeclare the subset it wants. The theme is inlined **after** `oauth-common.css`, so its `:root` declarations win by cascade order:
+Keryx ships a **default theme**: a shared set of `--keryx-*` design tokens that both the OAuth page and MCP App shells inline as their baseline, so the two surfaces already agree before you configure anything. The OAuth page styles itself entirely from these tokens, so a theme only needs to redeclare the subset it wants — your theme is inlined **after** the default tokens, so its `:root` declarations win by cascade order:
 
 ```css
 /* your theme.css */

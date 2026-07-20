@@ -3,7 +3,7 @@ import { api, logger } from "../api";
 import type { Action, McpUiConfig } from "../classes/Action";
 import { ErrorType, TypedError } from "../classes/TypedError";
 import { spawnBunBuild } from "./bunBuild";
-import { resolveThemeCss } from "./theme";
+import { DEFAULT_THEME_CSS, resolveThemeCss } from "./theme";
 
 /**
  * Default self-contained HTML shell for an MCP App declared with only `mcp.ui.client`.
@@ -16,7 +16,8 @@ export const DEFAULT_MCP_APP_SHELL = `<!doctype html>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
-      :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+      ${DEFAULT_THEME_CSS}
+      :root { color-scheme: light dark; font-family: var(--keryx-font-family); }
       body { margin: 0; padding: 16px; }
       /* MCP_APP_THEME */
     </style>

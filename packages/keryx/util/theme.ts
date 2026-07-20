@@ -5,6 +5,36 @@ import { ErrorType, TypedError } from "../classes/TypedError";
 import { config } from "../config";
 import { spawnBunBuild } from "./bunBuild";
 
+/**
+ * The framework's default theme: the shared `--keryx-*` design tokens (palette, fonts,
+ * radius) that every framework-rendered HTML surface inlines as its baseline. It is the
+ * single source of truth for default branding — the OAuth authorization page and MCP App
+ * shells both include it, and a user theme ({@link resolveThemeCss}) is inlined *after* it
+ * so any token it redeclares wins by cascade order.
+ *
+ * This block defines tokens only (no layout/chrome), so surfaces share a vocabulary without
+ * sharing page structure: the OAuth page styles itself with these tokens, and MCP App widgets
+ * may reference them (e.g. `color: var(--keryx-color-primary)`).
+ */
+export const DEFAULT_THEME_CSS = `:root {
+  --keryx-font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --keryx-color-primary: #2f5266;
+  --keryx-color-primary-hover: #3a6a84;
+  --keryx-color-accent: #e14e3a;
+  --keryx-bg: linear-gradient(
+    135deg,
+    var(--keryx-color-primary) 0%,
+    var(--keryx-color-primary-hover) 50%,
+    var(--keryx-color-accent) 100%
+  );
+  --keryx-surface: #fff;
+  --keryx-color-text: #555;
+  --keryx-color-text-muted: #666;
+  --keryx-color-border: #ddd;
+  --keryx-radius: 12px;
+}`;
+
 /** Extensions bundled through Bun's CSS pipeline (`bun build`). */
 const CSS_EXTENSIONS = new Set([".css"]);
 /** Extensions dynamically imported for a default-exported CSS string. */

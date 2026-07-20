@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { resetThemeCache, resolveThemeCss } from "../../util/theme";
+import {
+  DEFAULT_THEME_CSS,
+  resetThemeCache,
+  resolveThemeCss,
+} from "../../util/theme";
 
 const fixturesDir = import.meta.dir + "/../fixtures";
 const cssFixture = `${fixturesDir}/theme.css`;
@@ -61,5 +65,13 @@ describe("resolveThemeCss", () => {
     await expect(resolveThemeCss(`${fixturesDir}/theme.scss`)).rejects.toThrow(
       /cannot compile/,
     );
+  });
+});
+
+describe("DEFAULT_THEME_CSS", () => {
+  test("defines the shared --keryx-* design tokens", () => {
+    expect(DEFAULT_THEME_CSS).toContain(":root");
+    expect(DEFAULT_THEME_CSS).toContain("--keryx-color-primary: #2f5266");
+    expect(DEFAULT_THEME_CSS).toContain("--keryx-font-family");
   });
 });

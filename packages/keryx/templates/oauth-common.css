@@ -1,23 +1,6 @@
-:root {
-  /* Theme tokens. Override any subset from a theme's own :root (config.server.web.theme),
-     which is inlined after this file so its declarations win by cascade order. */
-  --keryx-font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --keryx-color-primary: #2f5266;
-  --keryx-color-primary-hover: #3a6a84;
-  --keryx-color-accent: #e14e3a;
-  --keryx-bg: linear-gradient(
-    135deg,
-    var(--keryx-color-primary) 0%,
-    var(--keryx-color-primary-hover) 50%,
-    var(--keryx-color-accent) 100%
-  );
-  --keryx-surface: #fff;
-  --keryx-color-text: #555;
-  --keryx-color-text-muted: #666;
-  --keryx-color-border: #ddd;
-  --keryx-radius: 12px;
-}
+/* Styling for the OAuth authorization page. The --keryx-* design tokens this file
+   references are supplied by the framework's shared default theme (DEFAULT_THEME_CSS),
+   inlined ahead of this file, and can be overridden via config.server.web.theme. */
 * {
   box-sizing: border-box;
   margin: 0;

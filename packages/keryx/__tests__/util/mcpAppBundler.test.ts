@@ -55,6 +55,17 @@ describe("mcpAppBundler", () => {
       expect(DEFAULT_MCP_APP_SHELL).toContain('<div id="root">');
       expect(html).not.toContain("https://");
     });
+
+    test("default shell inlines the shared --keryx-* token vocabulary", () => {
+      // Widgets can reference the shared tokens, and the shell's own font default
+      // comes from the shared token so it matches the OAuth page.
+      expect(DEFAULT_MCP_APP_SHELL).toContain("--keryx-color-primary: #2f5266");
+      expect(DEFAULT_MCP_APP_SHELL).toContain(
+        "font-family: var(--keryx-font-family)",
+      );
+      // Host light/dark support is preserved.
+      expect(DEFAULT_MCP_APP_SHELL).toContain("color-scheme: light dark");
+    });
   });
 
   describe("bundleMcpAppClient", () => {
