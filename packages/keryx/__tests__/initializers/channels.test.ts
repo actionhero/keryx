@@ -12,6 +12,15 @@ class TestConnection extends Connection {
   }
 }
 
+/**
+ * Whether the connection has received a broadcast for a specific presence event.
+ * Presence events arrive over Redis PubSub, so tests must wait for the *specific*
+ * event they assert on — waiting for "any message" races against late or duplicate
+ * deliveries (e.g. a join landing after a leave is expected).
+ */
+const receivedEvent = (conn: TestConnection, event: string): boolean =>
+  conn.receivedMessages.some((m) => JSON.parse(m.message).event === event);
+
 useTestServer();
 
 beforeAll(async () => {
@@ -85,7 +94,7 @@ describe("channels initializer", () => {
 
       await api.channels.addPresence("join-test", joiner);
 
-      await waitFor(() => listener.receivedMessages.length > 0);
+      await waitFor(() => receivedEvent(listener, "join"));
 
       const joinMsg = listener.receivedMessages.find((m) => {
         const parsed = JSON.parse(m.message);
@@ -110,13 +119,14 @@ describe("channels initializer", () => {
       api.connections.connections.set(leaver.id, leaver);
 
       await api.channels.addPresence("leave-test", leaver);
-      // Wait for the join event first
-      await waitFor(() => listener.receivedMessages.length > 0);
+      // Wait for the join event to fully arrive before clearing, so a late join
+      // delivery can't satisfy the leave wait below.
+      await waitFor(() => receivedEvent(listener, "join"));
       listener.receivedMessages = [];
 
       await api.channels.removePresence("leave-test", leaver);
 
-      await waitFor(() => listener.receivedMessages.length > 0);
+      await waitFor(() => receivedEvent(listener, "leave"));
 
       const leaveMsg = listener.receivedMessages.find((m) => {
         const parsed = JSON.parse(m.message);
