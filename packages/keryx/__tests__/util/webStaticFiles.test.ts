@@ -51,6 +51,9 @@ beforeAll(() => {
     path.join(secretDir, "secret.txt"),
     path.join(staticDir, "evil-link.txt"),
   );
+  // A symlinked *directory* pointing outside staticDir — traversal must be
+  // caught when the escape happens mid-path, not just on a leaf file symlink.
+  fs.symlinkSync(secretDir, path.join(staticDir, "evil-dir"));
 });
 
 afterAll(() => {
@@ -68,6 +71,7 @@ afterAll(() => {
     force: true,
   });
   fs.rmSync(path.join(staticDir, "evil-link.txt"), { force: true });
+  fs.rmSync(path.join(staticDir, "evil-dir"), { force: true });
   fs.rmSync(secretDir, { recursive: true, force: true });
 });
 
@@ -199,6 +203,49 @@ describe("static file path traversal", () => {
     const body = await res.text();
     expect(res.status).toBe(404);
     expect(body).not.toContain(SECRET);
+  });
+
+  test("rejects symlinked directory escape (raw socket)", async () => {
+    // /evil-dir is a symlink to a directory outside staticDir. The escape
+    // happens mid-path, so the leaf exists but realpath resolution must catch it.
+    const res = await fetch(getUrl() + "/evil-dir/secret.txt");
+    const body = await res.text();
+    expect(res.status).toBe(404);
+    expect(body).not.toContain(SECRET);
+  });
+
+  test("rejects dot-dot-slash filter bypass ....// (raw socket)", async () => {
+    // Defeats naive `../` -> `` string strippers, which would leave `../`.
+    // Real canonicalization (path.resolve) treats `....` as a literal segment.
+    const { status, body } = await rawGet("/....//....//package.json");
+    expect(status).toBe(404);
+    expect(body).not.toContain(SECRET);
+    expect(body).not.toContain('"name": "keryx"');
+  });
+
+  test("rejects overlong UTF-8 %c0%ae traversal (raw socket)", async () => {
+    // Classic IIS/Unicode overlong-encoding of `.`; keryx never percent-decodes,
+    // so the sequence stays literal and never forms `..`.
+    const { status, body } = await rawGet("/%c0%ae%c0%ae/package.json");
+    expect([400, 404]).toContain(status);
+    expect(body).not.toContain(SECRET);
+    expect(body).not.toContain('"name": "keryx"');
+  });
+
+  test("rejects encoded backslash ..%5c traversal (raw socket)", async () => {
+    const { status, body } = await rawGet("/..%5c..%5cpackage.json");
+    expect(status).toBe(404);
+    expect(body).not.toContain(SECRET);
+    expect(body).not.toContain('"name": "keryx"');
+  });
+
+  test("rejects the reported ActionHero-shaped payload (raw socket)", async () => {
+    // Mirrors the CVE PoC shape: <staticRoot>/../../etc/passwd. The path starts
+    // with the static dir name but the escape is caught after canonicalization.
+    const staticDirName = path.basename(staticDir);
+    const { status, body } = await rawGet(`/${staticDirName}/../../etc/passwd`);
+    expect(status).toBe(404);
+    expect(body).not.toContain("root:");
   });
 });
 
