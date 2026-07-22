@@ -55,7 +55,10 @@ export async function handleStaticFile(
     const fullPath = path.resolve(path.join(staticDir, finalPath));
     const basePath = path.resolve(staticDir);
 
-    // Prevent path traversal attacks (e.g. symlinks or encoded sequences)
+    // Reject anything that escapes the static root after lexical normalization
+    // (path.resolve collapses `..`/`.` segments). Symlink escapes are caught
+    // separately by resolveWithinStaticRoot below; encoded sequences (e.g.
+    // %2e%2e) are never decoded, so they stay literal and cannot form `..`.
     if (!fullPath.startsWith(basePath + path.sep) && fullPath !== basePath) {
       return null;
     }
