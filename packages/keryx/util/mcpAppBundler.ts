@@ -35,6 +35,30 @@ const COMMENT_PLACEHOLDER = "/* MCP_APP_CLIENT */";
 const THEME_PLACEHOLDER = "/* MCP_APP_THEME */";
 /** Matches an empty `<script type="module">` tag (the preferred, declarative injection point). */
 const EMPTY_MODULE_SCRIPT = /<script\s+type=["']module["']>\s*<\/script>/;
+/**
+ * Matches the sequences that let bundled JS prematurely terminate (or corrupt) the inline
+ * `<script>` element it is embedded in: a closing `</script` tag (case-insensitive) and an
+ * `<!--` comment opener (which flips the HTML parser into "script data escaped" state).
+ */
+const SCRIPT_BREAKOUT = /<(\/script|!--)/gi;
+
+/**
+ * Make bundled JS safe to inline inside an HTML `<script>` element. HTML parsers end a
+ * script at the first literal `</script>` (and `<!--` can start an escaped state that hides
+ * a later real `</script>`), so an unescaped bundle terminates the tag early and the rest
+ * renders as page text. Backslash-escaping the `<` neutralizes both without changing JS
+ * semantics: `<\/script` is identical to `</script` in every JS context, and `<\!--` is an
+ * identity escape inside the string literals where `<!--` appears in minified bundles.
+ *
+ * @param script - The bundled client JS to embed.
+ * @returns The JS with `</script`/`<!--` sequences backslash-escaped.
+ */
+export function escapeScriptForInlineHtml(script: string): string {
+  return script.replace(
+    SCRIPT_BREAKOUT,
+    (_match, tail: string) => `<\\${tail}`,
+  );
+}
 
 /** Resolved HTML per UI action, computed once at boot by {@link resolveMcpAppUiResources}. */
 const resolvedUiHtml = new Map<Action, string>();
@@ -67,9 +91,12 @@ export async function bundleMcpAppClient(
  * `<script type="module"></script>`, then a `MCP_APP_CLIENT` placeholder comment,
  * then just before `</body>`, and finally appends as a last resort.
  *
- * Uses replacer functions so `$`-sequences in the bundled JS are inserted literally.
+ * The bundle is HTML-escaped ({@link escapeScriptForInlineHtml}) first so `</script>`
+ * sequences inside the JS cannot close the module tag early. Uses replacer functions so
+ * `$`-sequences in the bundled JS are inserted literally.
  */
-function injectClientScript(shell: string, script: string): string {
+function injectClientScript(shell: string, rawScript: string): string {
+  const script = escapeScriptForInlineHtml(rawScript);
   if (EMPTY_MODULE_SCRIPT.test(shell)) {
     return shell.replace(
       EMPTY_MODULE_SCRIPT,

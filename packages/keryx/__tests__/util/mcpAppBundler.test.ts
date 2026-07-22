@@ -3,6 +3,7 @@ import { config } from "../../config";
 import {
   bundleMcpAppClient,
   DEFAULT_MCP_APP_SHELL,
+  escapeScriptForInlineHtml,
   injectThemeCss,
   resolveMcpAppHtml,
 } from "../../util/mcpAppBundler";
@@ -31,6 +32,25 @@ describe("mcpAppBundler", () => {
       expect(html).toContain("MCP_APP_FIXTURE_MARKER");
       // The empty module script placeholder was replaced with the bundle.
       expect(html).not.toMatch(EMPTY_MODULE_SCRIPT);
+    });
+
+    test("escapes </script> in the bundle so the module tag survives (issue #516)", async () => {
+      // The fixture contains a `"<script></script>"` string literal, so its minified
+      // bundle carries a literal `</script>` that would otherwise close the tag early.
+      const html = await resolveMcpAppHtml({ client: fixture });
+      // Exactly one `</script>` — the one closing the inlined module tag.
+      expect(html.match(/<\/script>/gi)).toHaveLength(1);
+      // The bundle's literal was neutralized (escaped), not stripped.
+      expect(html).toContain("<\\/script");
+      // ...and the app still runs end-to-end.
+      expect(html).toContain("MCP_APP_FIXTURE_MARKER");
+    });
+
+    test("escapes </script> when inlining into a provided shell", async () => {
+      const shell =
+        '<html><body><main>custom</main><script type="module"></script></body></html>';
+      const html = await resolveMcpAppHtml({ client: fixture, html: shell });
+      expect(html.match(/<\/script>/gi)).toHaveLength(1);
     });
 
     test("inlines the bundle into a provided shell's empty module script", async () => {
@@ -79,6 +99,37 @@ describe("mcpAppBundler", () => {
       await expect(
         bundleMcpAppClient("/nonexistent/does-not-exist.ts"),
       ).rejects.toThrow(/Failed to build MCP App client/);
+    });
+  });
+
+  describe("escapeScriptForInlineHtml", () => {
+    test("escapes </script> case-insensitively", () => {
+      expect(escapeScriptForInlineHtml('a="</script>"')).toBe(
+        'a="<\\/script>"',
+      );
+      expect(escapeScriptForInlineHtml('a="</SCRIPT>"')).toBe(
+        'a="<\\/SCRIPT>"',
+      );
+      expect(escapeScriptForInlineHtml('a="</Script >"')).toBe(
+        'a="<\\/Script >"',
+      );
+    });
+
+    test("escapes <!-- comment openers", () => {
+      expect(escapeScriptForInlineHtml('a="<!-- x"')).toBe('a="<\\!-- x"');
+    });
+
+    test("escapes every occurrence", () => {
+      expect(escapeScriptForInlineHtml("</script></script>")).toBe(
+        "<\\/script><\\/script>",
+      );
+    });
+
+    test("leaves unrelated JS untouched", () => {
+      expect(escapeScriptForInlineHtml("if (a < b) {}")).toBe("if (a < b) {}");
+      expect(escapeScriptForInlineHtml("x = '<div></div>'")).toBe(
+        "x = '<div></div>'",
+      );
     });
   });
 
