@@ -65,7 +65,14 @@ export function buildCorsHeaders(
   const headers: Record<string, string> = { ...extra };
   const allowedOrigins = config.server.web.allowedOrigins;
 
-  if (allowedOrigins === "*" && !requestOrigin) {
+  if (allowedOrigins === "*") {
+    // Wildcard: always emit a literal "*" and never reflect the specific request
+    // origin. Reflecting the origin sets `Vary: Origin`, which downstream (see
+    // buildHeaders in webResponse.ts) adds `Access-Control-Allow-Credentials:
+    // true` — and reflecting an *arbitrary* origin together with credentials lets
+    // any website read a victim's authenticated cross-origin responses. A literal
+    // "*" can never carry credentials (browsers forbid the combination), so this
+    // stays a safe permissive default for public, non-credentialed endpoints.
     headers["Access-Control-Allow-Origin"] = "*";
   } else if (
     requestOrigin &&

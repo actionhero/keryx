@@ -716,7 +716,12 @@ export class Actions extends Initializer {
 
     for (const a of actions) {
       if (!a.description) a.description = `An Action: ${a.name}`;
-      a.mcp = { tool: true, ...a.mcp };
+      // MCP tools are opt-in: an action is exposed as a tool only when it
+      // explicitly sets `mcp.tool = true` (or declares an MCP App via `mcp.ui`).
+      // Defaulting to `false` prevents actions — especially destructive or
+      // maintenance ones — from being silently reachable by any authenticated
+      // MCP client just because they exist.
+      a.mcp = { tool: false, ...a.mcp };
     }
 
     logger.info(

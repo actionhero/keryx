@@ -156,6 +156,22 @@ describe("buildHeaders", () => {
     expect(headers["Access-Control-Allow-Origin"]).toBeUndefined();
     expect(headers["Access-Control-Allow-Credentials"]).toBeUndefined();
   });
+
+  test("wildcard origins never emit Allow-Credentials, even with a request origin", () => {
+    // Regression for the CORS credentials leak: under "*", credentials must
+    // never be attached (browsers forbid "*" + credentials, and reflecting an
+    // arbitrary origin with credentials leaks authenticated responses).
+    const original = config.server.web.allowedOrigins;
+    config.server.web.allowedOrigins = "*";
+    try {
+      const headers = buildHeaders(undefined, "https://evil.example.com");
+      expect(headers["Access-Control-Allow-Origin"]).toBe("*");
+      expect(headers["Access-Control-Allow-Credentials"]).toBeUndefined();
+      expect(headers["Vary"]).toBeUndefined();
+    } finally {
+      config.server.web.allowedOrigins = original;
+    }
+  });
 });
 
 describe("buildResponse", () => {

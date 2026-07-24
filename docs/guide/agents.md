@@ -203,7 +203,7 @@ For authenticated tests, see the [MCP reference testing section](/guide/mcp#test
 
 ## Real-Time Notifications
 
-Agents aren't limited to request-response tool calls. When messages are broadcast through the [PubSub system](/guide/channels) (e.g., chat messages via Redis PubSub), they're forwarded to all connected MCP clients as MCP logging messages.
+Agents aren't limited to request-response tool calls. When messages are broadcast through the [PubSub system](/guide/channels) (e.g., chat messages via Redis PubSub), they're forwarded to MCP clients as MCP logging messages — but only to sessions whose authenticated user is authorized to subscribe to that channel. Notifications honor the same channel [authorization](/guide/channels) as WebSocket subscribers, so an agent never receives broadcasts for channels its user couldn't join.
 
 This enables reactive agent behavior — an agent can monitor a channel and respond when new data arrives, rather than polling.
 

@@ -92,6 +92,16 @@ describe("buildCorsHeaders", () => {
     expect(headers["Access-Control-Allow-Origin"]).toBe("*");
   });
 
+  test("wildcard with a request origin returns literal * and never reflects the origin (no Vary)", () => {
+    // Regression: reflecting the origin under "*" set Vary, which downstream
+    // added Access-Control-Allow-Credentials — letting any site read credentialed
+    // cross-origin responses. Wildcard must stay a literal, credential-free "*".
+    config.server.web.allowedOrigins = "*";
+    const headers = buildCorsHeaders("https://evil.example");
+    expect(headers["Access-Control-Allow-Origin"]).toBe("*");
+    expect(headers["Vary"]).toBeUndefined();
+  });
+
   test("matching specific origin reflects it with Vary", () => {
     config.server.web.allowedOrigins = "https://app.com";
     const headers = buildCorsHeaders("https://app.com");

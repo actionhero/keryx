@@ -344,24 +344,33 @@ describe("mcp initializer (enabled)", () => {
       }
     });
 
-    test("tools/list returns actions as tools (excluding mcp.tool=false)", async () => {
+    test("tools/list returns only opt-in tools (mcp.tool === true or mcp.ui)", async () => {
       const result = await client.listTools();
       expect(result.tools.length).toBeGreaterThan(0);
 
       const toolNames = result.tools.map((t) => t.name);
       expect(toolNames).toContain("status");
 
-      // Actions with mcp.tool=false should NOT be listed
+      // Actions that never opted in should NOT be listed
       expect(toolNames).not.toContain("session-create");
       expect(toolNames).not.toContain("user-create");
+      // Destructive/maintenance actions must stay off unless explicitly opted in
+      expect(toolNames).not.toContain("messages-cleanup");
       // Resource/prompt example actions should NOT be tools
       expect(toolNames).not.toContain("status-resource");
       expect(toolNames).not.toContain("greeting-prompt");
 
-      // All registered actions with mcp.tool !== false should be tools
+      // Tools are opt-in: an action is a tool iff it set mcp.tool === true, or it
+      // declares an MCP App (mcp.ui) without opting out.
       for (const action of api.actions.actions) {
-        if (action.mcp?.tool === false) continue;
-        expect(toolNames).toContain(api.mcp.formatToolName(action.name));
+        const isTool =
+          action.mcp?.tool === true ||
+          (action.mcp?.ui != null && action.mcp?.tool !== false);
+        if (isTool) {
+          expect(toolNames).toContain(api.mcp.formatToolName(action.name));
+        } else {
+          expect(toolNames).not.toContain(api.mcp.formatToolName(action.name));
+        }
       }
     });
 

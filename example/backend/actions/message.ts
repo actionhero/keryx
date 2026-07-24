@@ -20,6 +20,7 @@ import type { SessionImpl } from "./session";
 
 export class MessageCreate implements Action {
   name = "message:create";
+  mcp = { tool: true };
   description =
     "Create a new chat message as the currently authenticated user. The message is persisted to the database and broadcast in real-time to all connected users via the 'messages' PubSub channel. Requires an active session. Returns the created message with its ID and timestamps.";
   middleware = [RateLimitMiddleware, SessionMiddleware, CsrfMiddleware];
@@ -65,6 +66,7 @@ export class MessageCreate implements Action {
 
 export class MessagesList implements Action {
   name = "messages:list";
+  mcp = { tool: true };
   description =
     "List chat messages in reverse chronological order (newest first) with pagination. Each message includes the author's name, message body, and timestamps. Requires an active session. Use 'limit' (1-100, default 10) and 'page' (default 1) to paginate through results.";
   middleware = [RateLimitMiddleware, SessionMiddleware];
@@ -103,6 +105,7 @@ export class MessagesList implements Action {
 
 export class MessageView implements Action {
   name = "message:view";
+  mcp = { tool: true };
   description =
     "Retrieve a single message by its ID. Returns the message body, author name, and timestamps. Requires an active session. The 'message' parameter accepts a numeric message ID.";
   middleware = [RateLimitMiddleware, SessionMiddleware];

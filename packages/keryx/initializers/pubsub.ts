@@ -88,9 +88,11 @@ export class PubSub extends Initializer {
       }
     }
 
-    // Forward to MCP as notifications
+    // Forward to MCP as notifications (authorized per-session; fire-and-forget).
     if (config.server.mcp.enabled && api.mcp?.sendNotification) {
-      api.mcp.sendNotification(payload);
+      void api.mcp.sendNotification(payload).catch(() => {
+        // notification delivery is best-effort
+      });
     }
   }
 }

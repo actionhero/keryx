@@ -20,7 +20,9 @@ import {
   forgetMcpSession,
   formatToolName,
   handleTransportRequest,
+  isMcpSessionAuthorizedForChannel,
   type McpAuthInfo,
+  type McpSessionAuth,
   mcpJsonResponse,
   parseToolName,
   readMcpSessionRecord,
@@ -85,11 +87,21 @@ declare module "keryx" {
 export class McpInitializer extends Initializer {
   constructor() {
     super(namespace);
-    this.dependsOn = ["hooks", "actions", "oauth", "connections", "pubsub"];
+    this.dependsOn = [
+      "hooks",
+      "actions",
+      "oauth",
+      "connections",
+      "pubsub",
+      "channels",
+    ];
   }
 
   async initialize() {
     const mcpServers: McpServer[] = [];
+    // Per-session auth context, so a broadcast is delivered only to sessions
+    // whose user is authorized for its channel (see sendNotification).
+    const mcpServerAuth = new Map<McpServer, McpSessionAuth>();
     const transports = new Map<
       string,
       {
@@ -98,8 +110,21 @@ export class McpInitializer extends Initializer {
       }
     >();
 
-    function sendNotification(payload: PubSubMessage) {
+    // Deliver a PubSub broadcast to MCP sessions as a logging notification, but
+    // ONLY to sessions whose user is authorized to subscribe to the broadcast's
+    // channel. Without this gate every session on the node would receive every
+    // broadcast — a cross-user/cross-tenant data leak — because MCP sessions
+    // have no per-channel subscription of their own. Sessions with no captured
+    // auth context are skipped (fail closed).
+    async function sendNotification(payload: PubSubMessage) {
       for (const server of mcpServers) {
+        const auth = mcpServerAuth.get(server);
+        if (!auth) continue;
+        const authorized = await isMcpSessionAuthorizedForChannel(
+          auth,
+          payload.channel,
+        );
+        if (!authorized) continue;
         try {
           server.server
             .sendLoggingMessage({
@@ -121,6 +146,7 @@ export class McpInitializer extends Initializer {
 
     return {
       mcpServers,
+      mcpServerAuth,
       transports,
       handleRequest: null as McpHandleRequest | null,
       sendNotification,
@@ -273,6 +299,13 @@ export class McpInitializer extends Initializer {
         // New session — create a new McpServer + transport
         const mcpServer = createMcpServer();
         mcpServers.push(mcpServer);
+        // Capture the session's auth context so channel-broadcast delivery can
+        // authorize this session (see sendNotification).
+        api.mcp.mcpServerAuth.set(mcpServer, {
+          clientId: authInfo.clientId,
+          userId: authInfo.extra?.userId,
+          ip,
+        });
 
         const sessionClientId = authInfo.clientId;
         const transport = new WebStandardStreamableHTTPServerTransport({
@@ -344,6 +377,7 @@ export class McpInitializer extends Initializer {
             sessionId,
             record.clientId,
             record.protocolVersion,
+            { userId: authInfo.extra?.userId, ip },
           );
         }
 
@@ -390,6 +424,7 @@ export class McpInitializer extends Initializer {
       }
     }
     api.mcp.mcpServers.length = 0;
+    api.mcp.mcpServerAuth.clear();
 
     api.mcp.handleRequest = null;
   }

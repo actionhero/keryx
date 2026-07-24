@@ -190,9 +190,9 @@ The `-q` flag suppresses server logs so you can pipe the JSON output cleanly. Us
 
 ## MCP Tools
 
-When the MCP server is enabled, every action is automatically exposed as an [MCP](https://modelcontextprotocol.io) tool. AI agents can discover and call your actions through the Model Context Protocol — no extra configuration needed.
+When the MCP server is enabled, actions can be exposed as [MCP](https://modelcontextprotocol.io) tools that AI agents discover and call through the Model Context Protocol. Tools are **opt-in**: set `mcp = { tool: true }` to publish an action. Actions with no `mcp` config are never exposed, so internal or destructive actions stay private by default.
 
-To exclude an action from MCP tools, set `mcp = { tool: false }`. Actions can also be registered as MCP resources or prompts via `mcp.resource` and `mcp.prompt`. See the [MCP guide](/guide/mcp) for full details.
+Actions can also be registered as MCP resources or prompts via `mcp.resource` and `mcp.prompt`. See the [MCP guide](/guide/mcp) for full details.
 
 ## Task Scheduling
 

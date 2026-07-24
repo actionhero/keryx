@@ -80,6 +80,61 @@ export async function createMcpConnection(extra: {
 }
 
 /**
+ * Auth context captured for a live MCP session (`McpServer`), used to authorize
+ * which channel broadcasts that session is allowed to receive. Keyed by
+ * `McpServer` in `api.mcp.mcpServerAuth`.
+ */
+export type McpSessionAuth = {
+  /** OAuth client id that owns the session. */
+  clientId: string;
+  /** Authenticated user id from the session's access token, if any. */
+  userId?: unknown;
+  /** Remote IP captured at session creation (best-effort). */
+  ip?: string;
+};
+
+/**
+ * Decide whether an MCP session's user is allowed to receive broadcasts for a
+ * channel. Runs the channel's real subscription authorization
+ * ({@link api.channels.authorizeSubscription}) against a throwaway in-memory
+ * probe connection so app-defined channel middleware/`authorize()` rules apply
+ * exactly as they do for WebSocket subscribers.
+ *
+ * The probe's session is populated in memory (never persisted to Redis) so this
+ * check adds no session writes on the broadcast hot path. Fails closed: returns
+ * `false` on any authorization error or unknown channel.
+ *
+ * @param auth - The session's captured auth context.
+ * @param channelName - The channel the broadcast targets.
+ * @returns `true` only if the session's user may subscribe to `channelName`.
+ */
+export async function isMcpSessionAuthorizedForChannel(
+  auth: McpSessionAuth,
+  channelName: string,
+): Promise<boolean> {
+  const probe = new Connection(
+    CONNECTION_TYPE.MCP,
+    auth.ip ?? "unknown",
+    randomUUID(),
+  );
+  probe.session = {
+    id: probe.sessionId,
+    cookieName: config.session.cookieName,
+    createdAt: new Date().getTime(),
+    data: auth.userId != null ? { userId: auth.userId } : {},
+  };
+  probe.sessionLoaded = true;
+  try {
+    await api.channels.authorizeSubscription(channelName, probe);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    probe.destroy();
+  }
+}
+
+/**
  * Forward a request to an MCP transport and return the response with CORS headers.
  * Handles the try/catch + error response pattern shared by new-session and existing-session paths.
  */
@@ -222,6 +277,7 @@ export function forgetMcpSession(
   if (sessionId) api.mcp.transports.delete(sessionId);
   const idx = api.mcp.mcpServers.indexOf(mcpServer);
   if (idx !== -1) api.mcp.mcpServers.splice(idx, 1);
+  api.mcp.mcpServerAuth.delete(mcpServer);
 }
 
 /**
@@ -312,12 +368,15 @@ const adoptionsInFlight = new Map<
  * @param sessionId - The transport session id to adopt.
  * @param clientId - The OAuth client id that owns the session (from the registry record).
  * @param protocolVersion - The negotiated protocol version from the registry record, if any.
+ * @param auth - The adopting request's user id / ip, captured so channel-broadcast
+ *   authorization ({@link isMcpSessionAuthorizedForChannel}) works for this session too.
  * @returns The connected, initialized transport (also registered in `api.mcp.transports`).
  */
 export async function adoptMcpSession(
   sessionId: string,
   clientId: string,
   protocolVersion: string | undefined,
+  auth?: Pick<McpSessionAuth, "userId" | "ip">,
 ): Promise<WebStandardStreamableHTTPServerTransport> {
   const inFlight = adoptionsInFlight.get(sessionId);
   if (inFlight) return inFlight;
@@ -325,6 +384,11 @@ export async function adoptMcpSession(
   const promise = (async () => {
     const mcpServer = createMcpServer();
     api.mcp.mcpServers.push(mcpServer);
+    api.mcp.mcpServerAuth.set(mcpServer, {
+      clientId,
+      userId: auth?.userId,
+      ip: auth?.ip,
+    });
     try {
       const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: () => sessionId,
@@ -424,7 +488,13 @@ function buildUiMeta(ui: McpUiConfig): Record<string, unknown> {
 function registerTools(mcpServer: McpServer) {
   const registered = new Set<string>();
   for (const action of api.actions.actions) {
-    if (action.mcp?.tool === false) continue;
+    // Tools are opt-in: register only actions that explicitly set `mcp.tool =
+    // true`, or that declare an MCP App (`mcp.ui`) without opting out. Every
+    // other action — including those with no `mcp` config — is never exposed.
+    const isTool =
+      action.mcp?.tool === true ||
+      (action.mcp?.ui != null && action.mcp?.tool !== false);
+    if (!isTool) continue;
 
     const toolName = formatToolName(action.name);
     if (registered.has(toolName)) continue;
