@@ -11,7 +11,11 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { z } from "zod";
 import { api } from "../../api";
 import { Action, HTTP_METHOD } from "../../classes/Action";
+import { Channel } from "../../classes/Channel";
+import type { Connection } from "../../classes/Connection";
+import { ErrorType, TypedError } from "../../classes/TypedError";
 import { config } from "../../config";
+import { isMcpSessionAuthorizedForChannel } from "../../util/mcpServer";
 import { serverUrl, useTestServer } from "../setup";
 
 const mcpUrl = () => `${serverUrl()}${config.server.mcp.route}`;
@@ -307,5 +311,70 @@ describe("mcpServer utilities (integration)", () => {
       });
       expect(res.status).toBe(403);
     });
+  });
+});
+
+describe("isMcpSessionAuthorizedForChannel", () => {
+  // A channel that only authorizes sessions carrying a userId — the gate that
+  // stops MCP notification broadcasts from leaking to unauthorized sessions.
+  class AuthedNotifyChannel extends Channel {
+    constructor() {
+      super({ name: "authed-notify" });
+    }
+    async authorize(_channelName: string, connection: Connection) {
+      if (!connection.session?.data?.userId) {
+        throw new TypedError({
+          message: "Authentication required to join this channel",
+          type: ErrorType.CONNECTION_CHANNEL_AUTHORIZATION,
+        });
+      }
+    }
+  }
+
+  let channel: AuthedNotifyChannel;
+
+  useTestServer();
+
+  beforeAll(() => {
+    channel = new AuthedNotifyChannel();
+    api.channels.channels.push(channel);
+  });
+
+  afterAll(() => {
+    const idx = api.channels.channels.indexOf(channel);
+    if (idx !== -1) api.channels.channels.splice(idx, 1);
+  });
+
+  test("authorized when the session's user passes the channel authorize()", async () => {
+    const ok = await isMcpSessionAuthorizedForChannel(
+      { clientId: "client-1", userId: 123 },
+      "authed-notify",
+    );
+    expect(ok).toBe(true);
+  });
+
+  test("denied when the session has no user (fail closed)", async () => {
+    const ok = await isMcpSessionAuthorizedForChannel(
+      { clientId: "client-1" },
+      "authed-notify",
+    );
+    expect(ok).toBe(false);
+  });
+
+  test("denied for an unknown channel (fail closed)", async () => {
+    const ok = await isMcpSessionAuthorizedForChannel(
+      { clientId: "client-1", userId: 123 },
+      "no-such-channel",
+    );
+    expect(ok).toBe(false);
+  });
+
+  test("does not leave the probe connection registered", async () => {
+    const before = api.connections.connections.size;
+    await isMcpSessionAuthorizedForChannel(
+      { clientId: "client-1", userId: 123 },
+      "authed-notify",
+    );
+    expect(api.connections.connections.size).toBe(before);
   });
 });

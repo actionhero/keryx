@@ -180,18 +180,18 @@ describe("CORS headers", () => {
     }
   });
 
-  test("wildcard allowedOrigins with Origin header reflects origin and sets credentials", async () => {
+  test("wildcard allowedOrigins with Origin header returns literal * without credentials", async () => {
+    // Security: under "*", the server must NOT reflect the request origin or set
+    // credentials — that combination lets any site read authenticated responses.
     const original = config.server.web.allowedOrigins;
     (config.server.web as any).allowedOrigins = "*";
     try {
       const res = await fetch(getUrl() + "/api/status", {
         headers: { Origin: "http://example.com" },
       });
-      expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
-        "http://example.com",
-      );
-      expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
-      expect(res.headers.get("Vary")).toContain("Origin");
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
+      expect(res.headers.get("Access-Control-Allow-Credentials")).toBeNull();
+      expect(res.headers.get("Vary") ?? "").not.toContain("Origin");
     } finally {
       (config.server.web as any).allowedOrigins = original;
     }

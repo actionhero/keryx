@@ -29,8 +29,14 @@ export const buildHeaders = (
     "Access-Control-Allow-Methods": config.server.web.allowedMethods,
     "Access-Control-Allow-Headers": config.server.web.allowedHeaders,
   });
-  if (cors["Access-Control-Allow-Origin"] && cors["Vary"]) {
-    // Specific origin match (not wildcard) — allow credentials
+  // Only attach credentials for a specific, allow-listed origin — never for the
+  // wildcard "*". Browsers forbid combining "*" with credentials, and reflecting
+  // an arbitrary origin alongside credentials would let any site read a victim's
+  // authenticated responses (see buildCorsHeaders in util/http.ts).
+  if (
+    cors["Access-Control-Allow-Origin"] &&
+    cors["Access-Control-Allow-Origin"] !== "*"
+  ) {
     cors["Access-Control-Allow-Credentials"] = "true";
   }
   Object.assign(headers, cors);

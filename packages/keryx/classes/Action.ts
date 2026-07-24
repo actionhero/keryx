@@ -91,7 +91,11 @@ export type OAuthActionResponse = {
 };
 
 export type McpActionConfig = {
-  /** Expose this action as an MCP tool (default true) */
+  /**
+   * Expose this action as an MCP tool. Tools are **opt-in** (default `false`):
+   * set `tool: true` to publish the action to MCP clients. Declaring an MCP App
+   * via `ui` implies a tool unless `tool` is explicitly `false`.
+   */
   tool?: boolean;
   /** Tag as the OAuth login action */
   isLoginAction?: boolean;
@@ -147,7 +151,7 @@ export type ActionConstructorInputs = {
   /** Middleware hooks to run before/after `run()` */
   middleware?: ActionMiddleware[];
 
-  /** Expose this action via the MCP server (defaults to `{ tool: true }`) */
+  /** Expose this action via the MCP server. Tools are opt-in — set `mcp: { tool: true }` to publish one. */
   mcp?: McpActionConfig;
 
   /** Expose this action via HTTP (defaults: route `/${name}`, method `GET`) */
@@ -234,7 +238,9 @@ export abstract class Action {
     this.inputs = args.inputs;
     this.middleware = args.middleware ?? [];
     this.timeout = args.timeout;
-    this.mcp = { tool: true, ...args.mcp };
+    // MCP tools are opt-in — see the actions initializer for rationale. An action
+    // becomes a tool only when it sets `mcp.tool = true` (or declares `mcp.ui`).
+    this.mcp = { tool: false, ...args.mcp };
     this.web = {
       route: args.web?.route ?? `/${this.name}`,
       method: args.web?.method ?? HTTP_METHOD.GET,

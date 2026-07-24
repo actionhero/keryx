@@ -28,9 +28,18 @@ Once enabled, the server listens at `http://localhost:8080/mcp` (or your configu
 
 ## How Actions Become Tools
 
-When the MCP server starts, it registers every action as an MCP tool automatically. No extra configuration needed — if an action exists, it becomes a tool.
+MCP tools are **opt-in**. An action is exposed as a tool only when it sets `mcp = { tool: true }` (or declares an [MCP App](./mcp-apps.md) via `mcp.ui`). Actions with no `mcp` config — including internal, destructive, or maintenance actions — are never reachable over MCP, so nothing is published to AI clients by accident.
 
-For each action:
+```ts
+export class Status implements Action {
+  name = "status";
+  description = "Server health and runtime information";
+  mcp = { tool: true }; // opt in to expose as an MCP tool
+  // ...
+}
+```
+
+For each opted-in action:
 
 1. **Name** — The action name is converted to a valid MCP tool name by replacing `:` with `-` (e.g., `user:create` → `user-create`)
 2. **Description** — The action's `description` property becomes the tool description
@@ -52,13 +61,22 @@ export class UserView implements Action {
 
 ## Controlling Exposure
 
-By default, all actions are exposed as MCP tools. To exclude an action from tool registration:
+Tools are opt-in, so actions stay private until you explicitly publish them. To expose an action as a tool:
+
+```ts
+export class PublicAction implements Action {
+  name = "reports:list";
+  mcp = { tool: true };
+  // ...
+}
+```
+
+An internal action simply omits `mcp` (or sets `mcp = { tool: false }`) and is never registered:
 
 ```ts
 export class InternalAction implements Action {
   name = "internal:cleanup";
-  mcp = { tool: false };
-  // ...
+  // no mcp config → not an MCP tool
 }
 ```
 
@@ -66,7 +84,7 @@ The full `mcp` property is of type `McpActionConfig`:
 
 | Property         | Type                  | Default | Description                                                                        |
 | ---------------- | --------------------- | ------- | ---------------------------------------------------------------------------------- |
-| `tool`           | `boolean`             | `true`  | Whether to expose this action as an MCP tool                                       |
+| `tool`           | `boolean`             | `false` | Opt in to expose this action as an MCP tool (tools are opt-in)                     |
 | `isLoginAction`  | `boolean`             | —       | Tag as the login action for the OAuth flow                                         |
 | `isSignupAction` | `boolean`             | —       | Tag as the signup action for the OAuth flow                                        |
 | `resource`       | `object`              | —       | Expose this action as an MCP resource (see [Resources](#resources) below)          |
@@ -87,7 +105,7 @@ import { Action, MCP_RESPONSE_FORMAT } from "keryx";
 
 export class StatusAction implements Action {
   name = "status";
-  mcp = { responseFormat: MCP_RESPONSE_FORMAT.MARKDOWN };
+  mcp = { tool: true, responseFormat: MCP_RESPONSE_FORMAT.MARKDOWN };
   // ...
 }
 ```
@@ -158,7 +176,7 @@ export class UserResource implements Action {
 }
 ```
 
-An action can be registered as both a tool and a resource by omitting `tool: false`.
+An action can be registered as both a tool and a resource by also setting `tool: true`.
 
 ## Prompts
 
