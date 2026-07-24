@@ -80,6 +80,7 @@ export class UserCreate implements Action {
 
 export class UserEdit implements Action {
   name = "user:edit";
+  mcp = { tool: true };
   description =
     "Update the currently authenticated user's profile. All fields are optional — only provided fields will be updated. You can change the user's name, email, and/or password. Requires an active session. Returns the updated user profile.";
   web = { route: "/user", method: HTTP_METHOD.POST };
@@ -109,6 +110,7 @@ export class UserEdit implements Action {
 
 export class UserView implements Action {
   name = "user:view";
+  mcp = { tool: true };
   description =
     "Retrieve another user's public profile by their user ID. Returns public information only (ID, name, timestamps) — does not expose email or other private fields. Requires an active session.";
   middleware = [RateLimitMiddleware, SessionMiddleware];

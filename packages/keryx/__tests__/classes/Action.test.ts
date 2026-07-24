@@ -49,13 +49,13 @@ describe("Action constructor defaults", () => {
     });
   });
 
-  test("mcp defaults tool: true when mcp config omitted", () => {
+  test("mcp defaults tool: false when mcp config omitted (tools are opt-in)", () => {
     const action = new MinimalAction({ name: "minimal" });
 
-    expect(action.mcp).toEqual({ tool: true });
+    expect(action.mcp).toEqual({ tool: false });
   });
 
-  test("mcp merges tool: true default with user-provided fields", () => {
+  test("mcp merges tool: false default with user-provided fields", () => {
     const action = new ConfiguredAction({
       name: "status:resource",
       mcp: {
@@ -63,11 +63,20 @@ describe("Action constructor defaults", () => {
       },
     });
 
-    expect(action.mcp?.tool).toBe(true);
+    expect(action.mcp?.tool).toBe(false);
     expect(action.mcp?.resource).toEqual({
       uri: "keryx://status",
       mimeType: "application/json",
     });
+  });
+
+  test("mcp tool can be explicitly enabled", () => {
+    const action = new ConfiguredAction({
+      name: "status",
+      mcp: { tool: true },
+    });
+
+    expect(action.mcp?.tool).toBe(true);
   });
 
   test("mcp tool can be explicitly disabled", () => {

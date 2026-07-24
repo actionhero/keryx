@@ -11,6 +11,7 @@ import { SessionMiddleware } from "../middleware/session";
 
 export class ChannelMembers implements Action {
   name = "channel:members";
+  mcp = { tool: true };
   description =
     "Get the list of presence keys for members currently subscribed to a PubSub channel. Requires an active session.";
   middleware = [RateLimitMiddleware, SessionMiddleware];
