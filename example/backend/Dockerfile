@@ -6,7 +6,6 @@ COPY package.json bun.lock* ./
 COPY packages/keryx/package.json packages/keryx/
 COPY packages/mcpApp/package.json packages/mcpApp/
 COPY packages/plugins/tracing/package.json packages/plugins/tracing/
-COPY packages/plugins/resque-admin/package.json packages/plugins/resque-admin/
 COPY packages/plugins/csrf/package.json packages/plugins/csrf/
 COPY example/backend/package.json example/backend/
 COPY example/frontend/package.json example/frontend/
@@ -18,7 +17,6 @@ COPY packages/keryx/ packages/keryx/
 # mcpApp source is needed at runtime: the server bundles the MCP App client on boot.
 COPY packages/mcpApp/ packages/mcpApp/
 COPY packages/plugins/tracing/ packages/plugins/tracing/
-COPY packages/plugins/resque-admin/ packages/plugins/resque-admin/
 COPY packages/plugins/csrf/ packages/plugins/csrf/
 COPY example/backend/ example/backend/
 
