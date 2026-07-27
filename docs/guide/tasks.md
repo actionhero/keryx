@@ -106,17 +106,19 @@ const status = await api.actions.fanOutStatus(result.fanOutId);
 // → { total: 3, completed: 3, failed: 0, results: [...], errors: [...] }
 ```
 
-Results and metadata are stored in Redis with a configurable TTL (default 10 minutes). The TTL refreshes on each child job completion, so it's relative to the last activity — not the fan-out creation time.
+Results and metadata are stored in the configured fan-out store (Redis by default) with a configurable TTL (default 10 minutes). The TTL refreshes on each child job completion, so it's relative to the last activity — not the fan-out creation time.
 
 ### How Fan-Out Works Internally
 
-When you call `fanOut()`, each child job gets a `_fanOutId` injected into its inputs automatically. The child action doesn't need to know about this — the Resque worker checks for `_fanOutId` after each job completes and stores the result (or error) in Redis. This means any existing action works as a fan-out child with zero changes.
+When you call `fanOut()`, each child job gets a `_fanOutId` injected into its inputs automatically. The child action doesn't need to know about this — after each job completes, the shared task runner checks for `_fanOutId` and records the result (or error) in the configured **fan-out store**. This means any existing action works as a fan-out child with zero changes.
 
-Redis keys for a fan-out operation:
+The fan-out store is pluggable (see [Pluggable Backends](#pluggable-backends)). The default Redis store keeps a metadata hash and two lists per operation:
 
 - `fanout:{id}` — hash with metadata (total, completed, failed)
 - `fanout:{id}:results` — list of successful results
 - `fanout:{id}:errors` — list of failed results
+
+The Postgres store (`TASKS_FANOUT_STORE=postgres`) keeps the same state in the framework-managed `keryx_fanout` and `keryx_fanout_events` tables instead. Either way, `fanOutStatus()` returns the identical shape.
 
 ### Error Handling
 
@@ -140,7 +142,7 @@ Enqueue-time errors (e.g., invalid action name) are returned immediately in the 
 
 ### Additional Task APIs
 
-Beyond fan-out, the actions initializer exposes the full Resque API for job management:
+Beyond fan-out, the actions initializer exposes the full task-management API for job management (backend-agnostic — some introspection methods are node-resque-only and degrade gracefully on other backends):
 
 ```ts
 // Schedule for later
@@ -168,3 +170,51 @@ await api.actions.stopRecurrentAction("messages:cleanup");
 const details = await api.actions.taskDetails();
 // → { queues, workers, stats, leader }
 ```
+
+## Pluggable Backends
+
+The task system runs on two swappable pieces, selected at boot from `config.tasks`:
+
+- **Backend** (`TASKS_BACKEND`) — the queue that stores and works jobs.
+- **Fan-out store** (`TASKS_FANOUT_STORE`) — where fan-out progress and child results are tracked.
+
+The public interface (`api.actions.enqueue`, `enqueueIn`, `enqueueAt`, `fanOut`, `fanOutStatus`, `taskDetails`, `stopRecurrentAction`, and `Action.task`) is identical across every combination — only the storage engine underneath changes.
+
+| Backend       | Store    | Requires        | Notes                                                       |
+| ------------- | -------- | --------------- | ----------------------------------------------------------- |
+| `node-resque` | `redis`  | Redis           | Default. Backed by [node-resque](https://github.com/actionhero/node-resque). |
+| `pg-boss`     | `postgres` | Postgres      | Drop Redis entirely; backed by [pg-boss](https://github.com/timgit/pg-boss) using `SKIP LOCKED`. |
+
+To run entirely on Postgres:
+
+```bash
+TASKS_BACKEND=pg-boss
+TASKS_FANOUT_STORE=postgres
+```
+
+pg-boss owns and migrates its own schema (`config.tasks.pgBoss.schema`, default `keryx_tasks`), and the Postgres fan-out store creates its `keryx_fanout` / `keryx_fanout_events` tables automatically at boot — no manual migration needed. The backends and stores can be mixed (e.g. `pg-boss` + `redis`), though the natural pairings are node-resque + Redis and pg-boss + Postgres.
+
+Adapters are exposed for advanced use and direct access is available through the seam:
+
+```ts
+api.tasks.backend; // the active TaskBackend
+api.tasks.fanOutStore; // the active FanOutStore
+```
+
+### Choosing between backends
+
+- **node-resque (Redis)** — the mature default. Best when you already run Redis, want the `resque-admin` dashboard plugin, or rely on resque-specific introspection (`locks`, `allDelayed`, `cleanOldWorkers`, …).
+- **pg-boss (Postgres)** — best when you want one fewer moving part (no Redis) and are already on Postgres. Some node-resque-specific introspection methods are not supported and degrade to empty results.
+
+### Recurring tasks are single-instance without a leader
+
+Neither backend needs an elected leader to keep a recurring task from piling up across a multi-process cluster — both use a per-job lock:
+
+- **node-resque** uses its `QueueLock` / `DelayQueueLock` Redis plugins: a duplicate enqueue of the same job is a no-op while a copy is already pending.
+- **pg-boss** routes recurring actions to a dedicated queue created with the `short` policy, whose unique index allows only one *pending* (`created`) job per action across the whole cluster. The slot frees the moment the job starts running, so the job's own "re-enqueue myself" step still succeeds while every concurrent duplicate is rejected.
+
+Either way, N processes all enqueuing the same recurring action at boot results in exactly one pending copy.
+
+### Deprecation: `api.resque`
+
+`api.resque` remains as a **deprecated** alias for the node-resque backend (`api.tasks.backend`) and is only present when `config.tasks.backend === "node-resque"`. Prefer `api.tasks.backend` / `api.tasks.fanOutStore` in new code; `api.resque` will be removed in a future minor release.

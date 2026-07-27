@@ -13,7 +13,7 @@ import type {
   OnMcpDisconnectHook,
   OnMcpMessageHook,
 } from "./mcp";
-import type { AfterJobHook, BeforeJobHook } from "./resque";
+import type { AfterJobHook, BeforeJobHook } from "./tasks";
 
 const namespace = "hooks";
 
@@ -31,7 +31,7 @@ declare module "keryx" {
  * Public surface: `api.hooks.web`, `api.hooks.ws`, `api.hooks.mcp`,
  * `api.hooks.actions`, `api.hooks.resque`. See the respective hook type
  * definitions for semantics (in `servers/web.ts`, `initializers/mcp.ts`,
- * `initializers/actionts.ts`, `initializers/resque.ts`).
+ * `initializers/actionts.ts`, `initializers/tasks.ts`).
  */
 export class Hooks extends Initializer {
   private webBeforeRequest: BeforeRequestHook[] = [];

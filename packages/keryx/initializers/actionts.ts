@@ -1,14 +1,16 @@
 import { randomUUID } from "crypto";
-import type { ErrorPayload } from "node-resque";
 import path from "path";
 import { api, logger } from "../api";
 import { type Action, DEFAULT_QUEUE } from "../classes/Action";
 import { Initializer } from "../classes/Initializer";
 import { Router } from "../classes/Router";
+import type { FailedJob, TaskInputs } from "../classes/TaskBackend";
 import { ErrorType, TypedError } from "../classes/TypedError";
 import { config } from "../config";
 import { formatLoadedMessage } from "../util/config";
 import { globLoader } from "../util/glob";
+
+export type { TaskInputs };
 
 const namespace = "actions";
 
@@ -65,8 +67,6 @@ declare module "keryx" {
     [namespace]: Awaited<ReturnType<Actions["initialize"]>>;
   }
 }
-
-export type TaskInputs = Record<string, any>;
 
 /**
  * Runs when any action is enqueued — via {@link Actions.enqueue}, {@link Actions.enqueueAt},
@@ -130,7 +130,7 @@ export class Actions extends Initializer {
     }
     queue = queue ?? action?.task?.queue ?? DEFAULT_QUEUE;
     const finalInputs = await this.runOnEnqueueHooks(actionName, inputs, queue);
-    return api.resque.queue.enqueue(queue, actionName, [finalInputs]);
+    return api.tasks.backend.enqueue(queue, actionName, finalInputs);
   };
 
   /**
@@ -221,27 +221,19 @@ export class Actions extends Initializer {
     const resultTtl =
       resolvedOptions.resultTtl ?? config.actions.fanOutResultTtl;
     const fanOutId = randomUUID();
-    const metaKey = `fanout:${fanOutId}`;
 
     // Collect unique queues used
     const queuesUsed = [...new Set(resolvedJobs.map((j) => j.queue))];
     const actionNamesList = [...actionNames];
 
-    // Store fan-out metadata in Redis
-    await api.redis.redis.hset(metaKey, {
-      total: resolvedJobs.length.toString(),
-      completed: "0",
-      failed: "0",
-      actionName: actionNamesList.join(","),
-      queue: queuesUsed.join(","),
-    });
-    await api.redis.redis.expire(metaKey, resultTtl);
-
-    // Pre-create results/errors lists with TTL so they exist for queries
-    const resultsKey = `fanout:${fanOutId}:results`;
-    const errorsKey = `fanout:${fanOutId}:errors`;
-    await api.redis.redis.expire(resultsKey, resultTtl);
-    await api.redis.redis.expire(errorsKey, resultTtl);
+    // Initialize fan-out tracking in the configured store.
+    await api.tasks.fanOutStore.create(
+      fanOutId,
+      resolvedJobs.length,
+      actionNamesList,
+      queuesUsed,
+      resultTtl,
+    );
 
     const enqueueErrors: Array<{ index: number; error: string }> = [];
     let enqueued = 0;
@@ -290,28 +282,7 @@ export class Actions extends Initializer {
    * Returns totals, collected results, and errors.
    */
   fanOutStatus = async (fanOutId: string): Promise<FanOutStatus> => {
-    const metaKey = `fanout:${fanOutId}`;
-    const meta = await api.redis.redis.hgetall(metaKey);
-
-    if (!meta || Object.keys(meta).length === 0) {
-      return { total: 0, completed: 0, failed: 0, results: [], errors: [] };
-    }
-
-    const resultsKey = `fanout:${fanOutId}:results`;
-    const errorsKey = `fanout:${fanOutId}:errors`;
-
-    const [rawResults, rawErrors] = await Promise.all([
-      api.redis.redis.lrange(resultsKey, 0, -1),
-      api.redis.redis.lrange(errorsKey, 0, -1),
-    ]);
-
-    return {
-      total: parseInt(meta.total, 10) || 0,
-      completed: parseInt(meta.completed, 10) || 0,
-      failed: parseInt(meta.failed, 10) || 0,
-      results: rawResults.map((r: string) => JSON.parse(r)),
-      errors: rawErrors.map((e: string) => JSON.parse(e)),
-    };
+    return api.tasks.fanOutStore.read(fanOutId);
   };
 
   /**
@@ -333,11 +304,11 @@ export class Actions extends Initializer {
     suppressDuplicateTaskError = false,
   ) => {
     const finalInputs = await this.runOnEnqueueHooks(actionName, inputs, queue);
-    return api.resque.queue.enqueueAt(
+    return api.tasks.backend.enqueueAt(
       timestamp,
       queue,
       actionName,
-      [finalInputs],
+      finalInputs,
       suppressDuplicateTaskError,
     );
   };
@@ -360,11 +331,11 @@ export class Actions extends Initializer {
     suppressDuplicateTaskError = false,
   ) => {
     const finalInputs = await this.runOnEnqueueHooks(actionName, inputs, queue);
-    return api.resque.queue.enqueueIn(
+    return api.tasks.backend.enqueueIn(
       time,
       queue,
       actionName,
-      [finalInputs],
+      finalInputs,
       suppressDuplicateTaskError,
     );
   };
@@ -384,7 +355,7 @@ export class Actions extends Initializer {
     args?: TaskInputs,
     count?: number,
   ) => {
-    return api.resque.queue.del(queue, actionName, [args], count);
+    return api.tasks.backend.del(queue, actionName, args, count);
   };
 
   /**
@@ -395,6 +366,7 @@ export class Actions extends Initializer {
    * @param actionName - The action name whose jobs to remove.
    * @param start - Starting position (0-indexed) of the range to remove.
    * @param stop - Stop position (0-indexed) of the range to remove.
+   * @remarks node-resque-specific; returns `0` on backends that don't support it.
    */
   delByFunction = async (
     queue: string,
@@ -402,7 +374,14 @@ export class Actions extends Initializer {
     start?: number,
     stop?: number,
   ) => {
-    return api.resque.queue.delByFunction(queue, actionName, start, stop);
+    return (
+      (await api.tasks.backend.delByFunction?.(
+        queue,
+        actionName,
+        start,
+        stop,
+      )) ?? 0
+    );
   };
 
   /**
@@ -418,7 +397,7 @@ export class Actions extends Initializer {
     actionName: string,
     inputs?: TaskInputs,
   ) => {
-    return api.resque.queue.delDelayed(queue, actionName, [inputs]);
+    return api.tasks.backend.delDelayed(queue, actionName, inputs);
   };
 
   /**
@@ -434,15 +413,15 @@ export class Actions extends Initializer {
     actionName: string,
     inputs: TaskInputs,
   ): Promise<Array<number>> => {
-    return api.resque.queue.scheduledAt(queue, actionName, [inputs]);
+    return api.tasks.backend.scheduledAt(queue, actionName, inputs);
   };
 
   /**
-   * Return all resque stats for this namespace (how jobs failed, jobs succeeded, etc)
-   * Will throw an error if redis cannot be reached.
+   * Return backend-wide task stats (how jobs failed, jobs succeeded, etc).
+   * Will throw an error if the backend cannot be reached.
    */
   resqueStats = async () => {
-    return api.resque.queue.stats();
+    return api.tasks.backend.stats();
   };
 
   /**
@@ -458,114 +437,121 @@ export class Actions extends Initializer {
     start: number = 0,
     stop: number = 100,
   ): Promise<Array<TaskInputs>> => {
-    return api.resque.queue.queued(queue, start, stop);
+    return api.tasks.backend.queued(queue, start, stop);
   };
 
   /**
-   * Delete a queue in redis, and all jobs stored on it.
-   * Will throw an error if redis cannot be reached.
+   * Delete a queue and all jobs stored on it.
+   * Will throw an error if the backend cannot be reached.
+   * @remarks node-resque-specific; a no-op on backends that don't support it.
    */
   delQueue = async (q: string) => {
-    return api.resque.queue.delQueue(q);
+    return api.tasks.backend.delQueue?.(q);
   };
 
   /**
-   * Return any locks, as created by resque plugins or task middleware, in this redis namespace.
+   * Return any locks, as created by resque plugins or task middleware, in this namespace.
    * Will contain locks with keys like `resque:lock:{job}` and `resque:workerslock:{workerId}`
-   * Will throw an error if redis cannot be reached.
+   * Will throw an error if the backend cannot be reached.
+   * @remarks node-resque-specific; returns `{}` on backends that don't support it.
    */
   locks = async () => {
-    return api.resque.queue.locks();
+    return (await api.tasks.backend.locks?.()) ?? {};
   };
 
   /**
-   * Delete a lock on a job or worker.  Locks can be found via `api.tasks.locks`
-   * Will throw an error if redis cannot be reached.
+   * Delete a lock on a job or worker.  Locks can be found via `api.actions.locks`
+   * Will throw an error if the backend cannot be reached.
+   * @remarks node-resque-specific; returns `0` on backends that don't support it.
    */
   delLock = async (lock: string) => {
-    return api.resque.queue.delLock(lock);
+    return (await api.tasks.backend.delLock?.(lock)) ?? 0;
   };
 
   /**
-   * List all timestamps for which tasks are enqueued in the future, via `api.tasks.enqueueIn` or `api.tasks.enqueueAt`
-   * Will throw an error if redis cannot be reached.
+   * List all timestamps for which tasks are enqueued in the future, via `api.actions.enqueueIn` or `api.actions.enqueueAt`
+   * Will throw an error if the backend cannot be reached.
+   * @remarks node-resque-specific; returns `[]` on backends that don't support it.
    */
   timestamps = async (): Promise<Array<number>> => {
-    return api.resque.queue.timestamps();
+    return (await api.tasks.backend.timestamps?.()) ?? [];
   };
 
   /**
    * Return all jobs which have been enqueued to run at a certain timestamp.
-   * Will throw an error if redis cannot be reached.
+   * Will throw an error if the backend cannot be reached.
+   * @remarks node-resque-specific; returns `[]` on backends that don't support it.
    */
   delayedAt = async (timestamp: number): Promise<any> => {
-    return api.resque.queue.delayedAt(timestamp);
+    return (await api.tasks.backend.delayedAt?.(timestamp)) ?? [];
   };
 
   /**
    * Return all delayed jobs, organized by the timestamp at where they are to run at.
    * Note: This is a very slow command.
-   * Will throw an error if redis cannot be reached.
+   * Will throw an error if the backend cannot be reached.
+   * @remarks node-resque-specific; returns `{}` on backends that don't support it.
    */
   allDelayed = async (): Promise<{ [timestamp: string]: any[] }> => {
-    return api.resque.queue.allDelayed();
+    return (await api.tasks.backend.allDelayed?.()) ?? {};
   };
 
   /**
    * Return all workers registered by all members of this cluster.
    * Note: MultiWorker processors each register as a unique worker.
-   * Will throw an error if redis cannot be reached.
+   * Will throw an error if the backend cannot be reached.
    */
   workers = async () => {
-    return api.resque.queue.workers();
+    return api.tasks.backend.getWorkers();
   };
 
   /**
    * What is a given worker working on?  If the worker is idle, 'started' will be returned.
-   * Will throw an error if redis cannot be reached.
+   * Will throw an error if the backend cannot be reached.
+   * @remarks node-resque-specific; returns `undefined` on backends that don't support it.
    */
   workingOn = async (workerName: string, queues: string): Promise<any> => {
-    return api.resque.queue.workingOn(workerName, queues);
+    return api.tasks.backend.workingOn?.(workerName, queues);
   };
 
   /**
    * Return all workers and what job they might be working on.
-   * Will throw an error if redis cannot be reached.
+   * Will throw an error if the backend cannot be reached.
    */
   allWorkingOn = async () => {
-    return api.resque.queue.allWorkingOn();
+    return api.tasks.backend.allWorkingOn();
   };
 
   /**
    * How many jobs are in the failed queue.
-   * Will throw an error if redis cannot be reached.
+   * Will throw an error if the backend cannot be reached.
    */
   failedCount = async (): Promise<number> => {
-    return api.resque.queue.failedCount();
+    return api.tasks.backend.failedCount();
   };
 
   /**
    * Retrieve the details of failed jobs between start and stop (0-indexed).
-   * Will throw an error if redis cannot be reached.
+   * Will throw an error if the backend cannot be reached.
    */
   failed = async (start: number, stop: number) => {
-    return api.resque.queue.failed(start, stop);
+    return api.tasks.backend.failed(start, stop);
   };
 
   /**
    * Remove a specific job from the failed queue.
-   * Will throw an error if redis cannot be reached.
+   * Will throw an error if the backend cannot be reached.
    */
-  removeFailed = async (failedJob: ErrorPayload) => {
-    return api.resque.queue.removeFailed(failedJob);
+  removeFailed = async (failedJob: FailedJob) => {
+    return api.tasks.backend.removeFailed(failedJob);
   };
 
   /**
    * Remove a specific job from the failed queue, and retry it by placing it back into its original queue.
-   * Will throw an error if redis cannot be reached.
+   * Will throw an error if the backend cannot be reached.
    */
-  retryAndRemoveFailed = async (failedJob: ErrorPayload) => {
-    return api.resque.queue.retryAndRemoveFailed(failedJob);
+  retryAndRemoveFailed = async (failedJob: FailedJob) => {
+    return api.tasks.backend.retryAndRemoveFailed(failedJob);
   };
 
   /**
@@ -573,10 +559,11 @@ export class Actions extends Initializer {
    * You can remove workers from redis you know to be over, by specificizing an age which would make them too old to exist.
    * This method will remove the data created by a 'stuck' worker and move the payload to the error queue.
    * However, it will not actually remove any processes which may be running.  A job *may* be running that you have removed.
-   * Will throw an error if redis cannot be reached.
+   * Will throw an error if the backend cannot be reached.
+   * @remarks node-resque-specific; returns `undefined` on backends that don't support it.
    */
   cleanOldWorkers = async (age: number) => {
-    return api.resque.queue.cleanOldWorkers(age);
+    return api.tasks.backend.cleanOldWorkers?.(age);
   };
 
   /**
@@ -668,15 +655,15 @@ export class Actions extends Initializer {
 
     details.workers = await api[namespace].allWorkingOn();
     details.stats = await api[namespace].resqueStats();
-    const queues = await api.resque.queue.queues();
+    const queues = await api.tasks.backend.queues();
 
     for (const i in queues) {
       const queue = queues[i];
-      const length = await api.resque.queue.length(queue);
+      const length = await api.tasks.backend.queueLength(queue);
       details.queues[queue] = { length: length };
     }
 
-    details.leader = (await api.resque.queue.leader()) ?? "";
+    details.leader = await api.tasks.backend.leader();
 
     return details;
   };
