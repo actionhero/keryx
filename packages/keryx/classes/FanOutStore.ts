@@ -1,10 +1,9 @@
 import type { FanOutStatus, TaskInputs } from "../initializers/actionts";
 
 /**
- * The pluggable fan-out state seam. Decouples fan-out progress tracking + result collection
- * from any specific datastore so a `pg-boss` deployment can drop Redis entirely. Concrete
- * adapters (`RedisFanOutStore`, `PgFanOutStore`) implement this; the `tasks` initializer
- * selects one at boot from `config.tasks.fanOutStore` and exposes it as `api.tasks.fanOutStore`.
+ * The fan-out state seam. Decouples fan-out progress tracking + result collection from the storage
+ * engine. {@link PgFanOutStore} is the implementation that ships; the `tasks` initializer
+ * instantiates it and exposes it as `api.tasks.fanOutStore`.
  *
  * Lifecycle: `create()` is called once by `api.actions.fanOut()` when the batch is enqueued;
  * `recordResult()` / `recordError()` are called by the shared task runner as each child job

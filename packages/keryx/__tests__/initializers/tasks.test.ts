@@ -12,11 +12,7 @@ import { Action, api, Connection, config, RUN_MODE } from "../../api";
 import { DEFAULT_QUEUE } from "../../classes/Action";
 import { HOOK_TIMEOUT, waitFor } from "./../setup";
 
-// Backend-agnostic contract tests. The active backend + fan-out store are chosen from
-// `config.tasks` at boot (TASKS_BACKEND / TASKS_FANOUT_STORE), so this same suite runs against
-// node-resque+redis (default) and pg-boss+postgres (CI matrix). Only the between-test cleanup
-// is backend-aware.
-const BACKEND = config.tasks.backend;
+// Contract tests for the Postgres-backed task system (pg-boss queue + Postgres fan-out store).
 
 async function startInitializer(name: string) {
   const initializer = api.initializers.find((i) => i.name === name);
@@ -24,28 +20,17 @@ async function startInitializer(name: string) {
   await initializer.start();
 }
 
-/** Wipe all pending/queued task + fan-out state between tests, regardless of backend. */
+/** Wipe all pending/queued task + fan-out state between tests. */
 async function resetTaskState() {
   try {
-    await api.redis.redis.flushdb();
+    await api.db.pool.query(`DELETE FROM "${config.tasks.pgBoss.schema}".job`);
   } catch {
-    // redis may be unused under pg-boss + postgres
+    // schema not created yet
   }
-  if (BACKEND === "pg-boss") {
-    try {
-      await api.db.pool.query(
-        `DELETE FROM "${config.tasks.pgBoss.schema}".job`,
-      );
-    } catch {
-      // schema not created yet
-    }
-  }
-  if (config.tasks.fanOutStore === "postgres") {
-    try {
-      await api.db.pool.query("DELETE FROM keryx_fanout");
-    } catch {
-      // tables not created yet
-    }
+  try {
+    await api.db.pool.query("DELETE FROM keryx_fanout");
+  } catch {
+    // tables not created yet
   }
 }
 

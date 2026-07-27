@@ -11,9 +11,6 @@ import { z } from "zod";
 import { Action, api, config, RUN_MODE } from "../../api";
 import { HOOK_TIMEOUT, waitFor } from "./../setup";
 
-// pg-boss-specific edge cases. Skipped unless the pg-boss backend is active.
-const describePgBoss = describe.skipIf(config.tasks.backend !== "pg-boss");
-
 async function startInitializer(name: string) {
   const initializer = api.initializers.find((i) => i.name === name);
   // @ts-ignore — start() exists on the concrete initializer
@@ -43,7 +40,7 @@ class RecurringNoopAction implements Action {
 // Must match PgBossBackend's internal RECURRING_QUEUE constant.
 const RECURRING_QUEUE = "keryx__recurring";
 
-describePgBoss("PgBossBackend", () => {
+describe("PgBossBackend", () => {
   beforeAll(async () => {
     await api.initialize();
     await startInitializer("redis");

@@ -359,38 +359,12 @@ export class Actions extends Initializer {
   };
 
   /**
-   * Delete all jobs of a given action name from a queue. Does not affect delayed queues,
-   * and will not prevent new jobs from being added while running.
-   *
-   * @param queue - The queue to delete from.
-   * @param actionName - The action name whose jobs to remove.
-   * @param start - Starting position (0-indexed) of the range to remove.
-   * @param stop - Stop position (0-indexed) of the range to remove.
-   * @remarks node-resque-specific; returns `0` on backends that don't support it.
-   */
-  delByFunction = async (
-    queue: string,
-    actionName: string,
-    start?: number,
-    stop?: number,
-  ) => {
-    return (
-      (await api.tasks.backend.delByFunction?.(
-        queue,
-        actionName,
-        start,
-        stop,
-      )) ?? 0
-    );
-  };
-
-  /**
    * Delete all delayed instances of a task across all future timestamps.
    *
    * @param queue - The queue the task is stored on.
    * @param actionName - The action name to delete.
    * @param inputs - The job arguments to match. Arguments may have been modified during
-   *   enqueuing — read properties via `api.actions.delayedAt` first.
+   *   enqueuing — read properties via `api.actions.queued` first.
    */
   delDelayed = async (
     queue: string,
@@ -441,77 +415,11 @@ export class Actions extends Initializer {
   };
 
   /**
-   * Delete a queue and all jobs stored on it.
-   * Will throw an error if the backend cannot be reached.
-   * @remarks node-resque-specific; a no-op on backends that don't support it.
-   */
-  delQueue = async (q: string) => {
-    return api.tasks.backend.delQueue?.(q);
-  };
-
-  /**
-   * Return any locks, as created by resque plugins or task middleware, in this namespace.
-   * Will contain locks with keys like `resque:lock:{job}` and `resque:workerslock:{workerId}`
-   * Will throw an error if the backend cannot be reached.
-   * @remarks node-resque-specific; returns `{}` on backends that don't support it.
-   */
-  locks = async () => {
-    return (await api.tasks.backend.locks?.()) ?? {};
-  };
-
-  /**
-   * Delete a lock on a job or worker.  Locks can be found via `api.actions.locks`
-   * Will throw an error if the backend cannot be reached.
-   * @remarks node-resque-specific; returns `0` on backends that don't support it.
-   */
-  delLock = async (lock: string) => {
-    return (await api.tasks.backend.delLock?.(lock)) ?? 0;
-  };
-
-  /**
-   * List all timestamps for which tasks are enqueued in the future, via `api.actions.enqueueIn` or `api.actions.enqueueAt`
-   * Will throw an error if the backend cannot be reached.
-   * @remarks node-resque-specific; returns `[]` on backends that don't support it.
-   */
-  timestamps = async (): Promise<Array<number>> => {
-    return (await api.tasks.backend.timestamps?.()) ?? [];
-  };
-
-  /**
-   * Return all jobs which have been enqueued to run at a certain timestamp.
-   * Will throw an error if the backend cannot be reached.
-   * @remarks node-resque-specific; returns `[]` on backends that don't support it.
-   */
-  delayedAt = async (timestamp: number): Promise<any> => {
-    return (await api.tasks.backend.delayedAt?.(timestamp)) ?? [];
-  };
-
-  /**
-   * Return all delayed jobs, organized by the timestamp at where they are to run at.
-   * Note: This is a very slow command.
-   * Will throw an error if the backend cannot be reached.
-   * @remarks node-resque-specific; returns `{}` on backends that don't support it.
-   */
-  allDelayed = async (): Promise<{ [timestamp: string]: any[] }> => {
-    return (await api.tasks.backend.allDelayed?.()) ?? {};
-  };
-
-  /**
    * Return all workers registered by all members of this cluster.
-   * Note: MultiWorker processors each register as a unique worker.
    * Will throw an error if the backend cannot be reached.
    */
   workers = async () => {
     return api.tasks.backend.getWorkers();
-  };
-
-  /**
-   * What is a given worker working on?  If the worker is idle, 'started' will be returned.
-   * Will throw an error if the backend cannot be reached.
-   * @remarks node-resque-specific; returns `undefined` on backends that don't support it.
-   */
-  workingOn = async (workerName: string, queues: string): Promise<any> => {
-    return api.tasks.backend.workingOn?.(workerName, queues);
   };
 
   /**
@@ -555,20 +463,8 @@ export class Actions extends Initializer {
   };
 
   /**
-   * If a worker process crashes, it will leave its state in redis as "working".
-   * You can remove workers from redis you know to be over, by specificizing an age which would make them too old to exist.
-   * This method will remove the data created by a 'stuck' worker and move the payload to the error queue.
-   * However, it will not actually remove any processes which may be running.  A job *may* be running that you have removed.
-   * Will throw an error if the backend cannot be reached.
-   * @remarks node-resque-specific; returns `undefined` on backends that don't support it.
-   */
-  cleanOldWorkers = async (age: number) => {
-    return api.tasks.backend.cleanOldWorkers?.(age);
-  };
-
-  /**
    * Ensures that an action which has a frequency is either running, or already enqueued.
-   * Will throw an error if redis cannot be reached.
+   * Will throw an error if the backend cannot be reached.
    */
   enqueueRecurrent = async (action: Action) => {
     if (action.task && action.task.frequency && action.task.frequency > 0) {
@@ -736,24 +632,15 @@ export class Actions extends Initializer {
       enqueueIn: this.enqueueIn,
       del: this.del,
       delDelayed: this.delDelayed,
-      delByFunction: this.delByFunction,
       scheduledAt: this.scheduledAt,
       resqueStats: this.resqueStats,
       queued: this.queued,
-      delQueue: this.delQueue,
-      locks: this.locks,
-      delLock: this.delLock,
-      timestamps: this.timestamps,
-      delayedAt: this.delayedAt,
-      allDelayed: this.allDelayed,
       workers: this.workers,
-      workingOn: this.workingOn,
       allWorkingOn: this.allWorkingOn,
       failed: this.failed,
       failedCount: this.failedCount,
       removeFailed: this.removeFailed,
       retryAndRemoveFailed: this.retryAndRemoveFailed,
-      cleanOldWorkers: this.cleanOldWorkers,
       enqueueRecurrent: this.enqueueRecurrent,
       enqueueAllRecurrent: this.enqueueAllRecurrent,
       stopRecurrentAction: this.stopRecurrentAction,

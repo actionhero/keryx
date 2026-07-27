@@ -37,22 +37,16 @@ function assertSafeSchema(schema: string): string {
  *
  * **Mapping to keryx's model:** each keryx queue string maps directly to a pg-boss queue; the action
  * name rides along in the job payload as `_actionName`, and one worker per queue dispatches by that
- * field — mirroring node-resque's "a queue holds heterogeneous jobs, the worker picks the class"
- * shape. Introspection that pg-boss doesn't expose through its API (`queued`, `scheduledAt`, `del`,
- * `delDelayed`, failed-job details) is read via parameterized SQL against pg-boss's own `job` table,
- * reusing keryx's Postgres pool (`api.db.pool`).
+ * field, so a single queue can hold heterogeneous jobs. Introspection that pg-boss doesn't expose
+ * through its API (`queued`, `scheduledAt`, `del`, `delDelayed`, failed-job details) is read via
+ * parameterized SQL against pg-boss's own `job` table, reusing keryx's Postgres pool (`api.db.pool`).
  *
- * **Recurring tasks without a leader:** node-resque keeps a recurring job single-instance via its
- * Redis `QueueLock`/`DelayQueueLock` plugins (not the scheduler leader). The equivalent here is the
- * dedicated {@link RECURRING_QUEUE}, created with pg-boss's `short` policy: its unique index only
- * permits one `created` (pending) job per `singletonKey`, and frees that slot the instant the job
- * goes `active`. Recurring actions enqueue there keyed by action name, so across any number of
- * processes exactly one pending copy exists, and the self-re-enqueue in the job's `finally` still
- * succeeds because the running copy no longer occupies the pending slot.
- *
- * Deliberately unsupported (node-resque Redis-isms): `locks`/`delLock`/`timestamps`/`delayedAt`/
- * `allDelayed`/`workingOn`/`cleanOldWorkers`/`delByFunction`/`delQueue` are omitted; `api.actions.*`
- * degrades those to empty results on this backend.
+ * **Recurring tasks without a leader:** recurring actions are routed to the dedicated
+ * {@link RECURRING_QUEUE}, created with pg-boss's `short` policy: its unique index only permits one
+ * `created` (pending) job per `singletonKey`, and frees that slot the instant the job goes `active`.
+ * Recurring actions enqueue there keyed by action name, so across any number of processes exactly one
+ * pending copy exists, and the self-re-enqueue in the job's `finally` still succeeds because the
+ * running copy no longer occupies the pending slot.
  */
 export class PgBossBackend extends TaskBackend {
   private boss?: PgBoss;

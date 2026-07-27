@@ -1,15 +1,9 @@
 import { type Action, api, CONNECTION_TYPE, Connection, config } from "../api";
-import { NodeResqueBackend } from "../backends/NodeResqueBackend";
 import { PgBossBackend } from "../backends/PgBossBackend";
 import { PgFanOutStore } from "../backends/PgFanOutStore";
-import { RedisFanOutStore } from "../backends/RedisFanOutStore";
 import type { FanOutStore } from "../classes/FanOutStore";
 import { Initializer } from "../classes/Initializer";
-import {
-  type TaskBackend,
-  type TaskInputs,
-  type TaskRunner,
-} from "../classes/TaskBackend";
+import type { TaskInputs, TaskRunner } from "../classes/TaskBackend";
 import { ErrorType, TypedError } from "../classes/TypedError";
 
 const namespace = "tasks";
@@ -63,12 +57,6 @@ export type AfterJobHook = (
 declare module "keryx" {
   export interface API {
     [namespace]: Awaited<ReturnType<Tasks["initialize"]>>;
-    /**
-     * @deprecated Use `api.tasks.backend` instead. Retained for one minor version as an
-     * alias to the node-resque backend. Only present when `config.tasks.backend === "node-resque"`;
-     * `undefined` under any other backend.
-     */
-    resque: NodeResqueBackend | undefined;
   }
 }
 
@@ -170,41 +158,13 @@ function makeTaskRunner(fanOutStore: FanOutStore): TaskRunner {
   };
 }
 
-/** Instantiate the configured queue backend. */
-function buildBackend(taskRunner: TaskRunner): TaskBackend {
-  switch (config.tasks.backend) {
-    case "node-resque":
-      return new NodeResqueBackend(taskRunner);
-    case "pg-boss":
-      return new PgBossBackend(taskRunner);
-    default:
-      throw new TypedError({
-        type: ErrorType.SERVER_INITIALIZATION,
-        message: `unknown tasks backend "${config.tasks.backend}" (expected "node-resque" or "pg-boss")`,
-      });
-  }
-}
-
-/** Instantiate the configured fan-out store. */
-function buildFanOutStore(): FanOutStore {
-  switch (config.tasks.fanOutStore) {
-    case "redis":
-      return new RedisFanOutStore();
-    case "postgres":
-      return new PgFanOutStore();
-    default:
-      throw new TypedError({
-        type: ErrorType.SERVER_INITIALIZATION,
-        message: `unknown tasks fan-out store "${config.tasks.fanOutStore}" (expected "redis" or "postgres")`,
-      });
-  }
-}
-
 /**
- * Initializer for the pluggable background task system. Selects a {@link TaskBackend} and
- * {@link FanOutStore} from `config.tasks` at boot, wires them to the shared task runner, and
- * exposes them as `api.tasks.backend` / `api.tasks.fanOutStore`. The public task interface lives
- * on `api.actions.*`; this initializer is the seam beneath it.
+ * Initializer for the background task system. Instantiates the Postgres-backed queue
+ * ({@link PgBossBackend}) and fan-out store ({@link PgFanOutStore}), wires them to the shared task
+ * runner, and exposes them as `api.tasks.backend` / `api.tasks.fanOutStore`. The public task
+ * interface lives on `api.actions.*`; this initializer is the seam beneath it. `TaskBackend` /
+ * `FanOutStore` remain abstract so the storage engine can be swapped, but only the Postgres
+ * implementations ship today.
  */
 export class Tasks extends Initializer {
   constructor() {
@@ -213,14 +173,9 @@ export class Tasks extends Initializer {
   }
 
   async initialize() {
-    const fanOutStore = buildFanOutStore();
+    const fanOutStore: FanOutStore = new PgFanOutStore();
     const taskRunner = makeTaskRunner(fanOutStore);
-    const backend = buildBackend(taskRunner);
-
-    // Retain `api.resque` as a deprecated alias to the node-resque backend for one minor
-    // version. It exposes node-resque internals (queue/scheduler/workers/jobs) that the
-    // `resque-admin` plugin and legacy code still read directly.
-    api.resque = backend instanceof NodeResqueBackend ? backend : undefined;
+    const backend = new PgBossBackend(taskRunner);
 
     return {
       /** The active queue backend. */

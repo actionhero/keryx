@@ -5,23 +5,22 @@ import type { RUN_MODE } from "./API";
 export type TaskInputs = Record<string, any>;
 
 /**
- * A job as returned by {@link TaskBackend.queued}. Normalized across backends to the
- * node-resque shape so `api.actions.queued()` behaves identically regardless of backend.
+ * A job as returned by {@link TaskBackend.queued}. A backend-neutral shape so `api.actions.queued()`
+ * behaves identically regardless of which backend stores the job.
  */
 export interface QueuedJob {
-  /** The action name (node-resque's `class`). */
+  /** The action name. */
   class: string;
   /** The queue the job is stored on. */
   queue: string;
-  /** The job arguments, wrapped in a single-element array (node-resque convention). */
+  /** The job arguments, wrapped in a single-element array. */
   args: TaskInputs[];
 }
 
 /**
- * A backend-neutral failed job. NodeResqueBackend passes node-resque's own `ErrorPayload`
- * through unchanged (it is a structural superset of this shape); other backends synthesize
- * it. `id` carries a backend-specific handle (e.g. pg-boss job id) for round-tripping through
- * {@link TaskBackend.removeFailed} / {@link TaskBackend.retryAndRemoveFailed}.
+ * A backend-neutral failed job synthesized by the backend. `id` carries a backend-specific handle
+ * (e.g. the pg-boss job id) for round-tripping through {@link TaskBackend.removeFailed} /
+ * {@link TaskBackend.retryAndRemoveFailed}.
  */
 export interface FailedJob {
   /** Backend-specific job id, when the backend keys failures by id (e.g. pg-boss). */
@@ -60,16 +59,14 @@ export type TaskRunner = (
 ) => Promise<unknown>;
 
 /**
- * The pluggable queue seam. Concrete adapters (e.g. `NodeResqueBackend`, `PgBossBackend`)
- * implement this to store, schedule, and work background tasks while keeping the public
- * `api.actions.*` task interface unchanged. The `tasks` initializer selects one adapter at
- * boot based on `config.tasks.backend` and exposes it as `api.tasks.backend`.
+ * The pluggable queue seam. A concrete adapter ({@link PgBossBackend} is the one that ships)
+ * implements this to store, schedule, and work background tasks while keeping the public
+ * `api.actions.*` task interface unchanged. The `tasks` initializer instantiates the adapter at
+ * boot and exposes it as `api.tasks.backend`.
  *
  * Methods fall into three groups: **lifecycle** (`start`/`stop` and the worker/scheduler
  * controls), **enqueue** (`enqueue`/`enqueueAt`/`enqueueIn`), and **introspection/management**
- * (everything else, surfaced through `api.actions.*`). Some management methods are inherently
- * node-resque-shaped; backends that cannot support one faithfully should degrade gracefully
- * (return an empty/zero result) rather than throw.
+ * (everything else, surfaced through `api.actions.*`).
  */
 export abstract class TaskBackend {
   /**
@@ -91,8 +88,8 @@ export abstract class TaskBackend {
 
   /**
    * Register (or refresh) the backend-side wiring for an action. Called once per action at boot
-   * and again when actions are added at runtime (e.g. in tests). For node-resque this builds the
-   * job wrapper; backends that dispatch dynamically may no-op.
+   * and again when actions are added at runtime (e.g. in tests). Backends that dispatch
+   * dynamically (like pg-boss, by action name) may treat this as a no-op.
    */
   abstract registerAction(action: Action): void;
   /** Remove an action's backend-side wiring (used when actions are torn down in tests). */
@@ -168,34 +165,4 @@ export abstract class TaskBackend {
   abstract removeFailed(failedJob: FailedJob): Promise<void>;
   /** Remove a failed job and re-enqueue it onto its original queue. */
   abstract retryAndRemoveFailed(failedJob: FailedJob): Promise<void>;
-
-  // --- Optional, backend-specific extras ---
-  // These map cleanly onto node-resque's Redis model but have no faithful
-  // equivalent on every backend. They are surfaced through `api.actions.*` and
-  // called with optional chaining, so a backend that omits one degrades to a
-  // sensible default rather than erroring.
-
-  /** node-resque: delete all jobs of an action from a queue by range. */
-  delByFunction?: (
-    queue: string,
-    actionName: string,
-    start?: number,
-    stop?: number,
-  ) => Promise<number>;
-  /** node-resque: delete a queue and all jobs on it. */
-  delQueue?: (queue: string) => Promise<void>;
-  /** node-resque: list plugin/middleware locks in this namespace. */
-  locks?: () => Promise<Record<string, any>>;
-  /** node-resque: delete a job or worker lock. */
-  delLock?: (lock: string) => Promise<number>;
-  /** node-resque: list all future timestamps that have delayed jobs. */
-  timestamps?: () => Promise<number[]>;
-  /** node-resque: list jobs enqueued to run at a given timestamp. */
-  delayedAt?: (timestamp: number) => Promise<any>;
-  /** node-resque: all delayed jobs, keyed by their run timestamp. */
-  allDelayed?: () => Promise<{ [timestamp: string]: any[] }>;
-  /** node-resque: what a specific worker is working on. */
-  workingOn?: (workerName: string, queues: string) => Promise<any>;
-  /** node-resque: clean up state left by crashed workers older than `age`. */
-  cleanOldWorkers?: (age: number) => Promise<any>;
 }

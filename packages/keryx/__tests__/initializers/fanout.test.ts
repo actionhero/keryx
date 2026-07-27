@@ -11,11 +11,8 @@ import { z } from "zod";
 import { Action, api, config, RUN_MODE } from "../../api";
 import { HOOK_TIMEOUT, waitFor } from "./../setup";
 
-// Fan-out behavior is asserted through the public `api.actions.fanOut*` API, so this suite runs
-// identically across every (backend × fan-out store) combination. Store-internal assertions
-// (direct Redis reads) are isolated below and skipped unless the redis store is active.
-const BACKEND = config.tasks.backend;
-const STORE = config.tasks.fanOutStore;
+// Fan-out behavior is asserted through the public `api.actions.fanOut*` API, backed by the
+// pg-boss queue + Postgres fan-out store.
 
 async function startInitializer(name: string) {
   const initializer = api.initializers.find((i) => i.name === name);
@@ -25,25 +22,14 @@ async function startInitializer(name: string) {
 
 async function resetTaskState() {
   try {
-    await api.redis.redis.flushdb();
+    await api.db.pool.query(`DELETE FROM "${config.tasks.pgBoss.schema}".job`);
   } catch {
-    // redis may be unused under pg-boss + postgres
+    // schema not created yet
   }
-  if (BACKEND === "pg-boss") {
-    try {
-      await api.db.pool.query(
-        `DELETE FROM "${config.tasks.pgBoss.schema}".job`,
-      );
-    } catch {
-      // schema not created yet
-    }
-  }
-  if (STORE === "postgres") {
-    try {
-      await api.db.pool.query("DELETE FROM keryx_fanout");
-    } catch {
-      // tables not created yet
-    }
+  try {
+    await api.db.pool.query("DELETE FROM keryx_fanout");
+  } catch {
+    // tables not created yet
   }
 }
 
@@ -487,47 +473,57 @@ describe("onEnqueue hook in fanOut", () => {
   });
 });
 
-// Redis-store-internal assertions: only meaningful when the fan-out store is Redis.
-describe.skipIf(STORE !== "redis")("redis fan-out store internals", () => {
-  test("stores fan-out metadata in Redis with TTL", async () => {
-    const inputs = [{ itemId: "1" }];
-    const result = await api.actions.fanOut("fanout:child", inputs);
+// Postgres fan-out store internals: verify the framework-managed tables hold the metadata.
+describe("postgres fan-out store internals", () => {
+  test("stores fan-out metadata in keryx_fanout with an expiry", async () => {
+    const result = await api.actions.fanOut("fanout:child", [{ itemId: "1" }]);
 
-    const metaKey = `fanout:${result.fanOutId}`;
-    const meta = await api.redis.redis.hgetall(metaKey);
-    expect(meta.total).toBe("1");
-    expect(meta.completed).toBe("0");
-    expect(meta.failed).toBe("0");
-    expect(meta.actionName).toBe("fanout:child");
-    expect(meta.queue).toBe("worker");
-
-    const ttl = await api.redis.redis.ttl(metaKey);
-    expect(ttl).toBeGreaterThan(0);
-    expect(ttl).toBeLessThanOrEqual(600);
+    const { rows } = await api.db.pool.query(
+      `SELECT total, completed, failed, action_names, queues, expires_at > now() AS live
+       FROM keryx_fanout WHERE id = $1`,
+      [result.fanOutId],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].total).toBe(1);
+    expect(rows[0].completed).toBe(0);
+    expect(rows[0].failed).toBe(0);
+    expect(rows[0].action_names).toBe("fanout:child");
+    expect(rows[0].queues).toBe("worker");
+    expect(rows[0].live).toBe(true);
   });
 
-  test("custom resultTtl is applied to Redis keys", async () => {
-    const inputs = [{ itemId: "1" }];
-    const result = await api.actions.fanOut("fanout:child", inputs, undefined, {
-      resultTtl: 30,
-    });
+  test("custom resultTtl shortens the expiry window", async () => {
+    const result = await api.actions.fanOut(
+      "fanout:child",
+      [{ itemId: "1" }],
+      undefined,
+      {
+        resultTtl: 30,
+      },
+    );
 
-    const ttl = await api.redis.redis.ttl(`fanout:${result.fanOutId}`);
-    expect(ttl).toBeGreaterThan(0);
-    expect(ttl).toBeLessThanOrEqual(30);
+    const { rows } = await api.db.pool.query(
+      `SELECT expires_at <= now() + interval '30 seconds' AS within_ttl
+       FROM keryx_fanout WHERE id = $1`,
+      [result.fanOutId],
+    );
+    expect(rows[0].within_ttl).toBe(true);
   });
 
-  test("metadata in Redis lists all action names and queues", async () => {
+  test("metadata lists all action names and queues", async () => {
     const result = await api.actions.fanOut([
       { action: "fanout:child", inputs: { itemId: "1" } },
       { action: "fanout:second-child", inputs: { name: "frank" } },
     ]);
 
-    const meta = await api.redis.redis.hgetall(`fanout:${result.fanOutId}`);
-    expect(meta.total).toBe("2");
-    expect(meta.actionName).toContain("fanout:child");
-    expect(meta.actionName).toContain("fanout:second-child");
-    expect(meta.queue).toContain("worker");
-    expect(meta.queue).toContain("notifications");
+    const { rows } = await api.db.pool.query(
+      `SELECT total, action_names, queues FROM keryx_fanout WHERE id = $1`,
+      [result.fanOutId],
+    );
+    expect(rows[0].total).toBe(2);
+    expect(rows[0].action_names).toContain("fanout:child");
+    expect(rows[0].action_names).toContain("fanout:second-child");
+    expect(rows[0].queues).toContain("worker");
+    expect(rows[0].queues).toContain("notifications");
   });
 });

@@ -277,33 +277,25 @@ All HTTP responses include these headers. Each is configurable:
 
 ### Tasks
 
-Keryx runs background tasks through a pluggable **backend** (the queue) and **fan-out store** (fan-out
-progress + results). The default pairing is node-resque + Redis. Set `TASKS_BACKEND=pg-boss` and
-`TASKS_FANOUT_STORE=postgres` to run entirely on Postgres and drop Redis. See the
-[Background Tasks guide](/guide/tasks#pluggable-backends) for the trade-offs.
+Keryx runs background tasks on **Postgres** (via pg-boss). See the
+[Background Tasks guide](/guide/tasks#the-postgres-backend) for how it works.
 
-| Key                 | Env Var              | Default             |
-| ------------------- | -------------------- | ------------------- |
-| `backend`           | `TASKS_BACKEND`      | `"node-resque"`     |
-| `fanOutStore`       | `TASKS_FANOUT_STORE` | `"redis"`           |
-| `enabled`           | `TASKS_ENABLED`      | `true`              |
-| `queues`            | —                    | `["*"]`             |
-| `timeout`           | `TASK_TIMEOUT`       | `5000`              |
-| `taskProcessors`    | `TASK_PROCESSORS`    | `1` (`0` in test)   |
-| `checkTimeout`      | —                    | `500`               |
-| `maxEventLoopDelay` | —                    | `5`                 |
+| Key                 | Env Var           | Default           |
+| ------------------- | ----------------- | ----------------- |
+| `enabled`           | `TASKS_ENABLED`   | `true`            |
+| `queues`            | —                 | `["*"]`           |
+| `timeout`           | `TASK_TIMEOUT`    | `5000`            |
+| `taskProcessors`    | `TASK_PROCESSORS` | `1` (`0` in test) |
+| `checkTimeout`      | —                 | `500`             |
+| `maxEventLoopDelay` | —                 | `5`               |
 
-`backend` accepts `"node-resque"` (Redis, default) or `"pg-boss"` (Postgres). `fanOutStore` accepts
-`"redis"` (default) or `"postgres"`. Backend-specific options live in their own blocks and are only
-read when that backend is active:
+pg-boss (Postgres queue) options live under the `pgBoss` block:
 
-| Key                          | Env Var                             | Default            |
-| ---------------------------- | ----------------------------------- | ------------------ |
-| `nodeResque.stuckWorkerTimeout` | —                                | `3600000` (1 hour) |
-| `nodeResque.retryStuckJobs`  | —                                   | `false`            |
-| `pgBoss.schema`              | `TASKS_PGBOSS_SCHEMA`               | `"keryx_tasks"`    |
-| `pgBoss.deleteAfterSeconds`  | `TASKS_PGBOSS_DELETE_AFTER_SECONDS` | `604800` (7 days)  |
-| `pgBoss.retryLimit`          | `TASKS_PGBOSS_RETRY_LIMIT`          | `0`                |
+| Key                         | Env Var                             | Default           |
+| --------------------------- | ----------------------------------- | ----------------- |
+| `pgBoss.schema`             | `TASKS_PGBOSS_SCHEMA`               | `"keryx_tasks"`   |
+| `pgBoss.deleteAfterSeconds` | `TASKS_PGBOSS_DELETE_AFTER_SECONDS` | `604800` (7 days) |
+| `pgBoss.retryLimit`         | `TASKS_PGBOSS_RETRY_LIMIT`          | `0`               |
 
 ### Rate Limiting
 

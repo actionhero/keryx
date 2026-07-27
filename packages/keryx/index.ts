@@ -19,10 +19,8 @@ import "./initializers/swagger";
 import "./initializers/tasks";
 
 export * from "./api";
-export { NodeResqueBackend } from "./backends/NodeResqueBackend";
 export { PgBossBackend } from "./backends/PgBossBackend";
 export { PgFanOutStore } from "./backends/PgFanOutStore";
-export { RedisFanOutStore } from "./backends/RedisFanOutStore";
 export type { ActionMiddleware, McpUiConfig } from "./classes/Action";
 export {
   HTTP_METHOD,
@@ -52,7 +50,6 @@ export {
 export { ErrorStatusCodes, ErrorType, TypedError } from "./classes/TypedError";
 export { UIResponse } from "./classes/UIResponse";
 export type { KeryxConfig } from "./config";
-export type { TasksBackend, TasksFanOutStore } from "./config/tasks";
 export type { OnEnqueueHook } from "./initializers/actionts";
 export type {
   OnMcpConnectHook,

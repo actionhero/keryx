@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-The fullstack TypeScript framework for MCP and APIs, built on Bun. Spiritual successor to ActionHero. Monorepo with workspaces under `packages/keryx/` (publishable framework), `packages/plugins/*` (first-party plugins like `tracing` and `resque-admin`), `example/backend/` (example API server), `example/frontend/` (Vite + React app), and `docs/` (VitePress site). The core idea: **Actions are the universal controller** - they serve as HTTP endpoints, WebSocket handlers, CLI commands, background tasks, and MCP tools simultaneously.
+The fullstack TypeScript framework for MCP and APIs, built on Bun. Spiritual successor to ActionHero. Monorepo with workspaces under `packages/keryx/` (publishable framework), `packages/plugins/*` (first-party plugins like `tracing`), `example/backend/` (example API server), `example/frontend/` (Vite + React app), and `docs/` (VitePress site). The core idea: **Actions are the universal controller** - they serve as HTTP endpoints, WebSocket handlers, CLI commands, background tasks, and MCP tools simultaneously.
 
 ## Monorepo Structure
 
@@ -27,7 +27,6 @@ keryx/
       __tests__/           # Framework-level tests
     plugins/               # First-party plugins (each is its own workspace)
       tracing/             # OpenTelemetry tracing plugin
-      resque-admin/        # Web UI for inspecting Resque queues
   example/
     backend/               # Example app using keryx
       actions/             # App actions (user, session, message, channel, files)
@@ -80,7 +79,6 @@ bun tests                          # Run tests for every workspace (package, plu
 # Per-workspace test scripts (from root)
 bun test-package                   # packages/keryx
 bun test-plugin-tracing            # packages/plugins/tracing
-bun test-plugin-resque-admin       # packages/plugins/resque-admin
 bun test-example-backend           # example/backend
 bun test-example-frontend          # example/frontend
 

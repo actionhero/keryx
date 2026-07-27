@@ -264,7 +264,7 @@ export abstract class Action {
    *   executed and may have mutated the params.
    * @param connection - The connection that initiated this action. Always defined. Provides
    *   access to the caller's session (`connection.session`), subscription state, and raw
-   *   transport handle. For background tasks (resque worker), `connection.type === "task"`
+   *   transport handle. For background tasks (task worker), `connection.type === "task"`
    *   and `connection.session.data` is empty — tasks are fresh starts, so actions that
    *   need user context should receive it as an input parameter rather than reading from
    *   the session.
