@@ -163,6 +163,8 @@ MCP uses OAuth 2.1 with PKCE for authentication. The OAuth initializer (`package
 | `/oauth/authorize`                        | POST   | Process login/signup              |
 | `/oauth/token`                            | POST   | Exchange code for access token    |
 
+Clients may also skip registration entirely and use an HTTPS URL as their `client_id`; see [Client ID Metadata Documents](/guide/mcp#client-id-metadata-documents).
+
 The authorization page is rendered from Mustache templates in `packages/keryx/templates/`. Actions tagged with `mcp.isLoginAction` or `mcp.isSignupAction` handle the actual authentication during the OAuth flow.
 
 ### Configuration
@@ -174,6 +176,7 @@ The authorization page is rendered from Mustache templates in `packages/keryx/te
 | `instructions`   | `MCP_SERVER_INSTRUCTIONS` | package description |
 | `oauthClientTtl` | `MCP_OAUTH_CLIENT_TTL`    | `2592000`           |
 | `oauthCodeTtl`   | `MCP_OAUTH_CODE_TTL`      | `300`               |
+| `oauthCimdEnabled` | `MCP_OAUTH_CIMD_ENABLED` | `true`             |
 
 ### Request Flow
 

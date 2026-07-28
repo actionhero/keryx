@@ -13,7 +13,7 @@
   <body>
     <div class="container">
       <h2>Authorize Application</h2>
-      {{{errorHtml}}} {{#hasSignin}}{{#hasSignup}}
+      {{{errorHtml}}} {{{clientInfoHtml}}} {{#hasSignin}}{{#hasSignup}}
       <div class="tabs">
         <div class="tab active" onclick="switchTab('signin')">Sign In</div>
         <div class="tab" onclick="switchTab('signup')">Sign Up</div>

@@ -320,6 +320,13 @@ See the [Security guide](/guide/security) for details on how rate limiting works
 | `oauthClientTtl`     | `MCP_OAUTH_CLIENT_TTL`     | `2592000`           |
 | `oauthCodeTtl`       | `MCP_OAUTH_CODE_TTL`       | `300`               |
 | `oauthTrustProxy`    | `MCP_OAUTH_TRUST_PROXY`    | `false`             |
+| `oauthCimdEnabled`   | `MCP_OAUTH_CIMD_ENABLED`   | `true`              |
+| `oauthCimdCacheTtl`  | `MCP_OAUTH_CIMD_CACHE_TTL` | `3600`              |
+| `oauthCimdFetchTimeoutMs` | `MCP_OAUTH_CIMD_FETCH_TIMEOUT_MS` | `5000`  |
+| `oauthCimdMaxBytes`  | `MCP_OAUTH_CIMD_MAX_BYTES` | `65536`             |
+| `oauthCimdAllowPrivateHosts` | `MCP_OAUTH_CIMD_ALLOW_PRIVATE_HOSTS` | `false` |
 | `markdownDepthLimit` | `MCP_MARKDOWN_DEPTH_LIMIT` | `5`                 |
 
 `oauthTrustProxy` controls whether `X-Forwarded-Proto` / `X-Forwarded-Host` headers are honored when deriving the external origin used in OAuth metadata and MCP `WWW-Authenticate` URLs. Only enable behind a trusted reverse proxy that strips client-supplied forwarded headers. See the [Security guide](/guide/security#reverse-proxy-forwarded-headers) for details.
+
+The `oauthCimd*` keys govern [Client ID Metadata Documents](/guide/mcp#client-id-metadata-documents). Leave `oauthCimdAllowPrivateHosts` off in production — it disables the SSRF guard that keeps the authorization server from fetching private addresses.

@@ -78,7 +78,7 @@ describe("oauth initializer", () => {
         "refresh_token",
       ]);
       expect(body.code_challenge_methods_supported).toEqual(["S256"]);
-      expect(body.client_id_metadata_document_supported).toBe(false);
+      expect(body.client_id_metadata_document_supported).toBe(true);
       expect(body.introspection_endpoint_auth_methods_supported).toEqual([
         "none",
       ]);

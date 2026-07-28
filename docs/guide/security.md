@@ -140,6 +140,21 @@ When clients register via `/oauth/register`, redirect URIs are validated:
 
 When authorizing or exchanging authorization codes, the redirect URI must match a registered URI using exact string comparison (per RFC 6749 §3.1.2.3).
 
+### Client ID Metadata Documents
+
+A client may identify itself with an HTTPS URL as its `client_id` instead of registering ([MCP 2026-07-28 / SEP-991](/guide/mcp#client-id-metadata-documents)). Because that makes the authorization server fetch a URL an untrusted caller chose, the fetch is constrained:
+
+- **SSRF guard** — the host must resolve to a publicly routable address. Loopback, private (RFC 1918), link-local (including `169.254.169.254`, the cloud instance-metadata endpoint), CGNAT, benchmarking, documentation, multicast, and reserved ranges are refused, for IPv4 and IPv6 alike (including IPv4-mapped, NAT64, and Teredo forms). Set `MCP_OAUTH_CIMD_ALLOW_PRIVATE_HOSTS=true` **only** in local development. The check runs before the request, so a hostname whose DNS records change between the lookup and the fetch could still be re-pointed; egress-filter the process if you need a hard guarantee.
+- **No redirects** — a `3xx` is rejected rather than followed, so a redirect cannot hop past the host check to a private address.
+- **Bounded reads** — the response must be HTTP 200, served as JSON, within `MCP_OAUTH_CIMD_FETCH_TIMEOUT_MS`, and no larger than `MCP_OAUTH_CIMD_MAX_BYTES` (streamed and aborted once the cap is passed, whether or not `Content-Length` is honest).
+- **Self-consistency** — the document's `client_id` must exactly equal the URL it was served from, so a document cannot claim an identity it is not hosted at.
+- **Exact redirect URI match** — the request's `redirect_uri` must appear verbatim in the document, and each `redirect_uris` entry is validated by the rules above.
+- **Consent transparency** — the authorization page names the client and always displays the host the authorization is redirected to, with an added warning for loopback callbacks, which a metadata document cannot attest to.
+
+Only successful lookups are cached; a rejected document is refetched on the next attempt rather than remembered.
+
+Set `MCP_OAUTH_CIMD_ENABLED=false` to turn the mechanism off entirely — the authorization server then stops advertising `client_id_metadata_document_supported` and clients fall back to `POST /oauth/register`.
+
 ### Registration Rate Limiting
 
 OAuth client registration (`POST /oauth/register`) has a separate, stricter rate limit to prevent abuse:
