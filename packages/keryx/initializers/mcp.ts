@@ -1,6 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
+import {
+  isInitializeRequest,
+  LATEST_PROTOCOL_VERSION,
+  SUPPORTED_PROTOCOL_VERSIONS,
+} from "@modelcontextprotocol/sdk/types.js";
 import { randomUUID } from "crypto";
 import { api, logger } from "../api";
 import { Initializer } from "../classes/Initializer";
@@ -21,14 +25,17 @@ import {
   formatToolName,
   handleTransportRequest,
   isMcpSessionAuthorizedForChannel,
+  MCP_JSONRPC_ERROR,
   type McpAuthInfo,
   type McpSessionAuth,
   mcpJsonResponse,
+  mcpJsonRpcErrorResponse,
   parseToolName,
   readMcpSessionRecord,
   refreshMcpSessionTtl,
   sanitizeSchemaForMcp,
   terminateMcpSession,
+  validateJsonRpcPayload,
   writeMcpSessionRecord,
 } from "../util/mcpServer";
 import type { PubSubMessage } from "./pubsub";
@@ -61,18 +68,34 @@ export type OnMcpDisconnectHook = (sessionId: string) => Promise<void> | void;
 const namespace = "mcp";
 
 /**
- * Pull the negotiated `protocolVersion` out of an `initialize` request body
- * (single message or batch) so it can be stored in the shared session registry
+ * Resolve the protocol version an `initialize` request body (single message or
+ * batch) actually negotiates, so it can be stored in the shared session registry
  * and replayed when the session is adopted on another node.
+ *
+ * This is the *negotiated* version, not the requested one: a client on a newer
+ * spec revision than the SDK supports (e.g. `2026-07-28`) is answered with the
+ * newest version the server does support, exactly as the SDK's `initialize`
+ * handler does. Persisting the raw request instead would leave the registry
+ * holding a version no node can replay, and the session would silently fall back
+ * to the 2025-03-26 default the first time it was adopted elsewhere.
+ *
+ * @param body - The parsed POST body.
+ * @returns The negotiated version, or `undefined` when the body contains no
+ * `initialize` request.
  */
-function extractInitProtocolVersion(body: unknown): string | undefined {
+function negotiateInitProtocolVersion(body: unknown): string | undefined {
   const messages = Array.isArray(body) ? body : [body];
   for (const message of messages) {
     if (isInitializeRequest(message)) {
       const protocolVersion = (
         message as { params?: { protocolVersion?: unknown } }
       ).params?.protocolVersion;
-      if (typeof protocolVersion === "string") return protocolVersion;
+      if (typeof protocolVersion !== "string") continue;
+      return (SUPPORTED_PROTOCOL_VERSIONS as readonly string[]).includes(
+        protocolVersion,
+      )
+        ? protocolVersion
+        : LATEST_PROTOCOL_VERSION;
     }
   }
   return undefined;
@@ -273,17 +296,41 @@ export class McpInitializer extends Initializer {
 
       const sessionId = req.headers.get("mcp-session-id");
 
+      // Validate the JSON-RPC envelope of every POST before it reaches a
+      // transport. The SDK transport answers both "not JSON" and "not a
+      // JSON-RPC message" with `-32700 Parse error`; JSON-RPC 2.0 reserves that
+      // code for unparseable input and requires `-32600 Invalid Request` for a
+      // payload that parses but isn't a valid message. Parsing here also means
+      // the body is read exactly once — the result is handed to the transport as
+      // `parsedBody`.
+      let body: unknown;
+      if (method === "POST") {
+        try {
+          body = await req.json();
+        } catch {
+          return mcpJsonRpcErrorResponse(
+            MCP_JSONRPC_ERROR.PARSE_ERROR,
+            "Parse error: body is not valid JSON",
+            400,
+            corsHeaders,
+          );
+        }
+        const invalid = validateJsonRpcPayload(body);
+        if (invalid) {
+          return mcpJsonRpcErrorResponse(
+            invalid.code,
+            invalid.message,
+            400,
+            corsHeaders,
+          );
+        }
+      }
+
       if (method === "POST" && !sessionId) {
         // Only an `initialize` request may create a new session. Any other
         // request without a session id is a protocol error → 400. We must gate
         // here rather than delegating, otherwise a non-initialize POST spins up
         // an McpServer that never initializes and leaks into `mcpServers`.
-        let body: unknown;
-        try {
-          body = await req.clone().json();
-        } catch {
-          return mcpJsonResponse({ error: "Invalid JSON" }, 400, corsHeaders);
-        }
         const isInit = Array.isArray(body)
           ? body.some(isInitializeRequest)
           : isInitializeRequest(body);
@@ -294,7 +341,7 @@ export class McpInitializer extends Initializer {
             corsHeaders,
           );
         }
-        const protocolVersion = extractInitProtocolVersion(body);
+        const protocolVersion = negotiateInitProtocolVersion(body);
 
         // New session — create a new McpServer + transport
         const mcpServer = createMcpServer();
@@ -338,7 +385,13 @@ export class McpInitializer extends Initializer {
         for (const hook of api.hooks.mcp.onMessageHooks) {
           await hook(undefined);
         }
-        return handleTransportRequest(transport, req, authInfo, corsHeaders);
+        return handleTransportRequest(
+          transport,
+          req,
+          authInfo,
+          corsHeaders,
+          body,
+        );
       }
 
       if (sessionId) {
@@ -386,7 +439,13 @@ export class McpInitializer extends Initializer {
         for (const hook of api.hooks.mcp.onMessageHooks) {
           await hook(sessionId);
         }
-        return handleTransportRequest(transport, req, authInfo, corsHeaders);
+        return handleTransportRequest(
+          transport,
+          req,
+          authInfo,
+          corsHeaders,
+          body,
+        );
       }
 
       // GET/DELETE without session ID
