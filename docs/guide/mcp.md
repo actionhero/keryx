@@ -276,6 +276,8 @@ Sessions are recorded in a **shared Redis registry** (`mcp:session:<id>`), so an
 - **Unknown or expired `mcp-session-id` → `404 Not Found`** (JSON, no SSE stream is opened). This is the client's cue to re-`initialize` and recover automatically — for example after the session's TTL lapses or a `DELETE`.
 - **A non-`initialize` `POST` with no `mcp-session-id` → `400 Bad Request`.** Only `initialize` may open a new session.
 - **A session id owned by a different OAuth client → `403 Forbidden`.**
+- **A `POST` body that isn't JSON → `400 Bad Request`** with a JSON-RPC error response: `-32700 Parse error`, `id: null`.
+- **A `POST` body that is JSON but not a valid JSON-RPC message → `400 Bad Request`** with `-32600 Invalid Request`, `id: null`. JSON-RPC 2.0 reserves `-32700` for input that can't be parsed at all, so keryx validates the envelope itself rather than letting the SDK transport report both cases as a parse error.
 
 ### Lifecycle hooks in a cluster
 

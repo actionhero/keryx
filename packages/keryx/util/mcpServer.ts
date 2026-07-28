@@ -6,6 +6,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import {
   DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
+  JSONRPCMessageSchema,
   type ServerNotification,
   type ServerRequest,
   SUPPORTED_PROTOCOL_VERSIONS,
@@ -137,15 +138,27 @@ export async function isMcpSessionAuthorizedForChannel(
 /**
  * Forward a request to an MCP transport and return the response with CORS headers.
  * Handles the try/catch + error response pattern shared by new-session and existing-session paths.
+ *
+ * @param transport - The session's Streamable HTTP transport.
+ * @param req - The inbound MCP request.
+ * @param authInfo - Verified bearer-token context for the request, if any.
+ * @param corsHeaders - CORS headers to append to whatever the transport returns.
+ * @param parsedBody - The already-parsed POST body, so the transport doesn't
+ * re-read (and re-parse) a stream Keryx has already consumed while validating
+ * the JSON-RPC envelope. Omit for GET/DELETE.
  */
 export async function handleTransportRequest(
   transport: WebStandardStreamableHTTPServerTransport,
   req: Request,
   authInfo: McpAuthInfo | undefined,
   corsHeaders: Record<string, string>,
+  parsedBody?: unknown,
 ): Promise<Response> {
   try {
-    const response = await transport.handleRequest(req, { authInfo });
+    const response = await transport.handleRequest(req, {
+      authInfo,
+      parsedBody,
+    });
     return appendHeaders(response, corsHeaders);
   } catch (e) {
     logger.error(`MCP transport error: ${e}`);
@@ -179,6 +192,79 @@ export function mcpJsonResponse(
       ...extraHeaders,
     },
   });
+}
+
+/**
+ * The JSON-RPC 2.0 error codes the MCP endpoint returns for a POST body it
+ * refuses to dispatch. `PARSE_ERROR` means the body was not JSON at all;
+ * `INVALID_REQUEST` means it was JSON but not a well-formed JSON-RPC message.
+ * The distinction matters: the MCP SDK transport reports both as `PARSE_ERROR`,
+ * which conformance checkers flag, so Keryx validates the envelope itself
+ * before handing the body to the transport.
+ */
+export const MCP_JSONRPC_ERROR = {
+  PARSE_ERROR: -32700,
+  INVALID_REQUEST: -32600,
+} as const;
+
+/**
+ * Build a JSON-RPC *error response* for a message that could never be
+ * dispatched. `id` is always `null`: JSON-RPC 2.0 requires a null id when the
+ * request's id can't be determined, and the Streamable HTTP transport spec says
+ * the body of a rejected POST may carry an error response with no id.
+ *
+ * @param code - JSON-RPC error code (see {@link MCP_JSONRPC_ERROR}).
+ * @param message - Human-readable explanation, surfaced to the client verbatim.
+ * @param status - HTTP status to pair with it (400 for malformed input).
+ * @param corsHeaders - CORS headers for the MCP endpoint.
+ */
+export function mcpJsonRpcErrorResponse(
+  code: number,
+  message: string,
+  status: number,
+  corsHeaders: Record<string, string>,
+): Response {
+  return mcpJsonResponse(
+    { jsonrpc: "2.0", error: { code, message }, id: null },
+    status,
+    corsHeaders,
+  );
+}
+
+/**
+ * Validate a parsed MCP POST body against the JSON-RPC message schema, so a
+ * structurally invalid message is rejected as `-32600 Invalid Request` rather
+ * than being mislabeled a parse error by the transport.
+ *
+ * Accepts a single request, notification, or response — and, for clients still
+ * on protocol 2025-03-26, a non-empty array of them. Every element of an array
+ * must be well-formed; one bad message rejects the whole POST, matching how the
+ * transport dispatches batches.
+ *
+ * @param body - The already-parsed JSON body of the POST.
+ * @returns `undefined` when the body is well-formed, otherwise the JSON-RPC
+ * `code`/`message` pair to return with HTTP 400.
+ */
+export function validateJsonRpcPayload(
+  body: unknown,
+): { code: number; message: string } | undefined {
+  const messages = Array.isArray(body) ? body : [body];
+  if (messages.length === 0) {
+    return {
+      code: MCP_JSONRPC_ERROR.INVALID_REQUEST,
+      message: "Invalid Request: JSON-RPC batch must not be empty",
+    };
+  }
+  for (const message of messages) {
+    if (!JSONRPCMessageSchema.safeParse(message).success) {
+      return {
+        code: MCP_JSONRPC_ERROR.INVALID_REQUEST,
+        message:
+          "Invalid Request: body must be a JSON-RPC request, notification, or response",
+      };
+    }
+  }
+  return undefined;
 }
 
 /**

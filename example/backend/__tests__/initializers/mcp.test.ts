@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import {
+  LATEST_PROTOCOL_VERSION,
+  SUPPORTED_PROTOCOL_VERSIONS,
+} from "@modelcontextprotocol/sdk/types.js";
 import { type Action, api, config } from "keryx";
 import { z } from "zod";
 import * as z4mini from "zod/v4-mini";
@@ -1548,6 +1552,188 @@ describe("mcp multi-node sessions", () => {
     });
     expect(del.status).toBe(200);
     expect(disconnects).toBe(disconnectsBefore + 1);
+  });
+});
+
+/**
+ * Protocol version negotiation, exercised against every revision the SDK
+ * supports plus the newest published spec revision it does not. Version
+ * handling is what MCP clients key their feature detection off, and it's what
+ * conformance checkers report as the server's protocol, so each case is pinned
+ * on the wire rather than assumed.
+ */
+describe("mcp protocol version negotiation", () => {
+  let accessToken: string;
+
+  /**
+   * The newest published MCP spec revision. It post-dates the SDK Keryx builds
+   * on (see SUPPORTED_PROTOCOL_VERSIONS), so a client arriving on this revision
+   * must be downgraded cleanly, never rejected. When the SDK adds support this
+   * value becomes a member of the supported list and these tests keep holding.
+   */
+  const NEXT_SPEC_REVISION = "2026-07-28";
+
+  beforeAll(async () => {
+    config.server.mcp.enabled = true;
+    config.rateLimit.enabled = false;
+    await api.start();
+    accessToken = await getAccessToken();
+  }, HOOK_TIMEOUT);
+
+  afterAll(async () => {
+    const keys = await api.redis.redis.keys("mcp:session:*");
+    if (keys.length > 0) await api.redis.redis.del(...keys);
+    await api.stop();
+    config.server.mcp.enabled = false;
+    config.rateLimit.enabled = true;
+  }, HOOK_TIMEOUT);
+
+  const headers = (extra?: Record<string, string>) => ({
+    "Content-Type": "application/json",
+    Accept: "application/json, text/event-stream",
+    Authorization: `Bearer ${accessToken}`,
+    ...extra,
+  });
+
+  /** Run the `initialize` handshake asking for `protocolVersion`. */
+  async function initialize(protocolVersion: string) {
+    const res = await fetch(mcpUrl(), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion,
+          capabilities: {},
+          clientInfo: { name: "test-client", version: "1.0.0" },
+        },
+      }),
+    });
+    const body = (await res.json()) as {
+      result?: { protocolVersion?: string };
+      error?: { code?: number };
+    };
+    return {
+      status: res.status,
+      sessionId: res.headers.get("mcp-session-id"),
+      negotiated: body.result?.protocolVersion,
+      error: body.error,
+    };
+  }
+
+  /** A `tools/list` call on an established session. */
+  async function toolsList(sessionId: string, protocolVersion?: string) {
+    return fetch(mcpUrl(), {
+      method: "POST",
+      headers: headers({
+        "mcp-session-id": sessionId,
+        ...(protocolVersion ? { "mcp-protocol-version": protocolVersion } : {}),
+      }),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/list",
+        params: {},
+      }),
+    });
+  }
+
+  test.each([
+    ...SUPPORTED_PROTOCOL_VERSIONS,
+  ])("initialize with supported version %s is echoed back", async (version) => {
+    const { status, negotiated } = await initialize(version);
+    expect(status).toBe(200);
+    expect(negotiated).toBe(version);
+  });
+
+  test("the newest version keryx negotiates is at least the current spec revision", async () => {
+    const { status, negotiated } = await initialize(LATEST_PROTOCOL_VERSION);
+    expect(status).toBe(200);
+    expect(negotiated).toBe(LATEST_PROTOCOL_VERSION);
+    // Guards against shipping a protocol older than the spec's current revision;
+    // date-formatted versions compare correctly as strings.
+    expect(LATEST_PROTOCOL_VERSION >= "2025-11-25").toBe(true);
+  });
+
+  test(`initialize from a ${NEXT_SPEC_REVISION} client downgrades to the latest supported version instead of failing`, async () => {
+    const { status, negotiated, sessionId, error } =
+      await initialize(NEXT_SPEC_REVISION);
+    expect(status).toBe(200);
+    expect(error).toBeUndefined();
+    expect(negotiated).toBe(LATEST_PROTOCOL_VERSION);
+    expect(sessionId).toBeTruthy();
+  });
+
+  test("the shared session record stores the negotiated version, not the client's requested one", async () => {
+    const { sessionId } = await initialize(NEXT_SPEC_REVISION);
+    const raw = await api.redis.redis.get(`mcp:session:${sessionId}`);
+    expect(raw).toBeTruthy();
+    const record = JSON.parse(raw!) as { protocolVersion?: string };
+    // Persisting the raw request would put a version in the registry that no
+    // node can replay, silently downgrading the session on adoption.
+    expect(record.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+  });
+
+  test("a supported version is persisted verbatim", async () => {
+    const { sessionId } = await initialize("2025-06-18");
+    const raw = await api.redis.redis.get(`mcp:session:${sessionId}`);
+    const record = JSON.parse(raw!) as { protocolVersion?: string };
+    expect(record.protocolVersion).toBe("2025-06-18");
+  });
+
+  test(`a ${NEXT_SPEC_REVISION} client's session still adopts on another node`, async () => {
+    const { sessionId, negotiated } = await initialize(NEXT_SPEC_REVISION);
+    // Simulate the next request landing on a node that holds no transport.
+    api.mcp.transports.delete(sessionId!);
+
+    const res = await toolsList(sessionId!, negotiated);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { result?: { tools?: unknown } };
+    expect(Array.isArray(json.result?.tools)).toBe(true);
+  });
+
+  test("a registry record holding an unreplayable version still adopts (falls back to the default)", async () => {
+    const { sessionId } = await initialize(LATEST_PROTOCOL_VERSION);
+    // A record written by an older keryx node, before the negotiated version
+    // was the value persisted.
+    const raw = await api.redis.redis.get(`mcp:session:${sessionId}`);
+    const record = JSON.parse(raw!) as Record<string, unknown>;
+    await api.redis.redis.set(
+      `mcp:session:${sessionId}`,
+      JSON.stringify({ ...record, protocolVersion: NEXT_SPEC_REVISION }),
+    );
+    api.mcp.transports.delete(sessionId!);
+
+    const res = await toolsList(sessionId!, LATEST_PROTOCOL_VERSION);
+    expect(res.status).toBe(200);
+  });
+
+  test("a request carrying an unsupported MCP-Protocol-Version header is rejected with 400", async () => {
+    const { sessionId } = await initialize(LATEST_PROTOCOL_VERSION);
+    const res = await toolsList(sessionId!, NEXT_SPEC_REVISION);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: { message?: string } };
+    expect(body.error?.message).toContain("protocol version");
+  });
+
+  test("a request carrying the negotiated version header is accepted", async () => {
+    const { sessionId, negotiated } = await initialize(LATEST_PROTOCOL_VERSION);
+    const res = await toolsList(sessionId!, negotiated);
+    expect(res.status).toBe(200);
+  });
+
+  test("a request with no MCP-Protocol-Version header is accepted (spec fallback)", async () => {
+    const { sessionId } = await initialize(LATEST_PROTOCOL_VERSION);
+    const res = await toolsList(sessionId!);
+    expect(res.status).toBe(200);
+  });
+
+  test("initialize with a garbage version string downgrades rather than erroring", async () => {
+    const { status, negotiated } = await initialize("not-a-version");
+    expect(status).toBe(200);
+    expect(negotiated).toBe(LATEST_PROTOCOL_VERSION);
   });
 });
 

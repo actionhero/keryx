@@ -15,7 +15,11 @@ import { Channel } from "../../classes/Channel";
 import type { Connection } from "../../classes/Connection";
 import { ErrorType, TypedError } from "../../classes/TypedError";
 import { config } from "../../config";
-import { isMcpSessionAuthorizedForChannel } from "../../util/mcpServer";
+import {
+  isMcpSessionAuthorizedForChannel,
+  MCP_JSONRPC_ERROR,
+  validateJsonRpcPayload,
+} from "../../util/mcpServer";
 import { serverUrl, useTestServer } from "../setup";
 
 const mcpUrl = () => `${serverUrl()}${config.server.mcp.route}`;
@@ -230,6 +234,158 @@ describe("mcpServer utilities (integration)", () => {
     });
   });
 
+  // JSON-RPC 2.0 reserves -32700 for input that isn't JSON at all and -32600
+  // for JSON that isn't a valid message. Conflating the two (as the SDK
+  // transport does) is flagged by MCP conformance checkers.
+  describe("JSON-RPC request validation", () => {
+    let accessToken: string;
+
+    const jsonRpcHeaders = () => ({
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      Authorization: `Bearer ${accessToken}`,
+    });
+
+    /** POST a raw (possibly malformed) body and return the parsed error envelope. */
+    async function postRaw(body: string, sessionId?: string) {
+      const res = await fetch(mcpUrl(), {
+        method: "POST",
+        headers: sessionId
+          ? { ...jsonRpcHeaders(), "mcp-session-id": sessionId }
+          : jsonRpcHeaders(),
+        body,
+      });
+      return {
+        status: res.status,
+        body: (await res.json()) as {
+          jsonrpc?: string;
+          id?: unknown;
+          error?: { code?: number; message?: string };
+        },
+      };
+    }
+
+    beforeAll(async () => {
+      accessToken = crypto.randomUUID();
+      await api.redis.redis.set(
+        `oauth:token:${accessToken}`,
+        JSON.stringify({ userId: 0, clientId: "test", scopes: [] }),
+        "EX",
+        60,
+      );
+    });
+
+    test("a body that is not JSON returns -32700 with a null id", async () => {
+      const { status, body } = await postRaw("{not json");
+      expect(status).toBe(400);
+      expect(body.jsonrpc).toBe("2.0");
+      expect(body.error?.code).toBe(-32700);
+      expect(body.id).toBe(null);
+    });
+
+    test("an empty body returns -32700", async () => {
+      const { status, body } = await postRaw("");
+      expect(status).toBe(400);
+      expect(body.error?.code).toBe(-32700);
+    });
+
+    test.each([
+      ["a non-JSON-RPC object", JSON.stringify({ hello: "world" })],
+      ["a wrong jsonrpc version", JSON.stringify({ jsonrpc: "1.0", id: 1 })],
+      ["a request with no method", JSON.stringify({ jsonrpc: "2.0", id: 1 })],
+      [
+        "a non-object method",
+        JSON.stringify({ jsonrpc: "2.0", id: 1, method: 42 }),
+      ],
+      [
+        "non-object params",
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/list",
+          params: "nope",
+        }),
+      ],
+      ["a bare string", JSON.stringify("tools/list")],
+      ["an empty batch", "[]"],
+      [
+        "a batch with one invalid message",
+        JSON.stringify([
+          { jsonrpc: "2.0", id: 1, method: "tools/list" },
+          { nope: true },
+        ]),
+      ],
+    ])("%s returns -32600 Invalid Request with a null id", async (_label, payload) => {
+      const { status, body } = await postRaw(payload);
+      expect(status).toBe(400);
+      expect(body.jsonrpc).toBe("2.0");
+      expect(body.error?.code).toBe(-32600);
+      expect(body.error?.message).toContain("Invalid Request");
+      expect(body.id).toBe(null);
+    });
+
+    test("a well-formed initialize is still accepted, and a following notification returns 202", async () => {
+      const initRes = await fetch(mcpUrl(), {
+        method: "POST",
+        headers: jsonRpcHeaders(),
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-06-18",
+            capabilities: {},
+            clientInfo: { name: "test-client", version: "1.0.0" },
+          },
+        }),
+      });
+      expect(initRes.status).toBe(200);
+      const sessionId = initRes.headers.get("mcp-session-id");
+      expect(sessionId).toBeTruthy();
+
+      // Proves the pre-parsed body is handed to the transport rather than the
+      // (already consumed) request stream — otherwise this would be a 400.
+      const notifyRes = await fetch(mcpUrl(), {
+        method: "POST",
+        headers: {
+          ...jsonRpcHeaders(),
+          "mcp-session-id": sessionId!,
+          "MCP-Protocol-Version": "2025-06-18",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "notifications/initialized",
+        }),
+      });
+      expect(notifyRes.status).toBe(202);
+    });
+
+    test("an invalid message on an existing session is also rejected as -32600", async () => {
+      const initRes = await fetch(mcpUrl(), {
+        method: "POST",
+        headers: jsonRpcHeaders(),
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-06-18",
+            capabilities: {},
+            clientInfo: { name: "test-client", version: "1.0.0" },
+          },
+        }),
+      });
+      const sessionId = initRes.headers.get("mcp-session-id")!;
+
+      const { status, body } = await postRaw(
+        JSON.stringify({ jsonrpc: "2.0", id: 2, method: null }),
+        sessionId,
+      );
+      expect(status).toBe(400);
+      expect(body.error?.code).toBe(-32600);
+    });
+  });
+
   describe("origin gate", () => {
     let originalApplicationUrl: string;
     let originalAllowedOrigins: string;
@@ -376,5 +532,50 @@ describe("isMcpSessionAuthorizedForChannel", () => {
       "authed-notify",
     );
     expect(api.connections.connections.size).toBe(before);
+  });
+});
+
+describe("validateJsonRpcPayload", () => {
+  test("accepts a request", () => {
+    expect(
+      validateJsonRpcPayload({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    ).toBeUndefined();
+  });
+
+  test("accepts a notification", () => {
+    expect(
+      validateJsonRpcPayload({
+        jsonrpc: "2.0",
+        method: "notifications/initialized",
+      }),
+    ).toBeUndefined();
+  });
+
+  test("accepts a response", () => {
+    expect(
+      validateJsonRpcPayload({ jsonrpc: "2.0", id: 1, result: {} }),
+    ).toBeUndefined();
+  });
+
+  test("accepts a batch of well-formed messages (protocol 2025-03-26 clients)", () => {
+    expect(
+      validateJsonRpcPayload([
+        { jsonrpc: "2.0", id: 1, method: "tools/list" },
+        { jsonrpc: "2.0", method: "notifications/initialized" },
+      ]),
+    ).toBeUndefined();
+  });
+
+  test.each([
+    ["null", null],
+    ["a number", 42],
+    ["a plain object", { hello: "world" }],
+    ["a missing method", { jsonrpc: "2.0", id: 1 }],
+    ["a wrong protocol version", { jsonrpc: "1.0", id: 1, method: "ping" }],
+    ["an empty batch", []],
+  ])("rejects %s as INVALID_REQUEST", (_label, payload) => {
+    expect(validateJsonRpcPayload(payload)?.code).toBe(
+      MCP_JSONRPC_ERROR.INVALID_REQUEST,
+    );
   });
 });
