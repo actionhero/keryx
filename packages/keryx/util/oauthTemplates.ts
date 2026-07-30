@@ -161,7 +161,63 @@ export type AuthPageParams = {
   responseType: string;
   state: string;
   error: string;
+  /**
+   * Display name of the requesting client, when it could be resolved. Shown on
+   * the consent form so the user can tell who is asking — required when the
+   * client identified itself with a Client ID Metadata Document, since such a
+   * client is self-asserted rather than pre-registered.
+   */
+  clientName?: string;
 };
+
+/** Loopback hosts that warrant an extra warning on the consent form. */
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+
+/**
+ * Render the "who is asking" block above the sign-in form.
+ *
+ * The redirect URI's hostname is always shown: it is where the authorization
+ * code will be delivered, and is the only part of the request a user can
+ * meaningfully judge. Loopback redirects get an explicit warning because a
+ * Client ID Metadata Document cannot prove that a `localhost` callback belongs
+ * to the app it names (MCP 2026-07-28 authorization security considerations,
+ * "Localhost Redirect URI Risks").
+ *
+ * @param params - The OAuth parameters for the page.
+ * @returns An HTML fragment, or `""` when there is nothing meaningful to show.
+ */
+function renderClientInfoHtml(params: AuthPageParams): string {
+  let host = "";
+  try {
+    const redirect = new URL(params.redirectUri);
+    // A private-use scheme (e.g. `com.example.app:/callback`) has no host, so
+    // fall back to the scheme — it is still the identifying part of the target.
+    host = redirect.host || redirect.protocol;
+  } catch {
+    host = "";
+  }
+  if (!params.clientName && !host) return "";
+
+  const rows: string[] = [];
+  if (params.clientName) {
+    rows.push(
+      `<p><strong>${escapeHtml(params.clientName)}</strong> is requesting access to your account.</p>`,
+    );
+  }
+  if (host) {
+    rows.push(
+      `<p class="client-detail">Redirects to <strong>${escapeHtml(host)}</strong></p>`,
+    );
+    const hostname = host.split(":")[0] ?? "";
+    if (LOOPBACK_HOSTS.has(hostname) || LOOPBACK_HOSTS.has(host)) {
+      rows.push(
+        `<p class="client-warning">This will send your authorization to an application running on this machine. Continue only if you started this sign-in yourself.</p>`,
+      );
+    }
+  }
+
+  return `<div class="client-info">${rows.join("")}</div>`;
+}
 
 /**
  * Render the OAuth authorization page with dynamic form fields.
@@ -199,6 +255,7 @@ export function renderAuthPage(
     templates.authTemplate,
     {
       errorHtml,
+      clientInfoHtml: renderClientInfoHtml(params),
       hiddenFields,
       hasSignin,
       hasSignup,

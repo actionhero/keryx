@@ -1,4 +1,8 @@
 export { handleAuthorizeGet, handleAuthorizePost } from "./authorize";
+export {
+  isClientIdMetadataDocumentUrl,
+  resolveClientIdMetadataDocument,
+} from "./cimd";
 export { handleIntrospect } from "./introspect";
 export {
   handleMetadata,

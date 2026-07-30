@@ -36,6 +36,27 @@ h2 {
   margin-bottom: 16px;
   font-size: 14px;
 }
+.client-info {
+  background: color-mix(in srgb, var(--keryx-color-primary) 6%, transparent);
+  border: 1px solid var(--keryx-color-border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin-bottom: 20px;
+}
+.client-info p:last-child {
+  margin-bottom: 0;
+}
+.client-info strong {
+  color: var(--keryx-color-text);
+}
+.client-detail {
+  font-size: 13px;
+  word-break: break-all;
+}
+.client-warning {
+  font-size: 13px;
+  color: #a15c07;
+}
 .tabs {
   display: flex;
   margin-bottom: 20px;

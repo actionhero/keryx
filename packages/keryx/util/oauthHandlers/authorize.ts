@@ -9,6 +9,10 @@ import {
   type OAuthTemplates,
   renderAuthPage,
 } from "../oauthTemplates";
+import {
+  isClientIdMetadataDocumentUrl,
+  resolveClientIdMetadataDocument,
+} from "./cimd";
 import { clientKey, codeKey } from "./keys";
 import type { AuthCode, OAuthClient } from "./types";
 
@@ -32,19 +36,56 @@ function findAuthActions() {
   };
 }
 
-/** Render the OAuth authorize page (GET). */
-export function handleAuthorizeGet(
+/**
+ * Resolve the client behind a `client_id`.
+ *
+ * A URL-formatted identifier is a Client ID Metadata Document (MCP 2026-07-28 /
+ * SEP-991) and is fetched from its own origin; anything else is looked up as a
+ * client registered through `/oauth/register` (RFC 7591).
+ *
+ * @param clientId - The raw `client_id` from the authorization request.
+ * @returns The client, or a reason it could not be resolved. The reason is safe
+ *   to render on the authorization page.
+ */
+async function resolveClient(
+  clientId: string,
+): Promise<{ client: OAuthClient } | { error: string }> {
+  if (isClientIdMetadataDocumentUrl(clientId)) {
+    return resolveClientIdMetadataDocument(clientId);
+  }
+  const raw = await api.redis.redis.get(clientKey(clientId));
+  if (!raw) return { error: "Unknown client" };
+  return { client: JSON.parse(raw) as OAuthClient };
+}
+
+/**
+ * Render the OAuth authorize page (GET).
+ *
+ * The client is resolved here purely so the page can name who is asking for
+ * access. Resolution failures are not surfaced: the form still renders and the
+ * POST below is what actually enforces the client and its redirect URIs, so an
+ * unresolvable `client_id` can never yield an authorization code.
+ *
+ * @param url - The full authorize URL, carrying the OAuth query parameters.
+ * @param templates - Loaded OAuth HTML templates.
+ * @returns The rendered authorization page.
+ */
+export async function handleAuthorizeGet(
   url: URL,
   templates: OAuthTemplates,
-): Response {
+): Promise<Response> {
+  const clientId = url.searchParams.get("client_id") ?? "";
+  const resolved = clientId ? await resolveClient(clientId) : { error: "" };
+
   const params: AuthPageParams = {
-    clientId: url.searchParams.get("client_id") ?? "",
+    clientId,
     redirectUri: url.searchParams.get("redirect_uri") ?? "",
     codeChallenge: url.searchParams.get("code_challenge") ?? "",
     codeChallengeMethod: url.searchParams.get("code_challenge_method") ?? "",
     responseType: url.searchParams.get("response_type") ?? "",
     state: url.searchParams.get("state") ?? "",
     error: "",
+    clientName: "client" in resolved ? resolved.client.client_name : undefined,
   };
 
   return renderAuthPage(params, templates, findAuthActions());
@@ -137,9 +178,10 @@ export async function handleAuthorizePost(
     return renderAuthPage(oauthParams, templates, authActions);
   };
 
-  const clientRaw = await api.redis.redis.get(clientKey(oauthParams.clientId));
-  if (!clientRaw) return renderError("Unknown client");
-  const client = JSON.parse(clientRaw) as OAuthClient;
+  const resolved = await resolveClient(oauthParams.clientId);
+  if ("error" in resolved) return renderError(resolved.error);
+  const { client } = resolved;
+  oauthParams.clientName = client.client_name;
 
   const uriMatch = client.redirect_uris.some((registered) =>
     redirectUrisMatch(registered, oauthParams.redirectUri),

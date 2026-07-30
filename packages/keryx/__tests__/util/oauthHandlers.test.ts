@@ -105,13 +105,25 @@ describe("handleMetadata", () => {
       "none",
     ]);
     expect(body.revocation_endpoint_auth_methods_supported).toEqual(["none"]);
-    expect(body.client_id_metadata_document_supported).toBe(false);
+    expect(body.client_id_metadata_document_supported).toBe(true);
   });
 
   test("advertises RFC 9207 iss parameter support (MCP 2026-07-28)", async () => {
     const res = handleMetadata("https://example.com");
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.authorization_response_iss_parameter_supported).toBe(true);
+  });
+
+  test("stops advertising CIMD when the resolver is disabled", async () => {
+    const original = config.server.mcp.oauthCimdEnabled;
+    config.server.mcp.oauthCimdEnabled = false;
+    try {
+      const res = handleMetadata("https://example.com");
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.client_id_metadata_document_supported).toBe(false);
+    } finally {
+      config.server.mcp.oauthCimdEnabled = original;
+    }
   });
 });
 
@@ -693,13 +705,44 @@ describe("handleRevoke", () => {
 });
 
 describe("handleAuthorizeGet", () => {
-  test("renders an HTML page for a GET request", () => {
+  test("renders an HTML page for a GET request", async () => {
     const url = new URL(
       "http://localhost/oauth/authorize?client_id=x&redirect_uri=y",
     );
-    const res = handleAuthorizeGet(url, templates);
+    const res = await handleAuthorizeGet(url, templates);
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toContain("text/html");
+  });
+
+  test("shows the redirect host and a loopback warning", async () => {
+    const url = new URL(
+      "http://localhost/oauth/authorize?client_id=x&redirect_uri=http%3A%2F%2Flocalhost%3A9999%2Fcb",
+    );
+    const html = await (await handleAuthorizeGet(url, templates)).text();
+    expect(html).toContain("localhost:9999");
+    expect(html).toContain("running on this machine");
+  });
+
+  test("names a resolvable client on the consent form", async () => {
+    const clientId = `display-client-${crypto.randomUUID()}`;
+    await api.redis.redis.set(
+      `oauth:client:${clientId}`,
+      JSON.stringify({
+        client_id: clientId,
+        client_name: "Fancy <Client>",
+        redirect_uris: ["https://app.example.com/cb"],
+      }),
+      "EX",
+      300,
+    );
+    const url = new URL(
+      `http://localhost/oauth/authorize?client_id=${clientId}&redirect_uri=https%3A%2F%2Fapp.example.com%2Fcb`,
+    );
+    const html = await (await handleAuthorizeGet(url, templates)).text();
+    // Escaped, not injected.
+    expect(html).toContain("Fancy &lt;Client&gt;");
+    expect(html).not.toContain("Fancy <Client>");
+    expect(html).toContain("app.example.com");
   });
 });
 
@@ -832,6 +875,87 @@ describe("handleAuthorizePost", () => {
     );
     const html = await res.text();
     expect(html.toLowerCase()).toContain("no signup action");
+  });
+
+  describe("Client ID Metadata Document clients (MCP 2026-07-28)", () => {
+    let docServer: ReturnType<typeof Bun.serve>;
+    let clientId: string;
+    const originalAllowPrivateHosts =
+      config.server.mcp.oauthCimdAllowPrivateHosts;
+
+    beforeAll(() => {
+      config.server.mcp.oauthCimdAllowPrivateHosts = true;
+      docServer = Bun.serve({
+        port: 0,
+        fetch: () =>
+          new Response(
+            JSON.stringify({
+              client_id: clientId,
+              client_name: "Metadata Document Client",
+              redirect_uris: ["http://localhost:9999/cb"],
+            }),
+            { headers: { "Content-Type": "application/json" } },
+          ),
+      });
+      clientId = `http://localhost:${docServer.port}/client.json`;
+    });
+
+    afterAll(() => {
+      docServer.stop(true);
+      config.server.mcp.oauthCimdAllowPrivateHosts = originalAllowPrivateHosts;
+    });
+
+    test("a URL client_id resolves without prior registration", async () => {
+      const res = await handleAuthorizePost(
+        buildPost({
+          client_id: clientId,
+          redirect_uri: "http://localhost:9999/cb",
+          code_challenge: "chal",
+          code_challenge_method: "S256",
+          response_type: "code",
+        }),
+        templates,
+        "https://example.com",
+      );
+      const html = await res.text();
+      // The client resolved and its redirect URI matched, so the flow got as far
+      // as the (unconfigured) login action rather than stopping at the client.
+      expect(html).not.toContain("Unknown client");
+      expect(html.toLowerCase()).toContain("no login action");
+      expect(html).toContain("Metadata Document Client");
+    });
+
+    test("a redirect_uri absent from the document is rejected", async () => {
+      const res = await handleAuthorizePost(
+        buildPost({
+          client_id: clientId,
+          redirect_uri: "http://localhost:9999/elsewhere",
+          code_challenge: "chal",
+          code_challenge_method: "S256",
+          response_type: "code",
+        }),
+        templates,
+        "https://example.com",
+      );
+      expect(await res.text()).toContain("Invalid redirect URI");
+    });
+
+    test("an unreachable document surfaces an error instead of authorizing", async () => {
+      const res = await handleAuthorizePost(
+        buildPost({
+          client_id: "https://cimd.invalid/client.json",
+          redirect_uri: "http://localhost:9999/cb",
+          code_challenge: "chal",
+          code_challenge_method: "S256",
+          response_type: "code",
+        }),
+        templates,
+        "https://example.com",
+      );
+      const html = await res.text();
+      expect(html.toLowerCase()).not.toContain("no login action");
+      expect(html).toContain("client metadata");
+    });
   });
 
   test("malformed body returns 400", async () => {

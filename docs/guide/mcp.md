@@ -228,7 +228,7 @@ MCP clients authenticate using OAuth 2.1 with PKCE (Proof Key for Code Exchange)
 1. MCP client connects to `/mcp` and receives a `401` response
 2. Client fetches `/.well-known/oauth-protected-resource` to discover the authorization server
 3. Client fetches `/.well-known/oauth-authorization-server` for endpoints
-4. Client registers dynamically via `POST /oauth/register`
+4. Client identifies itself — either with a [Client ID Metadata Document](#client-id-metadata-documents) URL (preferred) or by registering dynamically via `POST /oauth/register`
 5. Client opens a browser to `/oauth/authorize` with PKCE challenge
 6. User logs in or signs up on the authorization page
 7. Server issues an authorization code and redirects back
@@ -246,12 +246,52 @@ MCP clients authenticate using OAuth 2.1 with PKCE (Proof Key for Code Exchange)
 | `/oauth/authorize`                        | POST   | Process login/signup form submission   |
 | `/oauth/token`                            | POST   | Exchange authorization code for token  |
 
+### Client ID Metadata Documents
+
+MCP 2026-07-28 ([SEP-991](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration#client-id-metadata-documents)) deprecates Dynamic Client Registration in favor of **Client ID Metadata Documents (CIMD)**: a client uses an HTTPS URL as its `client_id`, and the authorization server fetches its metadata from that URL. There is no registration round trip, and the resulting client ID is portable across authorization servers.
+
+Keryx supports this out of the box — `/.well-known/oauth-authorization-server` advertises `client_id_metadata_document_supported: true`. To use it, host a document like this at an HTTPS URL with a path component:
+
+```json
+{
+  "client_id": "https://app.example.com/oauth/client.json",
+  "client_name": "Example MCP Client",
+  "redirect_uris": ["http://localhost:3000/callback"],
+  "grant_types": ["authorization_code"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none"
+}
+```
+
+Then pass that URL as `client_id` on the authorization and token requests. `POST /oauth/register` still works for clients that predate CIMD.
+
+A document is accepted only when all of the following hold:
+
+- The `client_id` URL uses `https:`, has a path component, and carries no fragment.
+- The URL resolves to a publicly routable address. Loopback, private, link-local (including cloud instance-metadata endpoints such as `169.254.169.254`), CGNAT, and multicast targets are refused, and redirects are not followed — this is the SSRF guard required by the [CIMD security considerations](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations#client-id-metadata-document-security).
+- The response is HTTP 200, served as JSON, and no larger than `MCP_OAUTH_CIMD_MAX_BYTES`.
+- The document's `client_id` matches the URL it was fetched from exactly, and it declares a `client_name` and at least one `redirect_uris` entry. Redirect URIs are validated by the same rules as `/oauth/register`.
+- The `redirect_uri` on the authorization request matches one in the document exactly.
+
+Successful lookups are cached in Redis honoring the origin's `Cache-Control` (`no-store` / `no-cache` disables it), capped at `MCP_OAUTH_CIMD_CACHE_TTL`. Rejected documents are never cached.
+
+The authorization page names the requesting client and always shows the host the authorization will be redirected to, with an extra warning for loopback callbacks — a metadata document cannot prove that a `localhost` callback belongs to the app it names.
+
+| Config                       | Env Var                               | Default | Description                                                                       |
+| ---------------------------- | ------------------------------------- | ------- | --------------------------------------------------------------------------------- |
+| `oauthCimdEnabled`           | `MCP_OAUTH_CIMD_ENABLED`              | `true`  | Accept URL-formatted client IDs, and advertise support                            |
+| `oauthCimdCacheTtl`          | `MCP_OAUTH_CIMD_CACHE_TTL`            | `3600`  | Ceiling on how long a document is cached (seconds)                                |
+| `oauthCimdFetchTimeoutMs`    | `MCP_OAUTH_CIMD_FETCH_TIMEOUT_MS`     | `5000`  | Fetch timeout (milliseconds)                                                      |
+| `oauthCimdMaxBytes`          | `MCP_OAUTH_CIMD_MAX_BYTES`            | `65536` | Maximum document size                                                             |
+| `oauthCimdAllowPrivateHosts` | `MCP_OAUTH_CIMD_ALLOW_PRIVATE_HOSTS`  | `false` | Allow documents on loopback/private hosts and over `http:`. Development only — this disables the SSRF guard |
+
 ### Security
 
 The OAuth implementation includes several hardening measures:
 
 - **Redirect URI validation** — URIs registered via `/oauth/register` must not contain fragments or userinfo. HTTPS is accepted for any host (remote web callbacks); plain `http` is accepted only for loopback addresses (`localhost`, `127.0.0.1`, `[::1]`); and private-use / custom URI schemes (e.g. `vscode://`, `cursor://`) are accepted for native apps per [RFC 8252 §7.1](https://datatracker.ietf.org/doc/html/rfc8252#section-7.1). The `javascript:`, `data:`, `vbscript:`, and `file:` schemes are always rejected. When exchanging authorization codes, the redirect URI must match the registered URI exactly (origin + pathname).
 - **Issuer identification (`iss`)** — the authorization response redirect includes an `iss` parameter identifying this authorization server, and `/.well-known/oauth-authorization-server` advertises `authorization_response_iss_parameter_supported: true`. Clients validate `iss` to defend against mix-up attacks ([RFC 9207](https://datatracker.ietf.org/doc/html/rfc9207), MCP 2026-07-28 / SEP-2468).
+- **Client ID Metadata Document fetching** — resolving a URL-formatted `client_id` is guarded against SSRF: the host must be publicly routable, redirects are not followed, and the body is size- and time-capped. See [Client ID Metadata Documents](#client-id-metadata-documents) above and the [Security guide](/guide/security#client-id-metadata-documents).
 - **Client `application_type`** — `POST /oauth/register` accepts an `application_type` of `"web"` (the default) or `"native"`, stored on the client record so native/CLI clients are not misclassified as web clients (MCP 2026-07-28 / SEP-837). Any other value is rejected with `invalid_client_metadata`.
 - **Registration rate limiting** — `POST /oauth/register` has a separate, stricter rate limit (default: 5 requests per hour per IP) to prevent abuse. See `RATE_LIMIT_OAUTH_REGISTER_LIMIT` and `RATE_LIMIT_OAUTH_REGISTER_WINDOW_MS` in [Configuration](/guide/config).
 - **CORS** — OAuth and MCP endpoints respect the `allowedOrigins` configuration. When `allowedOrigins` is `"*"`, credentials headers are not sent, per the browser spec. Set a specific origin in production for credentialed requests to work.
@@ -372,6 +412,7 @@ When messages are broadcast through the PubSub system (e.g., chat messages sent 
 | `instructions`       | `MCP_SERVER_INSTRUCTIONS`  | package description | Instructions shown to MCP clients        |
 | `oauthClientTtl`     | `MCP_OAUTH_CLIENT_TTL`     | `2592000`           | OAuth client registration TTL (seconds)  |
 | `oauthCodeTtl`       | `MCP_OAUTH_CODE_TTL`       | `300`               | Authorization code TTL (seconds)         |
+| `oauthCimdEnabled`   | `MCP_OAUTH_CIMD_ENABLED`   | `true`              | Accept [Client ID Metadata Documents](#client-id-metadata-documents) |
 | `sessionTtl`         | `MCP_SESSION_TTL`          | `86400`             | Shared MCP session registry TTL, refreshed on activity (seconds) |
 | `markdownDepthLimit` | `MCP_MARKDOWN_DEPTH_LIMIT` | `5`                 | Max nesting depth for markdown rendering |
 

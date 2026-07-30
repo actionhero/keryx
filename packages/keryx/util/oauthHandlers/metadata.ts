@@ -1,3 +1,4 @@
+import { config } from "../../config";
 import { jsonResponse } from "./responses";
 import { OAUTH_PATHS } from "./types";
 
@@ -36,6 +37,10 @@ export function handleMetadata(origin: string): Response {
     token_endpoint_auth_methods_supported: ["none"],
     introspection_endpoint_auth_methods_supported: ["none"],
     revocation_endpoint_auth_methods_supported: ["none"],
-    client_id_metadata_document_supported: false,
+    // Client ID Metadata Documents (MCP 2026-07-28 / SEP-991). Clients SHOULD
+    // prefer this over the now-deprecated Dynamic Client Registration, so
+    // advertise it whenever the resolver is enabled.
+    client_id_metadata_document_supported:
+      config.server.mcp.oauthCimdEnabled === true,
   });
 }

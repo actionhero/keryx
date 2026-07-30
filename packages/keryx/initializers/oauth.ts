@@ -144,7 +144,7 @@ export class OAuthInitializer extends Initializer {
         return appendHeaders(await handleRegister(req), corsHeaders);
       }
       if (path === OAUTH_PATHS.authorize && method === "GET") {
-        return handleAuthorizeGet(url, templates);
+        return await handleAuthorizeGet(url, templates);
       }
       if (path === OAUTH_PATHS.authorize && method === "POST") {
         return handleAuthorizePost(req, templates, origin);
