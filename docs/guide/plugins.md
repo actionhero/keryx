@@ -15,7 +15,6 @@ Plugins package reusable functionality — initializers, actions, channels, serv
 | Package | Description |
 |---------|-------------|
 | [`@keryxjs/tracing`](/plugins/tracing) | OpenTelemetry distributed tracing (OTLP) for HTTP, actions, tasks, Redis, and Drizzle |
-| [`@keryxjs/resque-admin`](/plugins/resque-admin) | Web dashboard and API for monitoring Redis, queues, workers, failed jobs, and locks |
 
 ## Using a Plugin
 
@@ -23,10 +22,10 @@ Install the plugin package, then add it to your config:
 
 ```ts
 // config/plugins.ts
-import { resqueAdminPlugin } from "@keryxjs/resque-admin";
+import { tracingPlugin } from "@keryxjs/tracing";
 
 export default {
-  plugins: [resqueAdminPlugin],
+  plugins: [tracingPlugin],
 };
 ```
 
@@ -320,7 +319,7 @@ Understanding the loading order helps you declare `dependsOn` correctly:
 
 | Scope | Convention | Example |
 |-------|-----------|---------|
-| First-party | `@keryxjs/<name>` | `@keryxjs/resque-admin` |
+| First-party | `@keryxjs/<name>` | `@keryxjs/tracing` |
 | Third-party | `keryx-plugin-<name>` | `keryx-plugin-graphql` |
 
 These are conventions, not enforced by the framework. The `name` field in the plugin manifest is what matters for uniqueness.

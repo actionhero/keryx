@@ -84,7 +84,7 @@ That's it. The agent can now discover all your actions as tools, authenticate vi
 - **MCP-native** — every action is an MCP tool with OAuth 2.1 auth, typed errors, and per-session isolation
 - **Transport-agnostic Actions** — HTTP, WebSocket, CLI, background tasks, and MCP from one class
 - **Zod input validation** — type-safe params with automatic error responses and OpenAPI generation
-- **Built-in background tasks** via [node-resque](https://github.com/actionhero/node-resque), with a [fan-out pattern](#fan-out-tasks) for parallel job processing
+- **Built-in background tasks** on Postgres via [pg-boss](https://github.com/timgit/pg-boss), with a [fan-out pattern](#fan-out-tasks) for parallel job processing
 - **Strongly-typed frontend integration** — `ActionResponse<MyAction>` gives the frontend type-safe API responses, no code generation needed
 - **Drizzle ORM** with auto-migrations (replacing the old `ah-sequelize-plugin`)
 - **Companion Vite + React frontend** as a separate application (replacing `ah-next-plugin`)

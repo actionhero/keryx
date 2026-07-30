@@ -277,16 +277,25 @@ All HTTP responses include these headers. Each is configurable:
 
 ### Tasks
 
-| Key                  | Env Var           | Default                   |
-| -------------------- | ----------------- | ------------------------- |
-| `enabled`            | `TASKS_ENABLED`   | `true`                    |
-| `queues`             | —                 | `["*"]`                   |
-| `timeout`            | `TASK_TIMEOUT`    | `5000`                    |
-| `taskProcessors`     | `TASK_PROCESSORS` | `1` (`0` in test)         |
-| `checkTimeout`       | —                 | `500`                     |
-| `maxEventLoopDelay`  | —                 | `5`                       |
-| `stuckWorkerTimeout` | —                 | `3600000` (1 hour)        |
-| `retryStuckJobs`     | —                 | `false`                   |
+Keryx runs background tasks on **Postgres** (via pg-boss). See the
+[Background Tasks guide](/guide/tasks#the-postgres-backend) for how it works.
+
+| Key                 | Env Var           | Default           |
+| ------------------- | ----------------- | ----------------- |
+| `enabled`           | `TASKS_ENABLED`   | `true`            |
+| `queues`            | —                 | `["*"]`           |
+| `timeout`           | `TASK_TIMEOUT`    | `5000`            |
+| `taskProcessors`    | `TASK_PROCESSORS` | `1` (`0` in test) |
+| `checkTimeout`      | —                 | `500`             |
+| `maxEventLoopDelay` | —                 | `5`               |
+
+pg-boss (Postgres queue) options live under the `pgBoss` block:
+
+| Key                         | Env Var                             | Default           |
+| --------------------------- | ----------------------------------- | ----------------- |
+| `pgBoss.schema`             | `TASKS_PGBOSS_SCHEMA`               | `"keryx_tasks"`   |
+| `pgBoss.deleteAfterSeconds` | `TASKS_PGBOSS_DELETE_AFTER_SECONDS` | `604800` (7 days) |
+| `pgBoss.retryLimit`         | `TASKS_PGBOSS_RETRY_LIMIT`          | `0`               |
 
 ### Rate Limiting
 

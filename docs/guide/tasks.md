@@ -4,7 +4,7 @@ description: Background tasks with Resque workers and the fan-out pattern for di
 
 # Background Tasks
 
-One of the things I've always loved about ActionHero is that background tasks are a first-class citizen — not a plugin, not a separate service, just part of the framework. Keryx keeps that tradition, using [node-resque](https://github.com/actionhero/node-resque) for job processing backed by Redis.
+One of the things I've always loved about ActionHero is that background tasks are a first-class citizen — not a plugin, not a separate service, just part of the framework. Keryx keeps that tradition, using [pg-boss](https://github.com/timgit/pg-boss) for job processing backed by Postgres.
 
 The key difference from the original ActionHero: tasks and actions are the same thing now. Any action can be scheduled as a background job by adding a `task` property. Same inputs, same validation, same `run()` method.
 
@@ -106,17 +106,16 @@ const status = await api.actions.fanOutStatus(result.fanOutId);
 // → { total: 3, completed: 3, failed: 0, results: [...], errors: [...] }
 ```
 
-Results and metadata are stored in Redis with a configurable TTL (default 10 minutes). The TTL refreshes on each child job completion, so it's relative to the last activity — not the fan-out creation time.
+Results and metadata are stored in Postgres with a configurable TTL (default 10 minutes). The TTL refreshes on each child job completion, so it's relative to the last activity — not the fan-out creation time.
 
 ### How Fan-Out Works Internally
 
-When you call `fanOut()`, each child job gets a `_fanOutId` injected into its inputs automatically. The child action doesn't need to know about this — the Resque worker checks for `_fanOutId` after each job completes and stores the result (or error) in Redis. This means any existing action works as a fan-out child with zero changes.
+When you call `fanOut()`, each child job gets a `_fanOutId` injected into its inputs automatically. The child action doesn't need to know about this — after each job completes, the shared task runner checks for `_fanOutId` and records the result (or error) in the fan-out store. This means any existing action works as a fan-out child with zero changes.
 
-Redis keys for a fan-out operation:
+Fan-out state lives in two framework-managed Postgres tables, created automatically at boot:
 
-- `fanout:{id}` — hash with metadata (total, completed, failed)
-- `fanout:{id}:results` — list of successful results
-- `fanout:{id}:errors` — list of failed results
+- `keryx_fanout` — one row per operation with the counters (total, completed, failed) and an `expires_at`
+- `keryx_fanout_events` — one row per child result/error, cascade-deleted with its operation
 
 ### Error Handling
 
@@ -135,12 +134,12 @@ Enqueue-time errors (e.g., invalid action name) are returned immediately in the 
 
 ### Options
 
-- **`batchSize`** — how many jobs to enqueue per Redis round-trip (default: 100). Jobs are enqueued in batches to avoid flooding Redis.
-- **`resultTtl`** — how long to keep results in Redis, in seconds (default: 600). The TTL refreshes on each child completion, so it's relative to the last activity — not the fan-out creation time.
+- **`batchSize`** — how many jobs to enqueue per batch (default: 100). Jobs are enqueued in batches to avoid one giant transaction.
+- **`resultTtl`** — how long to keep results, in seconds (default: 600). The TTL refreshes on each child completion, so it's relative to the last activity — not the fan-out creation time.
 
 ### Additional Task APIs
 
-Beyond fan-out, the actions initializer exposes the full Resque API for job management:
+Beyond fan-out, the actions initializer exposes the rest of the task-management API:
 
 ```ts
 // Schedule for later
@@ -149,17 +148,12 @@ await api.actions.enqueueIn(delayMs, "actionName", inputs, queue);
 
 // Inspect queues
 const jobs = await api.actions.queued("default", 0, 100);
-const delayed = await api.actions.allDelayed();
+const scheduled = await api.actions.scheduledAt("default", "actionName", inputs);
 
 // Manage failures
 const failedCount = await api.actions.failedCount();
 const failures = await api.actions.failed(0, 10);
 await api.actions.retryAndRemoveFailed(failedJob);
-
-// Worker management
-const workers = await api.actions.workers();
-const working = await api.actions.allWorkingOn();
-await api.actions.cleanOldWorkers(3600000); // clean workers older than 1 hour
 
 // Recurrent task control
 await api.actions.stopRecurrentAction("messages:cleanup");
@@ -168,3 +162,20 @@ await api.actions.stopRecurrentAction("messages:cleanup");
 const details = await api.actions.taskDetails();
 // → { queues, workers, stats, leader }
 ```
+
+## The Postgres Backend
+
+Background tasks run on **Postgres**, via [pg-boss](https://github.com/timgit/pg-boss) — no Redis required for the task system. pg-boss uses `SELECT ... FOR UPDATE SKIP LOCKED` for exactly-once dequeue among concurrent workers, and owns/migrates its own schema (`config.tasks.pgBoss.schema`, default `keryx_tasks`) at boot. The Postgres fan-out store creates its `keryx_fanout` / `keryx_fanout_events` tables the same way, so there are no manual migrations to run.
+
+The public task interface (`api.actions.enqueue`, `enqueueIn`, `enqueueAt`, `fanOut`, `fanOutStatus`, `taskDetails`, `stopRecurrentAction`, and `Action.task`) sits on top of a thin seam you can reach directly for advanced use:
+
+```ts
+api.tasks.backend; // the TaskBackend (pg-boss)
+api.tasks.fanOutStore; // the FanOutStore (Postgres)
+```
+
+`TaskBackend` / `FanOutStore` are abstract, so the storage engine is a swappable seam — but only the Postgres implementations ship today.
+
+### Recurring tasks are single-instance without a leader
+
+No elected leader is needed to keep a recurring task from piling up across a multi-process cluster. Recurring actions are routed to a dedicated pg-boss queue created with the `short` policy, whose unique index allows only one *pending* (`created`) job per action across the whole cluster. The slot frees the moment the job starts running, so the job's own "re-enqueue myself" step still succeeds while every concurrent duplicate is rejected. N processes all enqueuing the same recurring action at boot results in exactly one pending copy.

@@ -78,7 +78,7 @@ export enum CONNECTION_TYPE {
   CLI = "cli",
   /** Action invoked through the MCP transport. */
   MCP = "mcp",
-  /** Action running as a Resque background task. */
+  /** Action running as a background task. */
   TASK = "task",
   /** Action invoked from the OAuth login/signup flow. */
   OAUTH = "oauth",

@@ -65,28 +65,28 @@ describe("fanOut stress benchmarks", () => {
     config.tasks.taskProcessors = STRESS.workers;
     await api.start();
 
-    // Register stress actions and wrap them as resque jobs so the
-    // already-running workers can dispatch them.
+    // Register stress actions with the task backend so the already-running
+    // workers can dispatch them.
     const child = new StressChildAction();
     api.actions.actions.push(child);
-    api.resque.jobs[child.name] = api.resque.wrapActionAsJob(child);
+    api.tasks.registerAction(child);
 
     const failing = new FailingStressChildAction();
     api.actions.actions.push(failing);
-    api.resque.jobs[failing.name] = api.resque.wrapActionAsJob(failing);
+    api.tasks.registerAction(failing);
 
     // Workers were constructed during api.start() before the stress jobs
     // were registered. Cycle them so they pick up the new jobs map.
-    await api.resque.stopWorkers();
-    await api.resque.startWorkers();
+    await api.tasks.stopWorkers();
+    await api.tasks.startWorkers();
   }, HOOK_TIMEOUT);
 
   afterAll(async () => {
     api.actions.actions = api.actions.actions.filter(
       (a) => a.name !== STRESS_CHILD && a.name !== STRESS_FAILING,
     );
-    delete api.resque.jobs[STRESS_CHILD];
-    delete api.resque.jobs[STRESS_FAILING];
+    api.tasks.unregisterAction(STRESS_CHILD);
+    api.tasks.unregisterAction(STRESS_FAILING);
 
     await api.stop();
     config.tasks.taskProcessors = originalProcessors;

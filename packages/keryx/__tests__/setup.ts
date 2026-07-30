@@ -18,8 +18,8 @@ setMaxListeners(999);
 
 // ioredis flushes its command queue on connection close, rejecting pending
 // commands with "Connection is closed." These rejections are unhandled because
-// they originate from fire-and-forget callers (e.g. node-resque's setInterval
-// ping). This is harmless during test shutdown but causes bun:test to exit 1.
+// they originate from fire-and-forget callers (e.g. a pub/sub client's
+// in-flight command). This is harmless during test shutdown but causes bun:test to exit 1.
 // Note: ioredis uses plain Error objects with no custom class or error code,
 // so we match the exact message string and verify the stack originates from ioredis.
 process.on("unhandledRejection", (reason: unknown) => {

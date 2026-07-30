@@ -11,7 +11,6 @@ The Keryx team maintains a set of first-party plugins under the `@keryxjs` npm s
 | Plugin | Package | Description |
 |--------|---------|-------------|
 | [Tracing](/plugins/tracing) | `@keryxjs/tracing` | OpenTelemetry distributed tracing (OTLP) for HTTP, actions, tasks, Redis, and Drizzle |
-| [Resque Admin](/plugins/resque-admin) | `@keryxjs/resque-admin` | Web dashboard and API for monitoring Redis, queues, workers, failed jobs, and locks |
 | [CSRF](/plugins/csrf) | `@keryxjs/csrf` | Per-session CSRF tokens and middleware to protect state-changing endpoints |
 
 ## Using a Plugin
@@ -20,10 +19,10 @@ Install the package, register it in your config, and you're done:
 
 ```ts
 // config/plugins.ts
-import { resqueAdminPlugin } from "@keryxjs/resque-admin";
+import { tracingPlugin } from "@keryxjs/tracing";
 
 export default {
-  plugins: [resqueAdminPlugin],
+  plugins: [tracingPlugin],
 };
 ```
 

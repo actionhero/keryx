@@ -7,7 +7,7 @@ import type { Server } from "./Server";
  * A Keryx plugin manifest. Plugins provide class constructors that the framework
  * instantiates during discovery, alongside any config defaults and generator extensions.
  *
- * First-party plugins use the `@keryxjs/*` npm scope (e.g., `@keryxjs/resque-admin`).
+ * First-party plugins use the `@keryxjs/*` npm scope (e.g., `@keryxjs/tracing`).
  * Third-party plugins follow the `keryx-plugin-*` naming convention.
  *
  * Register plugins via config:
@@ -18,7 +18,7 @@ import type { Server } from "./Server";
  * ```
  */
 export interface KeryxPlugin {
-  /** Unique plugin name (e.g., `"resque-admin"`). */
+  /** Unique plugin name (e.g., `"tracing"`). */
   name: string;
   /** SemVer version string for the plugin. */
   version: string;
