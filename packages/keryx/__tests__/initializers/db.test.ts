@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
+import fs from "fs";
+import os from "os";
+import path from "path";
 import { Pool } from "pg";
 import { api } from "../../api";
 import { ErrorType, TypedError } from "../../classes/TypedError";
@@ -70,6 +73,82 @@ describe("DB initializer", () => {
       Bun.env.NODE_ENV = originalNodeEnv;
     }
   });
+
+  test(
+    "generateMigrations is a no-op when the project has no schema files",
+    async () => {
+      // api.rootDir is the framework package itself, which has no schema/ directory.
+      expect(fs.existsSync(path.join(api.rootDir, "schema"))).toBe(false);
+      await expect(api.db.generateMigrations()).resolves.toBeUndefined();
+      // The early return happens before the temp drizzle-kit config is written.
+      expect(
+        fs.existsSync(path.join(api.rootDir, "drizzle", "config.tmp.ts")),
+      ).toBe(false);
+    },
+    HOOK_TIMEOUT,
+  );
+
+  test(
+    "generateMigrations is a no-op when schema/ holds only placeholders",
+    async () => {
+      // Mirrors `keryx new --no-example`, which scaffolds schema/.gitkeep and nothing else.
+      const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "keryx-schema-"));
+      const originalRootDir = api.rootDir;
+      api.rootDir = tmpRoot;
+
+      try {
+        fs.mkdirSync(path.join(tmpRoot, "schema"));
+        fs.writeFileSync(path.join(tmpRoot, "schema", ".gitkeep"), "");
+        await expect(api.db.generateMigrations()).resolves.toBeUndefined();
+        expect(fs.existsSync(path.join(tmpRoot, "drizzle"))).toBe(false);
+      } finally {
+        api.rootDir = originalRootDir;
+        fs.rmSync(tmpRoot, { recursive: true, force: true });
+      }
+    },
+    HOOK_TIMEOUT,
+  );
+
+  test(
+    "generateMigrations runs drizzle-kit when a schema file exists",
+    async () => {
+      // Inside the package so the generated schema file can resolve `drizzle-orm`.
+      const tmpRoot = fs.mkdtempSync(
+        path.join(import.meta.dir, "..", "..", "tmp-schema-"),
+      );
+      const originalRootDir = api.rootDir;
+      api.rootDir = tmpRoot;
+
+      try {
+        fs.mkdirSync(path.join(tmpRoot, "schema"));
+        fs.writeFileSync(
+          path.join(tmpRoot, "schema", "widgets.ts"),
+          [
+            `import { pgTable, serial, text } from "drizzle-orm/pg-core";`,
+            `export const widgets = pgTable("widgets", {`,
+            `  id: serial("id").primaryKey(),`,
+            `  name: text("name").notNull(),`,
+            `});`,
+          ].join("\n"),
+        );
+
+        await api.db.generateMigrations();
+
+        const generated = fs
+          .readdirSync(path.join(tmpRoot, "drizzle"))
+          .filter((f) => f.endsWith(".sql"));
+        expect(generated.length).toBeGreaterThan(0);
+        // The temp drizzle-kit config is always cleaned up.
+        expect(
+          fs.existsSync(path.join(tmpRoot, "drizzle", "config.tmp.ts")),
+        ).toBe(false);
+      } finally {
+        api.rootDir = originalRootDir;
+        fs.rmSync(tmpRoot, { recursive: true, force: true });
+      }
+    },
+    HOOK_TIMEOUT,
+  );
 
   test("stop() is a no-op when pool was never initialized", async () => {
     // Verifies the `if (api.db.db && api.db.pool)` guard in DB.stop().

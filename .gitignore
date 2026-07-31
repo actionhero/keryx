@@ -5,6 +5,7 @@ example/frontend/dist
 actionhero
 packages/keryx/.env
 packages/keryx/drizzle
+packages/keryx/tmp-schema-*
 packages/keryx/README.md
 packages/keryx/assets/
 packages/plugins/tracing/.env
