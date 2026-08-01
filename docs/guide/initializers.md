@@ -52,7 +52,7 @@ Unknown dependency names or cycles cause a startup failure with a clear, actiona
 | `channels`      | `["redis", "pubsub"]`                                    | Discovers and registers PubSub channels            |
 | `servers`       | `["actions", "hooks"]`                                   | Auto-discovers and loads transport servers         |
 | `mcp`           | `["hooks", "actions", "oauth", "connections", "pubsub"]` | MCP server — exposes actions as tools              |
-| `resque`        | `["redis", "actions", "process", "hooks"]`               | Background task queue                              |
+| `resque`        | `["redis", "db", "actions", "process", "hooks"]`         | Background task queue                              |
 
 When the server starts, it renders the resolved graph to the logs so the order is visible at a glance:
 
