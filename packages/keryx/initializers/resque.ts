@@ -97,7 +97,7 @@ let SERVER_JOB_COUNTER = 1;
 export class Resque extends Initializer {
   constructor() {
     super(namespace);
-    this.dependsOn = ["redis", "actions", "process", "hooks"];
+    this.dependsOn = ["redis", "db", "actions", "process", "hooks"];
   }
 
   /** Create and connect the resque `Queue` instance (used for enqueuing jobs). */

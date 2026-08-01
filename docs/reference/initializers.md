@@ -87,6 +87,6 @@ Each framework initializer declares what it depends on:
 | `channels`      | `["redis", "pubsub"]`                                    |
 | `servers`       | `["actions", "hooks"]`                                   |
 | `mcp`           | `["hooks", "actions", "oauth", "connections", "pubsub"]` |
-| `resque`        | `["redis", "actions", "process", "hooks"]`               |
+| `resque`        | `["redis", "db", "actions", "process", "hooks"]`         |
 
 The resolved graph is rendered to the logs at startup. See the [initializers guide](../guide/initializers.md) for sample output.

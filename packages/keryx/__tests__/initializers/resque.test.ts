@@ -106,6 +106,16 @@ test("actions can be enqueued later", async () => {
   expect(delayed[0]).toBeGreaterThan(Date.now() / 1000);
 });
 
+describe("boot order", () => {
+  test("resque depends on db so tasks never start before migrations run", () => {
+    const resque = api.initializers.find((i) => i.name === "resque");
+    expect(resque?.dependsOn).toContain("db");
+
+    const names = api.initializers.map((i) => i.name);
+    expect(names.indexOf("db")).toBeLessThan(names.indexOf("resque"));
+  });
+});
+
 describe("with workers and scheduler", () => {
   afterEach(async () => {
     await api.resque.stopWorkers();
