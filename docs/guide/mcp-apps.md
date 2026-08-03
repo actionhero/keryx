@@ -2,7 +2,7 @@
 description: MCP Apps — render an action's MCP tool result as an interactive HTML UI in the host. Point mcp.ui.client at a browser entrypoint; Keryx bundles it and delivers structured data via UIResponse.
 ---
 
-# MCP Apps (Dynamic UIs)
+# MCP Apps
 
 [MCP Apps](https://modelcontextprotocol.io/extensions/apps/overview) is an extension to the Model Context Protocol that lets a tool return an **interactive HTML UI** instead of just text. The host (Claude, Claude Desktop, VS Code Copilot, and others) renders that UI inline in the conversation, inside a sandboxed iframe. The UI can call back into your server's tools and receive fresh data — a dashboard, form, chart, or viewer that lives right next to the chat.
 

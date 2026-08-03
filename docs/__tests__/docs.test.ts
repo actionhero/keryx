@@ -98,6 +98,16 @@ describe("sidebar", () => {
     expect(missing).toEqual([]);
   });
 
+  // The LLM landing page is derived from the sidebars, so this holds by
+  // construction — but it's the assertion that would have caught the old
+  // hand-maintained list silently dropping pages.
+  test("the LLM landing page lists every guide and reference page", () => {
+    const missing = contentFiles
+      .map((f) => relative(docsDir, f))
+      .filter((rel) => !LLM_LANDING_PAGE.includes(rel));
+    expect(missing).toEqual([]);
+  });
+
   test("every guide/reference page is in the sidebar", () => {
     const orphans: string[] = [];
     for (const file of contentFiles) {
