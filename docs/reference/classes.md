@@ -75,6 +75,12 @@ class Connection<
   /** The underlying transport object (Bun Request, WebSocket, etc.) */
   rawConnection?: any;
 
+  /**
+   * The underlying `Request` for HTTP connections. Headers are always readable;
+   * the body only when the action declares `web.rawBody`.
+   */
+  rawRequest?: Request;
+
   /** Request correlation ID for distributed tracing */
   correlationId?: string;
 

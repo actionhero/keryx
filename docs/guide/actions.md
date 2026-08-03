@@ -38,7 +38,7 @@ That's a fully functioning HTTP endpoint, CLI command, and WebSocket handler. Hi
 | `name`        | `string`                | Unique identifier (e.g., `"user:create"`)                                      |
 | `description` | `string`                | Human-readable description, shows up in CLI `--help` and Swagger               |
 | `inputs`      | `z.ZodType`             | Zod schema — validation happens automatically                                  |
-| `web`         | `{ route, method }`     | HTTP routing. Routes are strings with `:param` placeholders or RegExp patterns |
+| `web`         | `{ route, method, … }`  | HTTP routing. Routes are strings with `:param` placeholders or RegExp patterns |
 | `task`        | `{ queue, frequency? }` | Makes this action schedulable as a background job                              |
 | `middleware`  | `ActionMiddleware[]`    | Runs before/after the action (auth, logging, etc.)                             |
 | `mcp`         | `McpActionConfig`       | Controls MCP exposure: tool, resource, and/or prompt (tool enabled by default) |
@@ -97,6 +97,53 @@ web = { route: "/user/:id", method: HTTP_METHOD.GET };
 Routes support `:param` path parameters (like Express) and can also be RegExp patterns. There's no separate `routes.ts` file — the route lives on the action itself, right next to the handler that serves it.
 
 Available methods: `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `OPTIONS`.
+
+## Raw Request Bodies
+
+For HTTP connections, `connection.rawRequest` is the underlying `Request` — read headers, the URL, or the method straight off it:
+
+```ts
+async run(params: ActionParams<Webhook>, connection: Connection) {
+  const signature = connection.rawRequest?.headers.get("x-signature");
+}
+```
+
+The **body** is a different story. Keryx reads it to build `params`, so by the time `run()` is called it's already consumed. When you need the bytes exactly as they arrived — proxying a request upstream, verifying a webhook signature over the payload, accepting a binary upload — set `web.rawBody` and Keryx won't touch the body at all:
+
+```ts
+export class ProxyUpstream implements Action {
+  name = "proxy";
+  web = {
+    route: "/proxy/:target",
+    method: HTTP_METHOD.POST,
+    rawBody: true,
+  };
+  inputs = z.object({ target: z.string() });
+
+  async run(params: ActionParams<ProxyUpstream>, connection: Connection) {
+    // The body is untouched — stream it upstream without buffering it here
+    return fetch(`https://${params.target}/v1/messages`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${process.env.UPSTREAM_KEY}` },
+      body: connection.rawRequest!.body,
+      // @ts-expect-error — Bun supports duplex streaming request bodies
+      duplex: "half",
+    });
+  }
+}
+```
+
+Three things follow from `rawBody: true`:
+
+- **`params` come from path and query params only.** Nothing is merged in from the body, so a body key can't shadow a path param — which matters when that path segment is a routing target or a credential.
+- **You own the body.** Read it once, with whatever's appropriate: `.text()`, `.json()`, `.arrayBuffer()`, `.formData()`, or `.body` for a `ReadableStream` you never buffer.
+- **You own the size limit past the headers.** `config.server.web.maxBodySize` is still enforced against `Content-Length`, but Keryx isn't reading the stream, so it can't stop a chunked upload that lies about its size. Enforce that yourself if you accept chunked bodies.
+
+Content types are matched on the base media type, so `application/json` and `application/json; charset=utf-8` behave identically — the charset doesn't change whether a body gets parsed into `params`.
+
+`rawRequest` only exists for HTTP — it's `undefined` over WebSocket, CLI, background tasks, and MCP, where there's no request to speak of. An action built around raw bytes is an HTTP endpoint first; guard on `connection.rawRequest` if the same action can be reached another way.
+
+Swagger documents a `rawBody` endpoint's request body as opaque bytes (`*/*`), and any Zod inputs that aren't path params as query params — because that's where they have to come from.
 
 ## Raw Response Passthrough
 

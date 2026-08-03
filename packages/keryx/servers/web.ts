@@ -70,11 +70,17 @@ export interface RequestOutcome {
  * Runs at the start of every HTTP request, before any routing or static file handling.
  * WebSocket upgrades do not fire this hook. Throwing an error propagates out of the
  * request handler. Hooks run sequentially in registration order.
+ *
+ * Returning a `Response` **short-circuits** the request: no later `beforeRequest` hook
+ * runs, routing (static files, OAuth, MCP, metrics, actions) is skipped, and the returned
+ * response is what the client receives. `afterRequest` hooks still fire, with
+ * `outcome.actionName` unset, and the response is still compressed. Return nothing — the
+ * common case — to let the request continue down the pipeline.
  */
 export type BeforeRequestHook = (
   req: Request,
   ctx: RequestContext,
-) => Promise<void> | void;
+) => Promise<Response | void> | Response | void;
 
 /**
  * Runs after the `Response` is built and before compression. Receives the same `ctx`
@@ -232,7 +238,8 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
 
   /**
    * Main request handler passed to `Bun.serve({ fetch })`. Dispatches to WebSocket upgrade,
-   * static files, OAuth, MCP, or REST action handling in that order.
+   * static files, OAuth, MCP, or REST action handling in that order. A `beforeRequest` hook
+   * that returns a `Response` short-circuits everything after it.
    */
   async handleIncomingConnection(
     req: Request,
@@ -268,16 +275,24 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
 
     const ctx: RequestContext = { ip, id, metadata: {} };
     const requestStart = Date.now();
+
+    // A `beforeRequest` hook that returns a Response answers the request itself —
+    // remaining hooks and all routing are skipped, but `afterRequest` still fires.
+    let response: Response | undefined;
+    let actionName: string | undefined;
     for (const hook of api.hooks.web.beforeRequestHooks) {
-      await hook(req, ctx);
+      const hookResponse = await hook(req, ctx);
+      if (hookResponse instanceof Response) {
+        response = hookResponse;
+        break;
+      }
     }
 
-    const { response, actionName } = await this.handleHttpRequest(
-      req,
-      server,
-      ip,
-      id,
-    );
+    if (!response) {
+      const routed = await this.handleHttpRequest(req, server, ip, id);
+      response = routed.response;
+      actionName = routed.actionName;
+    }
 
     const outcome: RequestOutcome = {
       method: req.method.toUpperCase(),
@@ -537,6 +552,10 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
 
     const connection = new Connection(CONNECTION_TYPE.WEB, ip, id);
 
+    // Expose the underlying request so actions can read headers and — when the
+    // action declares `web.rawBody` — the untouched body.
+    connection.rawRequest = req;
+
     if (
       config.server.web.correlationId.header &&
       config.server.web.correlationId.trustProxy
@@ -574,9 +593,17 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
     );
     if (!actionName) errorStatusCode = 404;
 
+    // Actions that opt into `web.rawBody` read the body themselves off
+    // `connection.rawRequest`, so param parsing must leave it unread.
+    const rawBody =
+      api.actions.actions.find((a) => a.name === actionName)?.web?.rawBody ===
+      true;
+
     let params: Record<string, unknown>;
     try {
-      params = await parseRequestParams(req, url, pathParams ?? undefined);
+      params = await parseRequestParams(req, url, pathParams ?? undefined, {
+        rawBody,
+      });
     } catch (e) {
       if (
         e instanceof TypedError &&
