@@ -472,5 +472,51 @@ describe("generated reference data", () => {
       }
     }
     expect(stale).toEqual([]);
+    // Parsing the backend with ts-morph takes several seconds.
+  }, 60_000);
+
+  // The staleness check above passes when the generator is broken: it compares
+  // regenerated output to committed output, and `[]` matches `[]`. These assert
+  // the data is actually populated, which is what the pages need.
+  test("reference JSON is non-empty", () => {
+    const dataDir = resolve(docsDir, ".vitepress", "data");
+    for (const f of ["actions.json", "initializers.json", "config.json"]) {
+      const parsed = JSON.parse(readFileSync(resolve(dataDir, f), "utf-8"));
+      expect(Array.isArray(parsed)).toBe(true);
+      expect(parsed.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("config data covers every loadFromEnvIfSet key in the framework", () => {
+    const configDir = resolve(docsDir, "..", "packages", "keryx", "config");
+    const documented = new Set<string>(
+      JSON.parse(
+        readFileSync(
+          resolve(docsDir, ".vitepress", "data", "config.json"),
+          "utf-8",
+        ),
+      ).flatMap((s: { keys: { envVar: string }[] }) =>
+        s.keys.map((k) => k.envVar),
+      ),
+    );
+
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory()
+          ? walk(resolve(dir, e.name))
+          : e.name.endsWith(".ts")
+            ? [resolve(dir, e.name)]
+            : [],
+      );
+
+    const missing: string[] = [];
+    for (const file of walk(configDir)) {
+      for (const m of readFileSync(file, "utf-8").matchAll(
+        /loadFromEnvIfSet\s*(?:<[^>]*>)?\(\s*["']([A-Z0-9_]+)["']/g,
+      )) {
+        if (!documented.has(m[1])) missing.push(m[1]);
+      }
+    }
+    expect(missing).toEqual([]);
   });
 });

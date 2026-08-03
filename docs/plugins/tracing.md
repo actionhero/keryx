@@ -10,7 +10,13 @@ For metrics, see the built-in [Observability](/guide/observability) feature — 
 
 ## Quick Start
 
-Install the package and register it in your plugins config:
+Install the package:
+
+```bash
+bun add @keryxjs/tracing
+```
+
+Then register it in your plugins config:
 
 ```ts
 // config/plugins.ts
@@ -128,3 +134,5 @@ The plugin is fully hook-based — it does **not** modify core Keryx code. It re
 The plugin also wraps `api.redis.redis.sendCommand` and attaches `@kubiks/otel-drizzle` to `api.db.db` after those initializers run.
 
 Because everything runs through hooks and the OTel global APIs, you can mix-and-match — register your own span processors, swap the exporter, or install custom propagators — and Keryx's instrumentation will continue to work.
+
+The package also exports the underlying `TracingPlugin` initializer class alongside the `tracingPlugin` manifest. Registering the manifest is the supported path; reach for the class only when you need to subclass it or control its position in the initializer graph yourself.

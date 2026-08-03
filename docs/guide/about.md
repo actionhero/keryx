@@ -20,14 +20,14 @@ Most frameworks treat MCP as an afterthought: bolt on a separate MCP server, dup
 
 What that means in practice:
 
-- **Zero-config tool registration** — write an action, it's an MCP tool. No separate definitions.
+- **One-line tool registration** — add `mcp = { tool: true }` to an action. No separate definitions.
 - **OAuth 2.1 + PKCE** — agents authenticate like browser clients. One auth layer.
 - **Per-session MCP servers** — each agent gets isolated state.
 - **Typed errors** — agents get structured `ErrorType` values, not generic failures.
 - **Real-time notifications** — PubSub events forwarded as MCP logging messages.
 - **Dynamic OAuth forms** — login pages generated from your Zod schemas.
 
-Claude Desktop, VS Code Copilot, Cursor, Windsurf, and any other MCP client can discover and call your actions out of the box. See the [Building for AI Agents](/guide/agents) guide for a walkthrough.
+Claude Desktop, VS Code Copilot, Cursor, Windsurf, and any other MCP client can discover and call the actions you expose. See the [Building for AI Agents](/guide/agents) guide for a walkthrough.
 
 ## Brand Assets
 

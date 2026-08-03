@@ -8,11 +8,12 @@ If you're building a backend that AI agents need to call, you've probably looked
 
 Most frameworks don't support MCP at all. The ones that do require you to build a separate MCP server, duplicate your route handlers as tool definitions, and manage a second auth layer. You end up maintaining two APIs — one for humans, one for agents — with no shared validation or middleware.
 
-Keryx treats MCP as a first-class transport. Every [action](/guide/actions) you write is automatically an MCP tool. Same Zod validation, same [middleware](/guide/middleware), same [authentication](/guide/authentication). No duplication.
+Keryx treats MCP as a first-class transport. Any [action](/guide/actions) you write becomes an MCP tool by adding one line — `mcp = { tool: true }`. Same Zod validation, same [middleware](/guide/middleware), same [authentication](/guide/authentication). No duplication.
 
 ## What You Get
 
-- **Zero-config tool registration** — write an action, it's an MCP tool. No separate definitions, no schema mapping.
+- **One-line tool registration** — add `mcp = { tool: true }` to an action and it's a tool. No separate definitions, no schema mapping.
+- **Private by default** — actions are never exposed to agents unless you opt them in, so internal and destructive actions can't leak through tool discovery.
 - **OAuth 2.1 + PKCE built-in** — agents authenticate the same way browser clients do. One auth layer, not two.
 - **Dynamic OAuth forms** — login and signup pages are generated from your Zod schemas. Change a field, the form updates.
 - **Per-session MCP servers** — each agent connection gets its own isolated `McpServer` instance. No cross-session state leaks.
@@ -32,7 +33,7 @@ bun install
 
 ### 2. Write an Action
 
-Every action is automatically an MCP tool. Here's a simple one:
+Set `mcp = { tool: true }` to publish the action as a tool. Without it, the action still works everywhere else — it's just invisible to agents:
 
 ```ts
 export class WeatherLookup implements Action {
@@ -43,6 +44,7 @@ export class WeatherLookup implements Action {
     units: z.enum(["celsius", "fahrenheit"]).default("celsius"),
   });
   web = { route: "/weather/:city", method: HTTP_METHOD.GET };
+  mcp = { tool: true };
 
   async run(params: ActionParams<WeatherLookup>) {
     const weather = await fetchWeather(params.city, params.units);
@@ -52,6 +54,8 @@ export class WeatherLookup implements Action {
 ```
 
 This single class gives you an HTTP endpoint _and_ an MCP tool called `weather-lookup` with a validated input schema — both from the same code.
+
+The actions a fresh `keryx new` project ships with don't set `mcp`, so a brand-new server starts with no tools. That's deliberate — you choose what agents can reach. Add `mcp = { tool: true }` to at least one action before moving on, or `listTools` will come back empty.
 
 ### 3. Enable MCP
 
@@ -85,24 +89,36 @@ The agent can now discover all your actions as tools, authenticate via OAuth, an
 
 ## Controlling Tool Exposure
 
-By default, every action is exposed as an MCP tool. To hide an action from agents:
+Tools are opt-in. An action with no `mcp` config is never exposed, so internal maintenance actions, admin-only operations, and anything destructive stay private without you doing anything:
 
 ```ts
 export class InternalCleanup implements Action {
   name = "internal:cleanup";
-  mcp = { tool: false };
+  // no `mcp` config — invisible to agents
   // ...
 }
 ```
 
-This is useful for internal maintenance actions, admin-only operations, or actions that don't make sense as agent tools. The action still works over HTTP, WebSocket, CLI, and as a background task — it's hidden from MCP tool discovery only.
+That action still works over HTTP, WebSocket, CLI, and as a background task. It's absent from MCP tool discovery only.
 
-Login and signup actions used in the OAuth flow are typically hidden too:
+To publish an action, opt it in:
+
+```ts
+export class WeatherLookup implements Action {
+  name = "weather:lookup";
+  mcp = { tool: true };
+  // ...
+}
+```
+
+Actions that declare an MCP App (`mcp.ui`) are registered as tools automatically — set `mcp = { ui: …, tool: false }` if you want the UI without the tool.
+
+Login and signup actions participate in the OAuth flow without being tools, so they set the flag but not `tool`:
 
 ```ts
 export class SessionCreate implements Action {
   name = "session:create";
-  mcp = { tool: false, isLoginAction: true };
+  mcp = { isLoginAction: true };
   // ...
 }
 ```
@@ -140,14 +156,14 @@ export class UserOnboard implements Action {
 
 The agent calls `user-onboard` once and three things happen. No multi-step orchestration, no missed steps, no half-created state if the agent loses context midway.
 
-This doesn't mean you can't have fine-grained actions — `user:create` is still useful as an HTTP endpoint or background task. Just set `mcp = { tool: false }` on the low-level actions and expose the higher-order workflow as the tool. You keep full flexibility for your HTTP clients while giving agents the right level of abstraction.
+This doesn't mean you can't have fine-grained actions — `user:create` is still useful as an HTTP endpoint or background task. Leave the low-level actions un-opted-in and set `mcp = { tool: true }` only on the higher-order workflow. You keep full flexibility for your HTTP clients while giving agents the right level of abstraction.
 
 A few principles that hold up in practice:
 
 - **Name tools by intent, not by verb + resource.** `user-onboard` is clearer to an agent than `user-create`. The description matters too — agents read it to decide which tool to call.
 - **Bundle related side effects.** If operation A always requires operations B and C, make one tool that does all three. The agent doesn't know your business rules — your server does.
 - **Use `.describe()` on every Zod field.** These descriptions become the parameter documentation agents see. "Email address (used for login)" is more useful than just `z.string().email()`.
-- **Don't expose internal plumbing.** Admin actions, cleanup jobs, and migration tasks aren't useful to agents. Use `mcp = { tool: false }` liberally.
+- **Don't expose internal plumbing.** Admin actions, cleanup jobs, and migration tasks aren't useful to agents. Leaving them without an `mcp` config is enough — be sparing about what you opt in.
 - **Consider markdown responses for agent-facing tools.** Actions that return human-readable data (status, reports, search results) can set `mcp = { responseFormat: MCP_RESPONSE_FORMAT.MARKDOWN }` so agents receive formatted markdown instead of raw JSON — saving tokens and avoiding re-formatting. See the [MCP response format guide](/guide/mcp#response-format) for details.
 
 For a deeper dive on tool design patterns for AI agents — including composition, batching, and context injection — see the [Arcade tool design patterns guide](https://www.arcade.dev/patterns).

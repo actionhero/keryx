@@ -125,17 +125,21 @@ type OAuthActionResponse = { user: { id: number } };
 
 The OAuth page dynamically generates form fields from your action's Zod `inputs` schema — if you change the inputs on your login or signup action, the form updates automatically. Fields wrapped in `secret()` render as password inputs, and `.describe()` text is used for labels.
 
+Logging an agent out works differently from the cookie logout above. There's no session to destroy — instead, `POST /oauth/revoke` with the client's token (RFC 7009), which invalidates the access and refresh pair together. `POST /oauth/introspect` (RFC 7662) reports whether a token is still live.
+
 See the [MCP guide](/guide/mcp#oauth-21-authentication) for the full OAuth flow and endpoint documentation.
 
 ## Session Configuration
 
 | Key              | Env Var                    | Default       | Description                               |
 | ---------------- | -------------------------- | ------------- | ----------------------------------------- |
-| `ttl`            | `SESSION_TTL`              | `86400`       | Session TTL in seconds (1 day)            |
+| `ttl`            | `SESSION_TTL`              | `86400`       | Session TTL in seconds (1 day) — also sets the MCP OAuth access-token lifetime |
 | `cookieName`     | `SESSION_COOKIE_NAME`      | `"__session"` | Cookie name for session tracking          |
 | `cookieHttpOnly` | `SESSION_COOKIE_HTTP_ONLY` | `true`        | Prevent JavaScript access                 |
 | `cookieSecure`   | `SESSION_COOKIE_SECURE`    | `false`       | HTTPS-only cookies                        |
 | `cookieSameSite` | `SESSION_COOKIE_SAME_SITE` | `"Strict"`    | CSRF protection (`Strict`, `Lax`, `None`) |
+
+`SESSION_TTL` does double duty: it's the cookie session lifetime *and* the expiry of the bearer tokens issued to MCP clients (`expires_in` on the token response). Tightening it for browser hygiene shortens agent tokens too. Refresh tokens are governed separately by `MCP_OAUTH_REFRESH_TTL` — see [Refresh Tokens](/guide/mcp#refresh-tokens).
 
 See the [Security guide](/guide/security) for production recommendations on cookie security settings.
 

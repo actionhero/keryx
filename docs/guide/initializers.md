@@ -184,3 +184,8 @@ Signal handlers are registered by the `signals` initializer:
 - **SIGTERM** — same graceful shutdown
 
 The shutdown process walks the dependency graph in reverse, so dependents stop before the initializers they depend on — channels and the MCP server stop before the web server, which stops before the database pool and Redis are closed.
+
+## Reference
+
+- [`Initializer` class reference](/reference/initializers) — full lifecycle API and the dependency-graph fields
+- [API, Connection, Channel & more](/reference/classes) — the objects an initializer attaches to `api`

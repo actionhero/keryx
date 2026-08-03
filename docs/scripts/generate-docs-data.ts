@@ -5,11 +5,17 @@
  * Usage: bun run scripts/generate-docs-data.ts
  */
 
+import { existsSync } from "fs";
 import { mkdir } from "fs/promises";
 import path from "path";
 import { Project, type Type, ts } from "ts-morph";
 
-const rootDir = path.resolve(import.meta.dir, "../../backend");
+const repoRoot = path.resolve(import.meta.dir, "../..");
+const rootDir = path.resolve(repoRoot, "example/backend");
+// Config is framework-owned. Read it from the real source rather than through
+// example/backend/node_modules/keryx, which is a symlink back to the same files
+// and would attribute every key to a node_modules path.
+const configDir = path.resolve(repoRoot, "packages/keryx/config");
 const outDir = path.resolve(import.meta.dir, "../.vitepress/data");
 
 type JSONSchema = {
@@ -110,6 +116,21 @@ function typeToJsonSchema(
 
 console.log("Generating docs data from", rootDir);
 
+// Fail loudly if the backend moves again. Silently emitting `[]` renders the
+// Config Reference page blank, and a diff-based staleness test can't catch it
+// because empty output matches empty committed output.
+for (const [label, dir] of [
+  ["backend source", rootDir],
+  ["framework config", configDir],
+] as const) {
+  if (!existsSync(dir)) {
+    console.error(
+      `ERROR: ${label} not found at ${dir}. Update the paths in this script.`,
+    );
+    process.exit(1);
+  }
+}
+
 const project = new Project({
   skipAddingFilesFromTsConfig: true,
   compilerOptions: {
@@ -121,8 +142,13 @@ const project = new Project({
 });
 
 project.addSourceFilesAtPaths(path.join(rootDir, "**/*.ts"));
+project.addSourceFilesAtPaths(path.join(configDir, "**/*.ts"));
 for (const sf of project.getSourceFiles()) {
-  if (sf.getFilePath().includes("__tests__")) project.removeSourceFile(sf);
+  const p = sf.getFilePath();
+  // Skip tests, and skip the installed copy of the framework — config that
+  // lives in node_modules would otherwise be attributed to the example app.
+  if (p.includes("__tests__") || p.includes("/node_modules/"))
+    project.removeSourceFile(sf);
 }
 
 // --- Extract Actions ---
@@ -340,21 +366,25 @@ for (const sf of project.getSourceFiles()) {
   if (!sf.getFilePath().includes("/config/")) continue;
   if (sf.getFilePath().endsWith("index.ts")) continue;
 
-  const relPath = path.relative(rootDir, sf.getFilePath());
+  const relPath = path.relative(repoRoot, sf.getFilePath());
   const section = path.basename(sf.getFilePath(), ".ts");
 
   const keys: { name: string; envVar: string; defaultValue: string }[] = [];
 
-  // Find loadFromEnvIfSet calls
+  // Find loadFromEnvIfSet calls. Three declaration shapes appear in config
+  // files and all three must be captured:
+  //   const port = await loadFromEnvIfSet("WEB_SERVER_PORT", 8080)
+  //   timeout: await loadFromEnvIfSet("TASK_TIMEOUT", 5000)
+  //   "Content-Security-Policy": await loadFromEnvIfSet("WEB_SECURITY_CSP", …)
   const text = sf.getText();
   const callRegex =
-    /(\w+):\s*await\s+loadFromEnvIfSet\s*(?:<[^>]+>)?\(\s*["'](\w+)["']\s*,\s*([^)]+)\)/g;
+    /(?:const\s+(\w+)\s*=|["']?([\w-]+)["']?\s*:)\s*await\s+loadFromEnvIfSet\s*(?:<[^>]+>)?\(\s*["']([A-Z0-9_]+)["']\s*,\s*([^)]*(?:\([^)]*\)[^)]*)*)\)/g;
   let match;
   while ((match = callRegex.exec(text)) !== null) {
     keys.push({
-      name: match[1],
-      envVar: match[2],
-      defaultValue: match[3].trim(),
+      name: match[1] ?? match[2],
+      envVar: match[3],
+      defaultValue: match[4].trim().replace(/,$/, ""),
     });
   }
 
@@ -382,3 +412,16 @@ await Bun.write(
 console.log(
   `Generated: ${actions.length} actions, ${initializers.length} initializers, ${configs.length} config sections`,
 );
+
+// A run that finds nothing means the parse broke, not that the app is empty.
+const empty = [
+  actions.length === 0 && "actions",
+  initializers.length === 0 && "initializers",
+  configs.length === 0 && "config sections",
+].filter(Boolean);
+if (empty.length > 0) {
+  console.error(
+    `ERROR: generated no ${empty.join(", no ")} from ${rootDir}. The pages that consume this data would render blank.`,
+  );
+  process.exit(1);
+}

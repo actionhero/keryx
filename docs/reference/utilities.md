@@ -232,3 +232,88 @@ export const zMessageSchema = createSelectSchema(messages);
 ```
 
 These stay in sync with the database schema automatically — when you add a column to the Drizzle table, the Zod schema updates too.
+
+## Loading & Comparison Helpers
+
+### `globLoader(searchDir)`
+
+Recursively loads every `.ts` file under `searchDir`, instantiates each exported class, and returns the instances. This is what discovers your actions, initializers, channels, and middleware — it's the mechanism behind "drop a file in the directory and it works."
+
+```ts
+import { globLoader } from "keryx";
+import { Action } from "keryx";
+
+const actions = await globLoader<Action>("./actions");
+```
+
+Throws a `TypedError` with `ErrorType.SERVER_INITIALIZATION` if any class fails to instantiate.
+
+### `safeCompare(a, b)`
+
+Constant-time string comparison. Both values are SHA-256 hashed before `timingSafeEqual`, so unequal lengths can't leak through a length oracle. Use it anywhere you compare a secret supplied by a caller — API keys, tokens, admin passwords:
+
+```ts
+import { safeCompare } from "keryx";
+
+if (!safeCompare(params.apiKey, config.myPlugin.apiKey)) {
+  throw new TypedError({
+    message: "invalid key",
+    type: ErrorType.CONNECTION_ACTION_RUN,
+  });
+}
+```
+
+A plain `===` on a secret is a timing side-channel. Reach for this instead.
+
+## CLI & Generator Helpers
+
+These back the `keryx` CLI. You need them only when building your own CLI entry point or a [plugin generator](/guide/plugins).
+
+| Export             | Signature                        | Purpose                                                              |
+| ------------------ | -------------------------------- | -------------------------------------------------------------------- |
+| `buildProgram()`   | `(opts) => Promise<Command>`     | Builds the Commander program with every framework and action command  |
+| `getValidTypes()`  | `() => string[]`                 | All valid `keryx generate` type names, including plugin-registered ones |
+| `PluginGenerator`  | type                             | Shape a plugin implements to add its own `keryx generate <type>`      |
+
+## Swagger Schema Cache
+
+The web server pre-generates OpenAPI schemas so the first request doesn't pay for it. `keryx build` calls these; you'd only call them directly when building a custom deploy pipeline.
+
+| Export                     | Purpose                                                         |
+| -------------------------- | --------------------------------------------------------------- |
+| `generateSwaggerSchemas()` | Build OpenAPI schemas for every registered action                |
+| `computeActionsHash()`     | Fingerprint the current action set, used to invalidate the cache |
+| `writeSchemasCache()`      | Persist generated schemas to disk                                |
+| `loadCachedSchemas()`      | Read schemas back, returning `undefined` on a hash mismatch      |
+| `JSONSchema`               | Type of a generated schema object                                |
+
+## Constants & Enums
+
+| Export                 | Type                          | Value / Purpose                                                        |
+| ---------------------- | ----------------------------- | ---------------------------------------------------------------------- |
+| `CHANNEL_NAME_PATTERN` | `RegExp`                      | `/^[a-zA-Z0-9:._-]{1,200}$/` — validates [channel](/guide/channels) names |
+| `MCP_APP_MIME_TYPE`    | `string`                      | `text/html;profile=mcp-app`, the MIME type for [MCP App](/guide/mcp-apps) resources |
+| `MCP_RESPONSE_FORMAT`  | enum                          | `JSON` or `MARKDOWN` — an action's [MCP response format](/guide/mcp#response-format) |
+| `HTTP_METHOD`          | enum                          | HTTP verbs for an action's `web.method`                                |
+| `LogFormat`            | enum                          | `text` or `json` — see [Logger](/reference/classes#logger)             |
+| `LogLevel`             | enum                          | Logger verbosity threshold                                             |
+| `ExitCode`             | enum                          | `success = 0`, `error = 1` — used by the CLI runner and signal handlers |
+| `ErrorStatusCodes`     | `Record<ErrorType, number>`   | Maps each `ErrorType` to its HTTP status — see [TypedError](/reference/classes#typederror) |
+| `CONNECTION_TYPE`      | enum                          | Transport that opened a [Connection](/reference/classes#connection)    |
+
+## Testing Helpers
+
+Exported from the `keryx/testing` subpath, not the package root:
+
+```ts
+import { useTestServer, serverUrl, waitFor, HOOK_TIMEOUT } from "keryx/testing";
+```
+
+| Export             | Signature                                              | Purpose                                                        |
+| ------------------ | ------------------------------------------------------ | -------------------------------------------------------------- |
+| `useTestServer()`  | `(opts?) => void`                                       | Registers `beforeAll`/`afterAll` to boot and stop the server    |
+| `serverUrl()`      | `() => string`                                          | The URL the server actually bound to, with the resolved port    |
+| `waitFor()`        | `(condition, { interval, timeout }) => Promise<void>`   | Polls until `condition` returns `true`, instead of a fixed sleep |
+| `HOOK_TIMEOUT`     | `60_000`                                                | Timeout to pass to your own `beforeAll`/`afterAll` hooks        |
+
+See the [Testing guide](/guide/testing) for how these fit together.

@@ -28,9 +28,6 @@ curl -fsSL https://bun.sh/install | bash
 brew install postgresql redis
 brew services start postgresql
 brew services start redis
-
-# create a database
-createdb bun
 ```
 
 ## Create a New Project
@@ -39,8 +36,12 @@ createdb bun
 bunx keryx new my-app
 cd my-app
 cp .env.example .env
+createdb my-app
+createdb my-app-test
 bun install
 ```
+
+The generated `.env` points `DATABASE_URL` at a database named after your project, and `DATABASE_URL_TEST` at `<project>-test` — so create both before starting the server. `keryx new` prints these same steps when it finishes.
 
 The `keryx new` command will prompt you for a project name and optional features (database setup, example action). You can also skip prompts with `--no-interactive`:
 
@@ -94,3 +95,7 @@ This creates the component file and a matching test file. See the [CLI guide](/g
 - [Tasks](/guide/tasks) — background jobs and the fan-out pattern
 - [Configuration](/guide/config) — environment-based config with per-env overrides
 - [Building for AI Agents](/guide/agents) — expose your actions as MCP tools for Claude, Cursor, and other AI clients
+- [Caching](/guide/caching) — Redis-backed caching helpers and invalidation patterns
+- [Testing](/guide/testing) — real HTTP requests against a real server, no mocks
+- [Deployment](/guide/deployment) — running Keryx in production
+- [Coming from ActionHero](/guide/from-actionhero) — what changed, and how concepts map across

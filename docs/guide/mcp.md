@@ -4,7 +4,17 @@ description: MCP server configuration — how actions become tools, controlling 
 
 # MCP Server
 
-[MCP (Model Context Protocol)](https://modelcontextprotocol.io) is an open standard for connecting AI agents to external tools and data sources. In Keryx, MCP is a natural extension of the transport-agnostic action model — just like an action can serve HTTP, WebSocket, CLI, and background tasks, it can also be exposed as an MCP tool for AI agents.
+The [Model Context Protocol](https://modelcontextprotocol.io) (MCP) is an open standard for connecting AI agents to external tools and data sources. In Keryx, MCP is a natural extension of the transport-agnostic action model — just like an action can serve HTTP, WebSocket, CLI, and background tasks, it can also be exposed as an MCP tool for AI agents.
+
+## Protocol Versions
+
+Keryx builds on the official [`@modelcontextprotocol/sdk`](https://www.npmjs.com/package/@modelcontextprotocol/sdk) and negotiates the wire protocol at `initialize`. The supported revisions, newest first:
+
+`2025-11-25` · `2025-06-18` · `2025-03-26` · `2024-11-05` · `2024-10-07`
+
+A client asking for something newer than `2025-11-25` is answered with `2025-11-25`; a client that sends no version is treated as `2025-03-26`. After `initialize`, every request must carry the negotiated version in an `MCP-Protocol-Version` header — a mismatch is rejected with `400`. The header is CORS-allowlisted so browser-based clients can send it.
+
+Some sections below cite MCP `2026-07-28` (the CIMD, `iss`, and `application_type` requirements). Those are **authorization** rules backported from a later specification revision; they don't change the wire protocol version list above.
 
 ## Enabling the MCP Server
 
@@ -71,7 +81,7 @@ export class PublicAction implements Action {
 }
 ```
 
-An internal action simply omits `mcp` (or sets `mcp = { tool: false }`) and is never registered:
+An internal action omits `mcp` (or sets `mcp = { tool: false }`) and is never registered:
 
 ```ts
 export class InternalAction implements Action {
@@ -143,7 +153,10 @@ export class StatusResource implements Action {
 
   async run() {
     return {
-      text: JSON.stringify({ ok: true, uptime: api.uptime }),
+      text: JSON.stringify({
+        ok: true,
+        uptime: new Date().getTime() - api.bootTime,
+      }),
       mimeType: "application/json",
     };
   }
@@ -232,19 +245,39 @@ MCP clients authenticate using OAuth 2.1 with PKCE (Proof Key for Code Exchange)
 5. Client opens a browser to `/oauth/authorize` with PKCE challenge
 6. User logs in or signs up on the authorization page
 7. Server issues an authorization code and redirects back
-8. Client exchanges the code for an access token at `POST /oauth/token`
+8. Client exchanges the code for an access token and a refresh token at `POST /oauth/token`
 9. Client includes `Authorization: Bearer <token>` on subsequent MCP requests
+10. When the access token expires, the client exchanges its refresh token for a new pair
 
 ### OAuth Endpoints
 
-| Endpoint                                  | Method | Description                            |
-| ----------------------------------------- | ------ | -------------------------------------- |
-| `/.well-known/oauth-protected-resource`   | GET    | Resource metadata (RFC 9728)           |
-| `/.well-known/oauth-authorization-server` | GET    | Authorization server metadata          |
-| `/oauth/register`                         | POST   | Dynamic client registration            |
-| `/oauth/authorize`                        | GET    | Authorization page (login/signup form) |
-| `/oauth/authorize`                        | POST   | Process login/signup form submission   |
-| `/oauth/token`                            | POST   | Exchange authorization code for token  |
+| Endpoint                                  | Method | Description                                    |
+| ----------------------------------------- | ------ | ---------------------------------------------- |
+| `/.well-known/oauth-protected-resource`   | GET    | Resource metadata (RFC 9728)                   |
+| `/.well-known/oauth-authorization-server` | GET    | Authorization server metadata (RFC 8414)       |
+| `/oauth/register`                         | POST   | Dynamic client registration                    |
+| `/oauth/authorize`                        | GET    | Authorization page (login/signup form)         |
+| `/oauth/authorize`                        | POST   | Process login/signup form submission           |
+| `/oauth/token`                            | POST   | Exchange authorization code or refresh token   |
+| `/oauth/introspect`                       | POST   | Token introspection (RFC 7662)                 |
+| `/oauth/revoke`                           | POST   | Token revocation (RFC 7009)                    |
+
+All six are advertised in the authorization server metadata document, so a conforming client discovers them without hardcoding paths. None require client authentication — `token_endpoint_auth_methods_supported` is `["none"]`, since public clients using PKCE hold no secret.
+
+### Refresh Tokens
+
+`POST /oauth/token` accepts `grant_type=refresh_token` as well as `grant_type=authorization_code`; both are advertised in `grant_types_supported`. Refresh tokens rotate on every use: the server deletes the old access/refresh pair **before** writing the new one, so a replayed refresh token fails closed rather than minting a second live session.
+
+Access tokens and refresh tokens have separate lifetimes:
+
+| Token   | TTL source                       | Environment variable    | Default |
+| ------- | -------------------------------- | ----------------------- | ------- |
+| Access  | `config.session.ttl`             | `SESSION_TTL`           | 1 day   |
+| Refresh | `config.server.mcp.oauthRefreshTtl` | `MCP_OAUTH_REFRESH_TTL` | 30 days |
+
+Note that the access-token lifetime is the **session** TTL, not an `MCP_OAUTH_*` key. Shortening `SESSION_TTL` to tighten browser cookie expiry also shortens every agent's bearer token — see [Authentication](/guide/authentication#session-configuration).
+
+To log an agent out, `POST /oauth/revoke` with the token. Revoking either half of a pair cascades to both.
 
 ### Client ID Metadata Documents
 
@@ -317,12 +350,14 @@ Sessions are recorded in a **shared Redis registry** (`mcp:session:<id>`), so an
 - **A non-`initialize` `POST` with no `mcp-session-id` → `400 Bad Request`.** Only `initialize` may open a new session.
 - **A session id owned by a different OAuth client → `403 Forbidden`.**
 - **A `POST` body that isn't JSON → `400 Bad Request`** with a JSON-RPC error response: `-32700 Parse error`, `id: null`.
-- **A `POST` body that is JSON but not a valid JSON-RPC message → `400 Bad Request`** with `-32600 Invalid Request`, `id: null`. JSON-RPC 2.0 reserves `-32700` for input that can't be parsed at all, so keryx validates the envelope itself rather than letting the SDK transport report both cases as a parse error.
+- **A `POST` body that is JSON but not a valid JSON-RPC message → `400 Bad Request`** with `-32600 Invalid Request`, `id: null`. JSON-RPC 2.0 reserves `-32700` for input that can't be parsed at all, so Keryx validates the envelope itself rather than letting the SDK transport report both cases as a parse error.
+- **A non-`initialize` request whose `MCP-Protocol-Version` header doesn't match the negotiated version → `400 Bad Request`.** See [Protocol Versions](#protocol-versions).
 
 ### Lifecycle hooks in a cluster
 
 - `onConnect` fires **once**, on the node that runs the real `initialize` handshake. Adopting a session on another node does not re-fire it.
-- `onDisconnect` fires **once cluster-wide**, on the node whose `DELETE` (or true teardown) removes the shared record. A node shutting down does **not** fire it — the session may still be live and adoptable elsewhere.
+- `onDisconnect` fires **once cluster-wide**, on the node whose explicit client `DELETE` removes the shared record. A node shutting down does **not** fire it — the session may still be live and adoptable elsewhere.
+- A session that lapses via `MCP_SESSION_TTL` rather than a `DELETE` **never fires `onDisconnect`**. There is no reaper watching for expiry; the record simply ages out of Redis and subsequent requests get a `404`. Don't rely on `onDisconnect` for cleanup that must always run — clients that vanish without a `DELETE` are the common case.
 - `onMessage` fires per inbound request, on whichever node handles it.
 
 > **Tip:** sticky sessions (session affinity) are still a useful optimization — they keep a client on the node that already holds its transport and avoid re-adoption — but they are not required for correctness.
@@ -400,7 +435,9 @@ Keryx ships a **default theme**: a shared set of `--keryx-*` design tokens that 
 
 ## PubSub Notifications
 
-When messages are broadcast through the PubSub system (e.g., chat messages sent via Redis PubSub), they are forwarded to all connected MCP clients as MCP logging messages. This allows AI agents to receive real-time notifications about events happening in your application.
+When messages are broadcast through the PubSub system (e.g., chat messages sent via Redis PubSub), they are forwarded to connected MCP clients as MCP logging messages. This allows AI agents to receive real-time notifications about events happening in your application.
+
+Delivery is authorized per channel, not broadcast to everyone. Each MCP session is checked against the same channel [authorization](/guide/channels) that governs WebSocket subscribers, so an agent only receives broadcasts for channels its authenticated user could join. The check fails closed: a session with no captured auth receives nothing.
 
 ## Configuration Reference
 
@@ -444,3 +481,29 @@ const result = await client.callTool({
   arguments: {},
 });
 ```
+
+The `accessToken` above has to come from somewhere. In tests, drive the same OAuth flow a real client would — see `example/backend/__tests__/initializers/mcp.test.ts` for a worked end-to-end example that registers a client, completes the authorization code exchange, and calls a tool with the resulting bearer token.
+
+## Debugging
+
+The MCP endpoint always requires authentication — there is no anonymous mode — so the first response to an unauthenticated request is a `401`. That's expected, not a misconfiguration. The `WWW-Authenticate` header on that response tells you where discovery starts:
+
+```
+WWW-Authenticate: Bearer resource_metadata="https://your-host/.well-known/oauth-protected-resource/mcp", scope="mcp"
+```
+
+A few things worth checking when a client won't connect:
+
+- **`listTools` returns nothing.** Tools are opt-in. Confirm at least one action sets `mcp = { tool: true }` — see [Controlling Exposure](#controlling-exposure). A fresh `keryx new` app has no tools until you add one.
+- **`400` on every request after `initialize`.** The client isn't echoing the negotiated `MCP-Protocol-Version` header. See [Protocol Versions](#protocol-versions).
+- **`404` mid-session.** The session id expired or was never created on this node; the client should re-`initialize`. See [Error semantics](#error-semantics-per-the-streamable-http-spec).
+- **`403` mid-session.** The session id belongs to a different OAuth client.
+- **CIMD fails against `localhost`.** The SSRF guard refuses private and loopback addresses by default. Set `MCP_OAUTH_CIMD_ALLOW_PRIVATE_HOSTS=true` for local development only — never in production.
+
+The [MCP Inspector](https://github.com/modelcontextprotocol/inspector) is the fastest way to exercise the server by hand. It walks the OAuth flow interactively and shows the raw JSON-RPC traffic, which makes protocol-level problems much easier to see than reading server logs:
+
+```bash
+bunx @modelcontextprotocol/inspector
+```
+
+Point it at `http://localhost:8080/mcp` with transport type "Streamable HTTP".

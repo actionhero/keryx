@@ -22,7 +22,7 @@ export class SessionCreate implements Action {
   name = "session:create";
   description =
     "Sign in with email and password. Creates an authenticated session and returns the user's profile. Call this before using any endpoints that require authentication.";
-  mcp = { enabled: false, isLoginAction: true };
+  mcp = { isLoginAction: true };
   middleware = [RateLimitMiddleware];
   web = { route: "/session", method: HTTP_METHOD.PUT };
   inputs = z.object({

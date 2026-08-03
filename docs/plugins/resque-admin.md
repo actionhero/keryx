@@ -77,3 +77,17 @@ All endpoints except the UI require the `password` parameter. For GET requests, 
 - All admin actions are excluded from MCP tool exposure (`mcp: { tool: false }`).
 - The password field is marked with `secret()` so it won't appear in logs or Swagger documentation.
 - Consider placing these endpoints behind a VPN or reverse proxy with additional authentication in production environments.
+
+The password check is exported as `ResqueAdminPasswordMiddleware`, so you can reuse it on your own actions:
+
+```ts
+import { ResqueAdminPasswordMiddleware } from "@keryxjs/resque-admin";
+
+export class QueueDrain implements Action {
+  name = "queue:drain";
+  middleware = [ResqueAdminPasswordMiddleware];
+  // ...
+}
+```
+
+It compares against `config.resqueAdmin.password` in constant time, rejecting with a `401` on mismatch and a `500` when no password is configured.

@@ -92,18 +92,27 @@ export function zodToFormFields(action: Action | undefined): FormField[] {
       ? description.charAt(0).toUpperCase() + description.slice(1)
       : fieldName.charAt(0).toUpperCase() + fieldName.slice(1);
 
-    // Best-effort min/max extraction from Zod v4 internals
+    // Best-effort min/max extraction from Zod v4 internals. A v4 check carries
+    // its metadata under `_zod.def` (`{ check: "min_length", minimum: 8 }`), not
+    // the v3-era `{ kind, value }` shape.
     let minlength: number | undefined;
     let maxlength: number | undefined;
     try {
       const def = (schema as any)._zod?.def;
       if (def?.checks) {
         for (const check of def.checks) {
-          if (check.kind === "min" && typeof check.value === "number") {
-            minlength = check.value;
+          const checkDef = check?._zod?.def;
+          if (
+            checkDef?.check === "min_length" &&
+            typeof checkDef.minimum === "number"
+          ) {
+            minlength = checkDef.minimum;
           }
-          if (check.kind === "max" && typeof check.value === "number") {
-            maxlength = check.value;
+          if (
+            checkDef?.check === "max_length" &&
+            typeof checkDef.maximum === "number"
+          ) {
+            maxlength = checkDef.maximum;
           }
         }
       }
