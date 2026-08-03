@@ -1,6 +1,8 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { StreamingResponse } from "../../classes/StreamingResponse";
 import { config } from "../../config";
 import { compressResponse } from "../../util/webCompression";
+import { markStreamingResponse } from "../../util/webStreaming";
 
 const originalThreshold = config.server.web.compression.threshold;
 const originalEnabled = config.server.web.compression.enabled;
@@ -199,5 +201,132 @@ describe("compressResponse", () => {
     const out = await compressResponse(res, reqWith("gzip"));
     expect(out.status).toBe(201);
     expect(out.headers.get("Content-Encoding")).toBe("gzip");
+  });
+});
+
+describe("compressResponse with streaming bodies", () => {
+  /** A stream of `count` chunks of `chunkSize` bytes, counting how many were pulled. */
+  function countingStream(count: number, chunkSize: number) {
+    const counter = { pulled: 0 };
+    let emitted = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (emitted >= count) return controller.close();
+        counter.pulled++;
+        emitted++;
+        controller.enqueue(new Uint8Array(chunkSize).fill(97)); // "a"
+      },
+    });
+    return { stream, counter, totalBytes: count * chunkSize };
+  }
+
+  test("returns a marked streaming response untouched", async () => {
+    const res = markStreamingResponse(
+      new Response(new Blob([LARGE_BODY]).stream(), {
+        headers: { "Content-Type": "application/octet-stream" },
+      }),
+    );
+    const out = await compressResponse(res, reqWith("gzip"));
+    expect(out).toBe(res);
+    expect(out.headers.get("Content-Encoding")).toBeNull();
+  });
+
+  test("returns a StreamingResponse.stream() response untouched", async () => {
+    // The exact shape of issue #525: a non-SSE stream with a compressible content type,
+    // requested by a client that advertises gzip.
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(LARGE_BODY));
+        controller.close();
+      },
+    });
+    const res = StreamingResponse.stream(stream, {
+      contentType: "text/plain",
+    }).toResponse({});
+
+    const out = await compressResponse(res, reqWith("gzip"));
+    expect(out).toBe(res);
+    expect(out.headers.get("Content-Encoding")).toBeNull();
+    expect(await out.text()).toBe(LARGE_BODY);
+  });
+
+  test("does not wait for an unclosed body to end before responding", async () => {
+    // Before the fix this called arrayBuffer(), which only settles when the stream closes —
+    // so a long-lived stream never produced a response at all.
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        controller = c;
+        c.enqueue(new Uint8Array(4096).fill(98));
+      },
+    });
+    const res = new Response(stream, {
+      headers: { "Content-Type": "text/plain" },
+    });
+
+    const out = await compressResponse(res, reqWith("gzip"));
+    expect(out.headers.get("Content-Encoding")).toBe("gzip");
+
+    controller.close();
+    await out.body!.cancel();
+  });
+
+  test("reads no more than the threshold before deciding to compress", async () => {
+    const { stream, counter } = countingStream(40, 512); // 20 KB total, 1 KB threshold
+    const res = new Response(stream, {
+      headers: { "Content-Type": "text/plain" },
+    });
+
+    const out = await compressResponse(res, reqWith("gzip"));
+    expect(out.headers.get("Content-Encoding")).toBe("gzip");
+    // A couple of chunks clear the 1024-byte threshold; the other ~37 must still be
+    // unread, i.e. buffered memory is bounded by the threshold and not by body size.
+    expect(counter.pulled).toBeLessThanOrEqual(4);
+
+    await out.body!.cancel();
+  });
+
+  test("compressed chunked body round-trips with no bytes lost or duplicated", async () => {
+    // Exercises the seam between the chunks buffered for the threshold check and the
+    // remainder still in the reader.
+    const { stream, totalBytes } = countingStream(40, 512);
+    const res = new Response(stream, {
+      headers: { "Content-Type": "text/plain" },
+    });
+
+    const out = await compressResponse(res, reqWith("gzip"));
+    const decompressed = new Response(
+      out.body!.pipeThrough(new DecompressionStream("gzip")),
+    );
+    const text = await decompressed.text();
+    expect(text.length).toBe(totalBytes);
+    expect(text).toBe("a".repeat(totalBytes));
+  });
+
+  test("a chunked body under the threshold is reassembled intact", async () => {
+    const { stream, totalBytes } = countingStream(3, 100); // 300 bytes, under threshold
+    const res = new Response(stream, {
+      headers: { "Content-Type": "text/plain" },
+    });
+
+    const out = await compressResponse(res, reqWith("gzip"));
+    expect(out.headers.get("Content-Encoding")).toBeNull();
+    expect(await out.text()).toBe("a".repeat(totalBytes));
+  });
+
+  test("an empty chunked body is handled without throwing", async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close();
+      },
+    });
+    const res = new Response(stream, {
+      headers: { "Content-Type": "text/plain" },
+    });
+
+    const out = await compressResponse(res, reqWith("gzip"));
+    expect(out.headers.get("Content-Encoding")).toBeNull();
+    expect(await out.text()).toBe("");
   });
 });

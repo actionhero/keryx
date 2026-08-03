@@ -4,6 +4,8 @@
  * WebSocket (incremental messages), or MCP (logging messages + accumulated result).
  */
 
+import { markStreamingResponse } from "../util/webStreaming";
+
 const encoder = new TextEncoder();
 
 /**
@@ -71,6 +73,11 @@ export class StreamingResponse {
    * the provided base headers (CORS, security, session cookie, etc.) with
    * the streaming-specific headers.
    *
+   * The result is marked as a stream (see `markStreamingResponse`) so the web server
+   * passes the body through untouched — no compression, no idle timeout — regardless
+   * of content type. Without the mark, anything other than `text/event-stream` would
+   * be buffered to completion before the first byte reached the client.
+   *
    * @param baseHeaders - Headers from `buildHeaders()` to merge in.
    * @returns A native `Response` with the stream as its body.
    */
@@ -78,10 +85,12 @@ export class StreamingResponse {
     const mergedHeaders = { ...baseHeaders, ...this.headers };
     mergedHeaders["Content-Type"] = this.contentType;
 
-    return new Response(this.stream, {
-      status: 200,
-      headers: mergedHeaders,
-    });
+    return markStreamingResponse(
+      new Response(this.stream, {
+        status: 200,
+        headers: mergedHeaders,
+      }),
+    );
   }
 }
 

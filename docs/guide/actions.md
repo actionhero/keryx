@@ -164,8 +164,8 @@ Key points:
 - **`StreamingResponse.sse()`** — SSE with `Content-Type: text/event-stream`, `Cache-Control: no-cache`. Use `send(data, { event?, id? })` to emit events and `close()` to end the stream.
 - **`StreamingResponse.stream(readableStream, { contentType? })`** — raw binary/chunked streaming for file downloads or proxied responses.
 - **`timeout = 0`** — streaming actions should disable the action timeout.
-- **`web.streaming = true`** — tells Swagger to document the endpoint as `text/event-stream` instead of JSON.
-- **Compression is skipped** for SSE responses automatically.
+- **`web.streaming = true`** — documents the endpoint as `text/event-stream` in Swagger, and tells the web server to treat the response as a stream: no compression, no idle timeout. Only needed when you return a raw `Response` wrapping a stream; a `StreamingResponse` gets that treatment on its own.
+- **Compression and the idle timeout are skipped** for streaming responses automatically — SSE and chunked binary alike.
 - **Connection cleanup is deferred** until the stream closes, so sessions and middleware state remain valid during streaming.
 
 ### Transport Behavior

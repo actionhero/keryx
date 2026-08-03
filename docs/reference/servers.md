@@ -64,7 +64,11 @@ The web server can serve static files from a configured directory (default: `ass
 
 ### HTTP Compression
 
-The web server compresses responses using Brotli or gzip when the client supports it (via `Accept-Encoding`). Compression is enabled by default for responses larger than 1024 bytes. The server prefers Brotli when available, falling back to gzip.
+The web server compresses responses using gzip when the client supports it (via `Accept-Encoding`). Compression is enabled by default for responses larger than 1024 bytes.
+
+Streaming responses are never compressed: anything built from a `StreamingResponse`, any `text/event-stream` response, and any response from an action declaring `web.streaming`. They also get Bun's idle timeout disabled, so a stream that pauses between chunks isn't cut.
+
+A response with no `Content-Length` has to be measured before the threshold can be applied. The server reads at most `threshold` bytes to decide, then either sends those bytes as-is or stream-compresses them plus the remainder — a large or slow body is never held in memory in full.
 
 Configure via `config.server.web.compression`:
 
