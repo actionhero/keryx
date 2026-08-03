@@ -250,6 +250,99 @@ describe("parseRequestParams", () => {
       expect(params.tag).toEqual(["a", "b", "c"]);
     });
   });
+
+  describe("content-type matching", () => {
+    test("parses JSON when the content type carries a charset", async () => {
+      const req = new Request("http://localhost/test", {
+        method: "POST",
+        headers: { "content-type": "application/json; charset=utf-8" },
+        body: JSON.stringify({ hello: "world" }),
+      });
+      const params = await parseRequestParams(req, parsedUrl());
+      expect(params.hello).toBe("world");
+      expect(req.bodyUsed).toBe(true);
+    });
+
+    test("parses JSON regardless of header casing and whitespace", async () => {
+      const req = new Request("http://localhost/test", {
+        method: "POST",
+        headers: { "content-type": "  Application/JSON ;charset=UTF-8" },
+        body: JSON.stringify({ hello: "world" }),
+      });
+      const params = await parseRequestParams(req, parsedUrl());
+      expect(params.hello).toBe("world");
+    });
+
+    test("parses form-urlencoded bodies with a charset", async () => {
+      const req = new Request("http://localhost/test", {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded; charset=utf-8",
+        },
+        body: "name=Alice",
+      });
+      const params = await parseRequestParams(req, parsedUrl());
+      expect(params.name).toBe("Alice");
+    });
+
+    test("ignores bodies with an unrecognized content type", async () => {
+      const req = new Request("http://localhost/test", {
+        method: "POST",
+        headers: { "content-type": "application/octet-stream" },
+        body: "some-bytes",
+      });
+      const params = await parseRequestParams(req, parsedUrl());
+      expect(Object.keys(params)).toHaveLength(0);
+      expect(req.bodyUsed).toBe(false);
+      expect(await req.text()).toBe("some-bytes");
+    });
+  });
+
+  describe("rawBody option", () => {
+    test("leaves a JSON body unread for the caller to consume", async () => {
+      const req = jsonRequest({ hello: "world" });
+      const params = await parseRequestParams(req, parsedUrl(), undefined, {
+        rawBody: true,
+      });
+      expect(Object.keys(params)).toHaveLength(0);
+      expect(req.bodyUsed).toBe(false);
+      expect(await req.text()).toBe('{"hello":"world"}');
+    });
+
+    test("leaves a form-encoded body unread", async () => {
+      const req = formUrlencodedRequest("name=Alice");
+      const params = await parseRequestParams(req, parsedUrl(), undefined, {
+        rawBody: true,
+      });
+      expect(Object.keys(params)).toHaveLength(0);
+      expect(await req.text()).toBe("name=Alice");
+    });
+
+    test("still populates path and query params", async () => {
+      const req = jsonRequest({ target: "from-body" });
+      const params = await parseRequestParams(
+        req,
+        parsedUrl("limit=10"),
+        { target: "from-path" },
+        { rawBody: true },
+      );
+      expect(params.target).toBe("from-path");
+      expect(params.limit).toBe("10");
+    });
+
+    test("does not throw on a body that is not valid JSON", async () => {
+      const req = new Request("http://localhost/test", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "not valid json{",
+      });
+      const params = await parseRequestParams(req, parsedUrl(), undefined, {
+        rawBody: true,
+      });
+      expect(Object.keys(params)).toHaveLength(0);
+      expect(await req.text()).toBe("not valid json{");
+    });
+  });
 });
 
 describe("checkBodySize", () => {

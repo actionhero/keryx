@@ -34,17 +34,20 @@ The built-in web server uses `Bun.serve` to handle HTTP requests and WebSocket c
 When an HTTP request comes in, the server:
 
 1. Checks for a WebSocket upgrade — if the client is requesting a WebSocket connection, it upgrades transparently
-2. Tries to serve a static file (if `staticFiles.enabled` is `true` and the path matches)
-3. Matches the request path and method against registered action routes
-4. Extracts params from path segments (`:param`), query string, and request body
-5. Creates a `Connection`, calls `connection.act()` with the action name and params
-6. Returns the JSON response with appropriate headers and status codes
+2. Runs `beforeRequest` hooks — a hook that returns a `Response` answers the request here, skipping every step below it
+3. Tries to serve a static file (if `staticFiles.enabled` is `true` and the path matches)
+4. Matches the request path and method against registered action routes
+5. Extracts params from path segments (`:param`), query string, and request body
+6. Creates a `Connection`, calls `connection.act()` with the action name and params
+7. Returns the JSON response with appropriate headers and status codes
 
 Param loading order matters — later sources override earlier ones:
 
 1. **Path params** (e.g., `/user/:id` → `{ id: "123" }`)
 2. **Query params** (e.g., `?limit=10`)
 3. **Body params** (JSON or FormData)
+
+Body parsing keys off the base media type, so `application/json` and `application/json; charset=utf-8` are treated the same. Actions that declare [`web.rawBody`](/guide/actions#raw-request-bodies) skip step 5's body read entirely — they get path and query params only, and read the untouched body themselves via `connection.rawRequest`.
 
 ### WebSocket Message Flow
 

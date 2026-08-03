@@ -60,6 +60,10 @@ export class Hooks extends Initializer {
          * Register a hook to run at the start of every HTTP request, before
          * routing. Covers static files, OAuth, MCP, metrics, and actions.
          * Does not fire for WebSocket upgrades.
+         *
+         * A hook that returns a `Response` answers the request itself: later
+         * `beforeRequest` hooks and all routing are skipped, while
+         * `afterRequest` hooks still fire.
          */
         beforeRequest(hook: BeforeRequestHook): void {
           self.webBeforeRequest.push(hook);

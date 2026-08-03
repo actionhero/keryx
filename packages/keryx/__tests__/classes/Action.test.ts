@@ -30,13 +30,14 @@ describe("Action constructor defaults", () => {
     expect(action.timeout).toBeUndefined();
   });
 
-  test("web defaults to GET at /${name} with streaming off", () => {
+  test("web defaults to GET at /${name} with streaming and rawBody off", () => {
     const action = new MinimalAction({ name: "status" });
 
     expect(action.web).toEqual({
       route: "/status",
       method: HTTP_METHOD.GET,
       streaming: false,
+      rawBody: false,
     });
   });
 
@@ -114,6 +115,25 @@ describe("Action constructor overrides", () => {
       route: "/streaming/counter",
       method: HTTP_METHOD.POST,
       streaming: true,
+      rawBody: false,
+    });
+  });
+
+  test("rawBody is preserved when set", () => {
+    const action = new ConfiguredAction({
+      name: "proxy",
+      web: {
+        route: "/proxy/:target",
+        method: HTTP_METHOD.POST,
+        rawBody: true,
+      },
+    });
+
+    expect(action.web).toEqual({
+      route: "/proxy/:target",
+      method: HTTP_METHOD.POST,
+      streaming: false,
+      rawBody: true,
     });
   });
 

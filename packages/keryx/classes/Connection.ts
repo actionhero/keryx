@@ -112,6 +112,16 @@ export class Connection<
   sessionLoaded: boolean;
   /** The underlying transport handle (e.g., Bun `ServerWebSocket`). */
   rawConnection?: any;
+  /**
+   * The underlying `Request` for HTTP connections (`type === CONNECTION_TYPE.WEB`),
+   * giving actions access to headers, URL, and body. `undefined` for every other
+   * transport.
+   *
+   * The **body** is only readable when the action declares `web.rawBody: true` —
+   * otherwise the framework has already consumed it to build `params`, and
+   * `rawRequest.text()` resolves to `""`. Headers are always safe to read.
+   */
+  rawRequest?: Request;
   /** Rate-limit metadata populated by the rate-limit middleware. */
   rateLimitInfo?: RateLimitInfo;
   /** Request correlation ID for distributed tracing. Propagated from the incoming `X-Request-Id` header when `config.server.web.correlationId.trustProxy` is enabled. */
