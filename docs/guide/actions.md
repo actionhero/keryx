@@ -6,7 +6,7 @@ description: How to write actions — inputs, validation, web routes, task sched
 
 If there's one idea that defines Keryx, it's this: **actions are the universal controller**. In the original ActionHero, we had actions, tasks, and CLI commands as separate concepts. That always felt like unnecessary duplication — you'd write the same validation logic three times for three different entry points. So in this version, we've collapsed them all into one thing.
 
-An action is a class with a `name`, a Zod schema for `inputs`, and a `run()` method that returns data. You add a `web` property to make it an HTTP endpoint. You add a `task` property to make it a background job. CLI support comes for free. MCP tool exposure comes for free. Same validation, same error handling, same response shape — everywhere.
+An action is a class with a `name`, a Zod schema for `inputs`, and a `run()` method that returns data. You add a `web` property to make it an HTTP endpoint. You add a `task` property to make it a background job. You add `mcp = { tool: true }` to make it an MCP tool. CLI support comes for free. Same validation, same error handling, same response shape — everywhere.
 
 ## A Simple Example
 
@@ -41,7 +41,7 @@ That's a fully functioning HTTP endpoint, CLI command, and WebSocket handler. Hi
 | `web`         | `{ route, method, … }`  | HTTP routing. Routes are strings with `:param` placeholders or RegExp patterns |
 | `task`        | `{ queue, frequency? }` | Makes this action schedulable as a background job                              |
 | `middleware`  | `ActionMiddleware[]`    | Runs before/after the action (auth, logging, etc.)                             |
-| `mcp`         | `McpActionConfig`       | Controls MCP exposure: tool, resource, and/or prompt (tool enabled by default) |
+| `mcp`         | `McpActionConfig`       | Controls MCP exposure: tool, resource, and/or prompt (tools are opt-in)       |
 | `timeout`     | `number`                | Per-action timeout in ms (overrides `config.actions.timeout`; `0` disables)    |
 
 ## Input Validation
@@ -303,3 +303,8 @@ Some common mappings: `CONNECTION_ACTION_PARAM_VALIDATION` → 406, `CONNECTION_
 ## Registration
 
 New actions need to be re-exported from `backend/actions/.index.ts`. This is how the frontend gets type information about your API — it imports from that barrel file to power `ActionResponse<A>` on the client side.
+
+## Reference
+
+- [`Action` class reference](/reference/actions) — every property, type helper, and option in one place
+- [Servers](/reference/servers) — how an action is routed over HTTP, WebSocket, CLI, and MCP

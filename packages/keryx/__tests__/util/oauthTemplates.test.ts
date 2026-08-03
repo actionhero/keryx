@@ -7,8 +7,11 @@ import {
   loadOAuthTemplates,
   type OAuthTemplates,
   renderAuthPage,
+  renderFormFieldsHtml,
+  zodToFormFields,
 } from "../../util/oauthTemplates";
 import { resetThemeCache } from "../../util/theme";
+import { secret } from "../../util/zodMixins";
 
 const packageDir = import.meta.dir + "/../..";
 const themeFixture = import.meta.dir + "/../fixtures/theme.ts";
@@ -115,6 +118,52 @@ describe("loadOAuthTemplates theming", () => {
     expect(html).toContain("--keryx-color-primary: #00ccff");
     expect(html.indexOf("--keryx-color-primary: #00ccff")).toBeGreaterThan(
       html.indexOf(".container"),
+    );
+  });
+});
+
+describe("zodToFormFields", () => {
+  test("maps length constraints to minlength/maxlength", () => {
+    // Regression: Zod v4 exposes checks as `_zod.def.{check,minimum,maximum}`,
+    // not the v3-era `{kind, value}`. Reading the old shape silently produced
+    // no constraints at all, while the docs advertised them.
+    const action = {
+      inputs: z.object({ password: z.string().min(8).max(64) }),
+    } as unknown as Action;
+
+    const [password] = zodToFormFields(action);
+    expect(password.minlength).toBe(8);
+    expect(password.maxlength).toBe(64);
+  });
+
+  test("reads constraints through a secret() wrapper and renders them", () => {
+    const action = {
+      inputs: z.object({
+        email: z.string().email().describe("Email address"),
+        password: secret(z.string().min(8).describe("Password")),
+      }),
+    } as unknown as Action;
+
+    const fields = zodToFormFields(action);
+    const password = fields.find((f) => f.name === "password");
+    expect(password?.type).toBe("password");
+    expect(password?.minlength).toBe(8);
+
+    const html = renderFormFieldsHtml(fields, "signup");
+    expect(html).toContain('minlength="8"');
+    expect(html).toContain('type="email"');
+  });
+
+  test("omits length attributes when the schema declares none", () => {
+    const action = {
+      inputs: z.object({ nickname: z.string() }),
+    } as unknown as Action;
+
+    const [nickname] = zodToFormFields(action);
+    expect(nickname.minlength).toBeUndefined();
+    expect(nickname.maxlength).toBeUndefined();
+    expect(renderFormFieldsHtml([nickname], "signup")).not.toContain(
+      "minlength",
     );
   });
 });

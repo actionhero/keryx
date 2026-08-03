@@ -230,3 +230,8 @@ ws.send(
 | `"action"`      | `action`, `params`, `messageId` (optional) | Execute an action          |
 | `"subscribe"`   | `channel`                                  | Subscribe to a channel     |
 | `"unsubscribe"` | `channel`                                  | Unsubscribe from a channel |
+
+## Reference
+
+- [`Channel` class reference](/reference/classes#channel) — full API, including `ChannelMiddleware`
+- [`Connection`](/reference/classes#connection) — what a subscriber actually is

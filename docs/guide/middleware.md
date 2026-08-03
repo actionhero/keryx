@@ -220,3 +220,8 @@ export const TimingMiddleware: ActionMiddleware = {
   },
 };
 ```
+
+## Reference
+
+- [`ActionMiddleware` and `ChannelMiddleware`](/reference/classes) — the full middleware type surface
+- [`TypedError` and `ErrorType`](/reference/classes#typederror) — what to throw from a middleware that rejects

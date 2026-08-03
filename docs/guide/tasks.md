@@ -168,3 +168,8 @@ await api.actions.stopRecurrentAction("messages:cleanup");
 const details = await api.actions.taskDetails();
 // → { queues, workers, stats, leader }
 ```
+
+## Reference
+
+- [`Action` class reference](/reference/actions) — the `task` property, queues, and scheduling options
+- [Configuration reference](/reference/config) — every `TASK_*` and `RESQUE_*` environment variable

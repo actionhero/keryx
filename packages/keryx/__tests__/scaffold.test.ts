@@ -227,3 +227,62 @@ describe("scaffoldProject", () => {
     ).rejects.toThrow('Directory "existing" already exists');
   });
 });
+
+describe("scaffolded mcp config", () => {
+  // Regression: the templates shipped `mcp = { enabled: false, … }` long after
+  // `enabled` was removed from McpActionConfig. It type-checks as an excess
+  // property in an untyped class field, so nothing caught it — every generated
+  // app carried a silently ignored option.
+  const MCP_FIELDS = [
+    "tool",
+    "isLoginAction",
+    "isSignupAction",
+    "resource",
+    "prompt",
+    "ui",
+    "responseFormat",
+  ];
+
+  test("uses only real McpActionConfig keys", async () => {
+    const dir = targetDir("mcp-keys");
+    await scaffoldProject("mcp-keys", dir, {
+      includeDb: true,
+      includeExample: true,
+    });
+
+    const actionsDir = path.join(dir, "actions");
+    const files = fs
+      .readdirSync(actionsDir)
+      .filter((f) => f.endsWith(".ts"))
+      .map((f) => path.join(actionsDir, f));
+    expect(files.length).toBeGreaterThan(0);
+
+    const offenders: string[] = [];
+    for (const file of files) {
+      const src = fs.readFileSync(file, "utf-8");
+      for (const m of src.matchAll(/\bmcp\s*=\s*\{([^}]*)\}/g)) {
+        for (const k of m[1].matchAll(/(\w+)\s*:/g)) {
+          if (!MCP_FIELDS.includes(k[1])) {
+            offenders.push(`${path.basename(file)}: mcp.${k[1]}`);
+          }
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test("does not opt scaffolded auth actions into tool exposure", async () => {
+    const dir = targetDir("mcp-optin");
+    await scaffoldProject("mcp-optin", dir, {
+      includeDb: true,
+      includeExample: true,
+    });
+
+    const session = fs.readFileSync(
+      path.join(dir, "actions/session.ts"),
+      "utf-8",
+    );
+    expect(session).toContain("isLoginAction: true");
+    expect(session).not.toContain("tool: true");
+  });
+});

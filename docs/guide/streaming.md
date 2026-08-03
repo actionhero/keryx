@@ -49,6 +49,18 @@ A few things to notice:
 - **`web.streaming = true`** tells Swagger to document this endpoint as `text/event-stream` instead of `application/json`.
 - **`sse.close()`** is mandatory. Always close the stream when you're done, even in error paths. The `finally` block is your friend.
 
+`StreamingResponse.sse()` returns an `SSEResponse` — a subclass of `StreamingResponse` that adds the `send()` method and the `text/event-stream` headers. Both classes are exported, so you can annotate a helper's return type:
+
+```ts
+import { SSEResponse } from "keryx";
+
+function openTokenStream(): SSEResponse {
+  return StreamingResponse.sse();
+}
+```
+
+`new SSEResponse(extraHeaders?)` works too and does the same thing — `StreamingResponse.sse()` is a thin alias kept for symmetry with `StreamingResponse.stream()`.
+
 ### The `send()` Method
 
 ```ts

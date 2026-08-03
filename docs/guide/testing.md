@@ -42,7 +42,7 @@ The `keryx/testing` subpath exports helpers that cover the common test lifecycle
   Need additional setup like inserting a seed user? Bun supports multiple `beforeAll` blocks per file — add another one after `useTestServer()` that runs once `api.start()` has completed.
 
 - **`serverUrl()`** — Returns the actual URL the web server bound to (with resolved port). Call after `api.start()`. `useTestServer()` wraps this internally; reach for it directly only when you need manual lifecycle control.
-- **`HOOK_TIMEOUT`** — A generous timeout (15s) for `beforeAll`/`afterAll` hooks, since they connect to Redis, Postgres, run migrations, etc. Pass as the second argument to `beforeAll`/`afterAll` when writing your own lifecycle hooks.
+- **`HOOK_TIMEOUT`** — A generous timeout (60s) for `beforeAll`/`afterAll` hooks, since they connect to Redis, Postgres, run migrations, etc. Pass as the second argument to `beforeAll`/`afterAll` when writing your own lifecycle hooks.
 - **`buildWebSocket(opts?)`**, **`createUser`**, **`createSession`**, **`subscribeToChannel`**, **`waitForBroadcastMessages`** — Higher-level helpers for WebSocket tests. See [Testing WebSocket Connections](#testing-websocket-connections) below.
 - **`waitFor(condition, { interval, timeout })`** — Polls a condition function until it returns `true`, or throws after a timeout. Use this instead of fixed `Bun.sleep()` calls when waiting for async side effects like background tasks:
 
@@ -255,3 +255,7 @@ kill -9 <PIDs>
 ```
 
 Check for old processes whenever code changes aren't being reflected. It'll save you hours of debugging.
+
+## Reference
+
+- [Testing helpers](/reference/utilities#testing-helpers) — `useTestServer()`, `serverUrl()`, `waitFor()`, and `HOOK_TIMEOUT` signatures

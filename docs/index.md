@@ -21,7 +21,7 @@ hero:
 features:
   - icon: "\U0001F916"
     title: MCP-Native
-    details: Every action is automatically an MCP tool. AI agents authenticate via built-in OAuth 2.1, get typed errors, and call the same validated endpoints your HTTP clients use — zero extra configuration.
+    details: Opt any action in as an MCP tool with one line. AI agents authenticate via built-in OAuth 2.1, get typed errors, and call the same validated endpoints your HTTP clients use.
   - icon: "\U0001F500"
     title: One Action, Every Transport
     details: Write your controller once — HTTP endpoint, WebSocket handler, CLI command, background task, and MCP tool. Same validation, same middleware, same response.
@@ -148,7 +148,7 @@ The MCP SDK gives you the protocol. Keryx gives you the framework — actions, v
 
 Keryx is the only TypeScript framework where your API is automatically an MCP server. No separate tool definitions, no duplicated auth, no schema mapping.
 
-- **Zero-config tool registration** — write an action, it's an MCP tool. The Zod schema becomes the tool's input schema automatically.
+- **One-line tool registration** — add `mcp = { tool: true }` to an action and it's a tool. The Zod schema becomes the tool's input schema automatically. Actions you don't opt in stay private.
 - **OAuth 2.1 + PKCE built-in** — agents authenticate the same way browser clients do. One auth layer, not two.
 - **Dynamic OAuth forms** — login and signup pages are generated from your Zod schemas. Change a field, the form updates.
 - **Per-session MCP servers** — each agent connection gets isolated state. No cross-session leaks.
@@ -156,7 +156,7 @@ Keryx is the only TypeScript framework where your API is automatically an MCP se
 - **Real-time notifications** — PubSub events are forwarded to connected agents as MCP logging messages.
 - **`llms.txt` included** — AI agents and LLMs can discover optimized Markdown documentation at [`/llms.txt`](/llms.txt), no scraping needed.
 
-Claude Desktop, VS Code Copilot, Cursor, Windsurf, and any other MCP client can discover and call your actions out of the box.
+Claude Desktop, VS Code Copilot, Cursor, Windsurf, and any other MCP client can discover and call the actions you expose.
 
 [Building for AI Agents →](/guide/agents)
 

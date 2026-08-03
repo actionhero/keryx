@@ -330,3 +330,7 @@ See the [Security guide](/guide/security) for details on how rate limiting works
 `oauthTrustProxy` controls whether `X-Forwarded-Proto` / `X-Forwarded-Host` headers are honored when deriving the external origin used in OAuth metadata and MCP `WWW-Authenticate` URLs. Only enable behind a trusted reverse proxy that strips client-supplied forwarded headers. See the [Security guide](/guide/security#reverse-proxy-forwarded-headers) for details.
 
 The `oauthCimd*` keys govern [Client ID Metadata Documents](/guide/mcp#client-id-metadata-documents). Leave `oauthCimdAllowPrivateHosts` off in production — it disables the SSRF guard that keeps the authorization server from fetching private addresses.
+
+## Reference
+
+- [Full configuration reference](/reference/config) — every config key, its environment variable, and its default, generated from source
