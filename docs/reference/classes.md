@@ -2,7 +2,7 @@
 description: API singleton, Connection, Channel, Server, TypedError, and Logger class definitions.
 ---
 
-# Other Classes
+# Core Classes
 
 The remaining framework classes — the API singleton, connections, channels, servers, errors, and logging.
 

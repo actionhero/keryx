@@ -6,7 +6,7 @@ description: Auto-generated configuration reference — every config key, its en
 import configData from '../.vitepress/data/config.json'
 </script>
 
-# Configuration Reference
+# Configuration
 
 Every config key in the backend, auto-generated from source. Each key can be overridden via environment variable — the system checks for `ENV_VAR_NODEENV` first (e.g., `DATABASE_URL_TEST` when `NODE_ENV=test`), then `ENV_VAR`, then falls back to the default.
 

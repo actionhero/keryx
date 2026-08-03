@@ -15,6 +15,120 @@ const pkg = JSON.parse(
 );
 const version: string = pkg.version;
 
+type SidebarItem = { text: string; link: string };
+type SidebarGroup = { text: string; items: SidebarItem[] };
+
+/**
+ * The guide is grouped by what the reader is trying to do, not by how the
+ * framework is built. Order within each group is the order you'd meet the
+ * ideas building a real app.
+ */
+export const GUIDE_SIDEBAR: SidebarGroup[] = [
+  {
+    // Orientation: what this is, whether it's for you, how it compares.
+    text: "Introduction",
+    items: [
+      { text: "Getting Started", link: "/guide/" },
+      { text: "About Keryx", link: "/guide/about" },
+      { text: "Coming from ActionHero", link: "/guide/from-actionhero" },
+      { text: "Framework Comparisons", link: "/guide/comparisons" },
+    ],
+  },
+  {
+    // The primitives. Everything else composes these.
+    text: "Core Concepts",
+    items: [
+      { text: "Actions", link: "/guide/actions" },
+      { text: "Initializers", link: "/guide/initializers" },
+      { text: "Middleware", link: "/guide/middleware" },
+      { text: "Channels", link: "/guide/channels" },
+      { text: "Background Tasks", link: "/guide/tasks" },
+      { text: "Configuration", link: "/guide/config" },
+    ],
+  },
+  {
+    // How an action reaches the outside world.
+    text: "Transports & Clients",
+    items: [
+      { text: "Streaming", link: "/guide/streaming" },
+      { text: "CLI", link: "/guide/cli" },
+      { text: "MCP Server", link: "/guide/mcp" },
+      { text: "MCP Apps", link: "/guide/mcp-apps" },
+      { text: "Building for AI Agents", link: "/guide/agents" },
+      { text: "Typed Clients", link: "/guide/typed-clients" },
+    ],
+  },
+  {
+    // Things you reach for once the shape of the app exists.
+    text: "Building Your App",
+    items: [
+      { text: "Authentication", link: "/guide/authentication" },
+      { text: "Caching", link: "/guide/caching" },
+      { text: "Advanced Patterns", link: "/guide/advanced-patterns" },
+      { text: "Plugins", link: "/guide/plugins" },
+    ],
+  },
+  {
+    // Everything between "it works locally" and "it's serving traffic".
+    text: "Going to Production",
+    items: [
+      { text: "Testing", link: "/guide/testing" },
+      { text: "Security", link: "/guide/security" },
+      { text: "Observability", link: "/guide/observability" },
+      { text: "Deployment", link: "/guide/deployment" },
+    ],
+  },
+  {
+    // Different audience: people editing these docs, not people using Keryx.
+    text: "Contributing",
+    items: [{ text: "Docs Style Guide", link: "/guide/style-guide" }],
+  },
+];
+
+/** Six pages don't need four headings. Flat, alphabetical by concept. */
+export const REFERENCE_SIDEBAR: SidebarGroup[] = [
+  {
+    text: "Reference",
+    items: [
+      { text: "Action", link: "/reference/actions" },
+      { text: "Initializer", link: "/reference/initializers" },
+      { text: "Core Classes", link: "/reference/classes" },
+      { text: "Servers", link: "/reference/servers" },
+      { text: "Utilities", link: "/reference/utilities" },
+      { text: "Configuration", link: "/reference/config" },
+    ],
+  },
+];
+
+export const PLUGINS_SIDEBAR: SidebarGroup[] = [
+  {
+    text: "First-Party Plugins",
+    items: [
+      { text: "Overview", link: "/plugins/" },
+      { text: "Tracing", link: "/plugins/tracing" },
+      { text: "Resque Admin", link: "/plugins/resque-admin" },
+      { text: "CSRF", link: "/plugins/csrf" },
+    ],
+  },
+];
+
+/** Render a sidebar group as markdown links for the LLM landing page. */
+function renderLlmSection(heading: string, groups: SidebarGroup[]): string {
+  const lines = [`## ${heading}`, ""];
+  for (const group of groups) {
+    for (const item of group.items) {
+      const path = item.link.endsWith("/")
+        ? `${item.link}index.md`
+        : `${item.link}.md`;
+      lines.push(`- ${item.text}: ${path}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+// Derived from the sidebars above rather than hand-maintained — the previous
+// hand-written list had silently drifted, omitting the changelog and the style
+// guide. Adding a page to a sidebar now adds it here too.
 export const LLM_LANDING_PAGE = `# Keryx
 
 > The fullstack TypeScript framework for MCP and APIs, built on Bun.
@@ -29,48 +143,15 @@ This is the Keryx documentation site. Two LLM-friendly documentation formats are
 Each documentation page is available in Markdown format by appending \`.md\` to the URL.
 For example: \`/guide/actions.md\`, \`/reference/config.md\`
 
-## Guide
+${renderLlmSection("Guide", GUIDE_SIDEBAR)}
 
-- Getting Started: /guide/index.md
-- About Keryx: /guide/about.md
-- Actions: /guide/actions.md
-- Streaming: /guide/streaming.md
-- Initializers: /guide/initializers.md
-- Channels: /guide/channels.md
-- Tasks: /guide/tasks.md
-- Middleware: /guide/middleware.md
-- MCP Server: /guide/mcp.md
-- MCP Apps (Dynamic UIs): /guide/mcp-apps.md
-- Configuration: /guide/config.md
-- Plugins: /guide/plugins.md
-- CLI: /guide/cli.md
-- Authentication: /guide/authentication.md
-- Typed Clients: /guide/typed-clients.md
-- Building for AI Agents: /guide/agents.md
-- Caching: /guide/caching.md
-- Security: /guide/security.md
-- Advanced Patterns: /guide/advanced-patterns.md
-- Observability: /guide/observability.md
-- Testing: /guide/testing.md
-- Deployment: /guide/deployment.md
-- Coming from ActionHero: /guide/from-actionhero.md
-- Framework Comparisons: /guide/comparisons.md
+${renderLlmSection("Reference", REFERENCE_SIDEBAR)}
 
-## Reference
+${renderLlmSection("Plugins", PLUGINS_SIDEBAR)}
 
-- Action class: /reference/actions.md
-- Initializer class: /reference/initializers.md
-- API, Connection, Channel, Server, TypedError, Logger: /reference/classes.md
-- Servers (HTTP, WebSocket, CLI, MCP): /reference/servers.md
-- Zod Helpers & Utilities: /reference/utilities.md
-- Configuration Reference: /reference/config.md
+## Project
 
-## Plugins
-
-- Plugins Overview: /plugins/index.md
-- Tracing: /plugins/tracing.md
-- Resque Admin: /plugins/resque-admin.md
-- CSRF: /plugins/csrf.md
+- Changelog: /changelog.md
 `;
 
 export function toMarkdownUrl(url: string): string {
@@ -107,6 +188,8 @@ function addLlmMiddleware(server: {
 
 export default defineConfig({
   appearance: "dark",
+  // Reads each page's last git commit date; themeConfig.lastUpdated formats it.
+  lastUpdated: true,
   title: "Keryx",
   description:
     "The fullstack TypeScript framework for MCP and APIs — transport-agnostic actions for HTTP, WebSocket, CLI, background tasks, and MCP, built on Bun.",
@@ -175,116 +258,9 @@ export default defineConfig({
       },
     ],
     sidebar: {
-      "/guide/": [
-        {
-          text: "Introduction",
-          items: [
-            { text: "Getting Started", link: "/guide/" },
-            { text: "About Keryx", link: "/guide/about" },
-          ],
-        },
-        {
-          text: "Core Concepts",
-          items: [
-            { text: "Actions", link: "/guide/actions" },
-            { text: "Streaming", link: "/guide/streaming" },
-            { text: "Initializers", link: "/guide/initializers" },
-            { text: "Channels", link: "/guide/channels" },
-            { text: "Tasks", link: "/guide/tasks" },
-            { text: "Middleware", link: "/guide/middleware" },
-            { text: "MCP", link: "/guide/mcp" },
-            { text: "MCP Apps", link: "/guide/mcp-apps" },
-            { text: "Configuration", link: "/guide/config" },
-            { text: "Plugins", link: "/guide/plugins" },
-          ],
-        },
-        {
-          text: "Usage",
-          items: [
-            { text: "CLI", link: "/guide/cli" },
-            { text: "Authentication", link: "/guide/authentication" },
-            { text: "Typed Clients", link: "/guide/typed-clients" },
-            {
-              text: "Building for AI Agents",
-              link: "/guide/agents",
-            },
-            { text: "Caching", link: "/guide/caching" },
-            { text: "Security", link: "/guide/security" },
-            { text: "Advanced Patterns", link: "/guide/advanced-patterns" },
-            { text: "Observability", link: "/guide/observability" },
-            { text: "Testing", link: "/guide/testing" },
-            { text: "Deployment", link: "/guide/deployment" },
-          ],
-        },
-        {
-          text: "Migration",
-          items: [
-            {
-              text: "Coming from ActionHero",
-              link: "/guide/from-actionhero",
-            },
-          ],
-        },
-        {
-          text: "Comparisons",
-          items: [
-            {
-              text: "Framework Comparisons",
-              link: "/guide/comparisons",
-            },
-          ],
-        },
-        {
-          text: "Contributing",
-          items: [{ text: "Style Guide", link: "/guide/style-guide" }],
-        },
-      ],
-      "/plugins/": [
-        {
-          text: "First-Party Plugins",
-          items: [
-            { text: "Overview", link: "/plugins/" },
-            { text: "Tracing", link: "/plugins/tracing" },
-            { text: "Resque Admin", link: "/plugins/resque-admin" },
-            { text: "CSRF", link: "/plugins/csrf" },
-          ],
-        },
-      ],
-      "/reference/": [
-        {
-          text: "Classes",
-          items: [
-            { text: "Action", link: "/reference/actions" },
-            { text: "Initializer", link: "/reference/initializers" },
-            {
-              text: "API, Connection, Channel & more",
-              link: "/reference/classes",
-            },
-          ],
-        },
-        {
-          text: "Transports",
-          items: [
-            {
-              text: "Servers (HTTP, WebSocket, CLI, MCP)",
-              link: "/reference/servers",
-            },
-          ],
-        },
-        {
-          text: "Utilities",
-          items: [
-            {
-              text: "Zod Helpers & Mixins",
-              link: "/reference/utilities",
-            },
-          ],
-        },
-        {
-          text: "Configuration",
-          items: [{ text: "Config Reference", link: "/reference/config" }],
-        },
-      ],
+      "/guide/": GUIDE_SIDEBAR,
+      "/plugins/": PLUGINS_SIDEBAR,
+      "/reference/": REFERENCE_SIDEBAR,
     },
     socialLinks: [
       {
@@ -293,6 +269,14 @@ export default defineConfig({
       },
     ],
     search: { provider: "local" },
+    editLink: {
+      pattern: "https://github.com/actionhero/keryx/edit/main/docs/:path",
+      text: "Edit this page on GitHub",
+    },
+    lastUpdated: {
+      text: "Last updated",
+      formatOptions: { dateStyle: "medium" },
+    },
     footer: {
       message: "Released under the MIT License.",
       copyright: "Copyright © 2024-present Evan Tahler",
