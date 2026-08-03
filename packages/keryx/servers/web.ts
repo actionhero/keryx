@@ -30,6 +30,10 @@ import {
 } from "../util/webSocket";
 import { shouldWarnStackLeak } from "../util/webStackLeakWarning";
 import { handleStaticFile } from "../util/webStaticFiles";
+import {
+  isStreamingResponse,
+  markStreamingResponse,
+} from "../util/webStreaming";
 
 /**
  * Per-request context passed to {@link BeforeRequestHook} and {@link AfterRequestHook}.
@@ -285,8 +289,10 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
       await hook(req, response, ctx, outcome);
     }
 
-    // SSE and other streaming responses: disable idle timeout and skip compression
-    if (response.headers.get("Content-Type")?.includes("text/event-stream")) {
+    // Streaming responses (SSE, chunked downloads, proxied bodies): disable the idle
+    // timeout so a stream that goes quiet between chunks is not cut, and skip compression
+    // so the body is passed through byte-for-byte as it is produced.
+    if (isStreamingResponse(response)) {
       server.timeout(req, 0);
       return response;
     }
@@ -606,10 +612,21 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
       errorStatusCode = ErrorStatusCodes[error.type];
     }
 
+    const builtResponse = error
+      ? buildError(connection, error, errorStatusCode, requestOrigin)
+      : buildResponse(connection, response, 200, requestOrigin);
+
+    // An action that declares `web.streaming` can also hand back a raw `Response` wrapping a
+    // stream (a proxied upstream, `Bun.file()`, an LLM relay). Treat the declaration as a
+    // transport hint so those bodies get the same pass-through treatment as a
+    // `StreamingResponse`. Errors are ordinary JSON, so they stay compressible.
+    if (!error && actionName) {
+      const action = api.actions.actions.find((a) => a.name === actionName);
+      if (action?.web?.streaming) markStreamingResponse(builtResponse);
+    }
+
     return {
-      response: error
-        ? buildError(connection, error, errorStatusCode, requestOrigin)
-        : buildResponse(connection, response, 200, requestOrigin),
+      response: builtResponse,
       actionName: actionName ?? undefined,
     };
   }

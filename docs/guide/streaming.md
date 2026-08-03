@@ -86,7 +86,7 @@ async run() {
 }
 ```
 
-This wraps any `ReadableStream<Uint8Array>` with the right headers and delivers it as a chunked HTTP response.
+This wraps any `ReadableStream<Uint8Array>` with the right headers and delivers it as a chunked HTTP response. Chunks go out as your stream produces them — nothing is buffered, so memory stays flat no matter how large the download is.
 
 ## What You Get for Free
 
@@ -98,7 +98,7 @@ Unlike raw `Response` passthrough, `StreamingResponse` gives you Keryx's standar
 - **Rate limit headers** — if rate limiting middleware ran before the stream started
 - **Correlation ID** — propagated from the incoming request
 
-Compression is automatically skipped for SSE responses — compressing a real-time event stream adds latency with no benefit.
+Compression and the idle timeout are automatically skipped for every `StreamingResponse` — SSE and chunked alike. Compressing a live stream would buffer chunks until the compressor had enough bytes to be worth a gzip block, which defeats the point, and Bun's idle timeout would cut a stream that goes quiet while an upstream is still computing.
 
 ## Transport Behavior
 

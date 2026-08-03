@@ -7,6 +7,9 @@ import { useTestServer } from "../setup";
 
 const getUrl = useTestServer();
 
+/** Delay between chunks of the slow non-SSE stream, in ms. */
+const CHUNK_DELAY = 250;
+
 beforeAll(() => {
   // SSE action that sends a configurable number of counter events
   const sseAction = {
@@ -50,6 +53,56 @@ beforeAll(() => {
     },
   } as unknown as Action;
 
+  // Non-SSE stream that trickles chunks out over time, with a compressible content type
+  // and no Content-Length — the shape that used to be buffered to completion (issue #525)
+  const slowStreamAction = {
+    name: "test:slowStream",
+    inputs: z.object({}),
+    web: { route: "/test/slow-stream", method: HTTP_METHOD.GET },
+    timeout: 0,
+    run: async () => {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          for (let i = 0; i < 3; i++) {
+            controller.enqueue(encoder.encode(`chunk ${i}\n`));
+            await Bun.sleep(CHUNK_DELAY);
+          }
+          controller.close();
+        },
+      });
+      return StreamingResponse.stream(stream, { contentType: "text/plain" });
+    },
+  } as unknown as Action;
+
+  // Raw `Response` passthrough from an action that declares itself streaming — the
+  // declaration is the only signal available here, since a raw Response carries no mark
+  const rawPassthroughAction = {
+    name: "test:rawStream",
+    inputs: z.object({}),
+    web: {
+      route: "/test/raw-stream",
+      method: HTTP_METHOD.GET,
+      streaming: true,
+    },
+    timeout: 0,
+    run: async () => {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          for (let i = 0; i < 3; i++) {
+            controller.enqueue(encoder.encode(`raw ${i}\n`));
+            await Bun.sleep(CHUNK_DELAY);
+          }
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        headers: { "Content-Type": "text/plain" },
+      });
+    },
+  } as unknown as Action;
+
   // SSE action that sends an error mid-stream
   const sseErrorAction = {
     name: "test:sseError",
@@ -66,7 +119,13 @@ beforeAll(() => {
     },
   } as unknown as Action;
 
-  api.actions.actions.push(sseAction, streamAction, sseErrorAction);
+  api.actions.actions.push(
+    sseAction,
+    streamAction,
+    slowStreamAction,
+    rawPassthroughAction,
+    sseErrorAction,
+  );
 });
 
 /**
@@ -96,6 +155,27 @@ function parseSSE(
   }
 
   return events;
+}
+
+/**
+ * Read a response body to completion, recording when each chunk arrived (ms since `start`).
+ */
+async function readWithTimings(res: Response, start: number) {
+  const decoder = new TextDecoder();
+  const arrivals: number[] = [];
+  let body = "";
+  const reader = res.body!.getReader();
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value?.byteLength) {
+      arrivals.push(Date.now() - start);
+      body += decoder.decode(value, { stream: true });
+    }
+  }
+
+  return { body, arrivals };
 }
 
 describe("SSE streaming", () => {
@@ -155,5 +235,47 @@ describe("raw streaming", () => {
     expect(res.headers.get("Content-Type")).toBe("application/octet-stream");
     const text = await res.text();
     expect(text).toBe("chunk1chunk2chunk3");
+  });
+
+  test("does not compress non-SSE streams", async () => {
+    const res = await fetch(getUrl() + "/api/test/stream", {
+      headers: { "Accept-Encoding": "gzip, br" },
+    });
+    expect(res.headers.get("Content-Encoding")).toBeNull();
+    expect(await res.text()).toBe("chunk1chunk2chunk3");
+  });
+
+  test("delivers chunks incrementally even when the client accepts gzip", async () => {
+    // Regression test for #525: a compressible, non-SSE stream used to be drained into
+    // memory by compressResponse, so the client got everything at once at the end.
+    const start = Date.now();
+    const res = await fetch(getUrl() + "/api/test/slow-stream", {
+      headers: { "Accept-Encoding": "gzip, br" },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Encoding")).toBeNull();
+
+    const { body, arrivals } = await readWithTimings(res, start);
+
+    expect(body).toBe("chunk 0\nchunk 1\nchunk 2\n");
+    // The first bytes must land well before the stream finishes producing them.
+    expect(arrivals.length).toBeGreaterThan(1);
+    expect(arrivals[0]).toBeLessThan(CHUNK_DELAY);
+    expect(arrivals[arrivals.length - 1]).toBeGreaterThanOrEqual(CHUNK_DELAY);
+  });
+
+  test("web.streaming makes a raw Response passthrough stream too", async () => {
+    const start = Date.now();
+    const res = await fetch(getUrl() + "/api/test/raw-stream", {
+      headers: { "Accept-Encoding": "gzip, br" },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Encoding")).toBeNull();
+
+    const { body, arrivals } = await readWithTimings(res, start);
+
+    expect(body).toBe("raw 0\nraw 1\nraw 2\n");
+    expect(arrivals.length).toBeGreaterThan(1);
+    expect(arrivals[0]).toBeLessThan(CHUNK_DELAY);
   });
 });

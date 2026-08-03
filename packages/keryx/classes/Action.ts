@@ -160,7 +160,13 @@ export type ActionConstructorInputs = {
     route?: RegExp | string;
     /** HTTP method to bind the route to */
     method?: HTTP_METHOD;
-    /** When true, Swagger documents this endpoint as returning `text/event-stream` instead of JSON */
+    /**
+     * Declares this endpoint as a stream. Swagger documents it as returning
+     * `text/event-stream` instead of JSON, and the web server passes the response body
+     * through untouched — no compression, no idle timeout — so chunks reach the client as
+     * they are produced. Returning a `StreamingResponse` gets that treatment on its own;
+     * set this when the action hands back a raw `Response` wrapping a stream.
+     */
     streaming?: boolean;
   };
 
