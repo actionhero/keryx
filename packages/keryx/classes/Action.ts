@@ -168,6 +168,22 @@ export type ActionConstructorInputs = {
      * set this when the action hands back a raw `Response` wrapping a stream.
      */
     streaming?: boolean;
+    /**
+     * When true, the framework never reads the request body. `params` are built
+     * from path and query params only, and the action reads the untouched body
+     * itself via `connection.rawRequest` (`.text()`, `.arrayBuffer()`,
+     * `.body` for a stream). Use this for proxies, webhook signature
+     * verification, and binary uploads — anything that needs the bytes exactly
+     * as sent, or needs to avoid buffering them twice.
+     *
+     * Because the body is never merged into `params`, a body key that collides
+     * with a path param cannot override it.
+     *
+     * `config.server.web.maxBodySize` is still enforced against the
+     * `Content-Length` header, but not while the action reads the stream — an
+     * action consuming a chunked body owns that limit itself.
+     */
+    rawBody?: boolean;
   };
 
   /** Per-action timeout in ms (overrides global `config.actions.timeout`; 0 disables) */
@@ -232,6 +248,7 @@ export abstract class Action {
     route: RegExp | string;
     method: HTTP_METHOD;
     streaming?: boolean;
+    rawBody?: boolean;
   };
   timeout?: number;
   task?: {
@@ -251,6 +268,7 @@ export abstract class Action {
       route: args.web?.route ?? `/${this.name}`,
       method: args.web?.method ?? HTTP_METHOD.GET,
       streaming: args.web?.streaming ?? false,
+      rawBody: args.web?.rawBody ?? false,
     };
     this.task = {
       frequency: args.task?.frequency,

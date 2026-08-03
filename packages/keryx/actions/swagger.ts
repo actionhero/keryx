@@ -129,11 +129,13 @@ export class Swagger implements Action {
         });
       }
 
-      // For GET/HEAD, convert remaining Zod inputs into query parameters
-      if (
-        (method === "get" || method === "head") &&
-        Object.keys(zodProperties).length > 0
-      ) {
+      // Endpoints whose inputs never come from the body: GET/HEAD, and raw-body
+      // actions (whose bodies Keryx hands to the action instead of parsing).
+      const inputsFromQuery =
+        method === "get" || method === "head" || action.web?.rawBody === true;
+
+      // Convert remaining Zod inputs into query parameters
+      if (inputsFromQuery && Object.keys(zodProperties).length > 0) {
         const fullSchema = z.toJSONSchema(action.inputs!, {
           io: "input",
           unrepresentable: "any",
@@ -157,7 +159,13 @@ export class Swagger implements Action {
 
       // Build requestBody if Zod inputs exist and method supports body
       let requestBody: Record<string, unknown> | undefined = undefined;
-      if (
+      if (action.web?.rawBody && method !== "get" && method !== "head") {
+        // The body is opaque to the framework — document it as arbitrary bytes
+        requestBody = {
+          required: false,
+          content: { "*/*": { schema: { type: "string", format: "binary" } } },
+        };
+      } else if (
         action.inputs &&
         typeof action.inputs.parse === "function" &&
         method !== "get" &&

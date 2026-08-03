@@ -545,6 +545,157 @@ describe("raw Response passthrough", () => {
   });
 });
 
+describe("raw request bodies", () => {
+  beforeAll(() => {
+    // Opts into `web.rawBody`: reads the body itself, bytes exactly as sent
+    const rawBodyAction = {
+      name: "test:rawBody",
+      inputs: z.object({ target: z.string() }),
+      web: {
+        route: "/test/raw-body/:target",
+        method: HTTP_METHOD.POST,
+        rawBody: true,
+      },
+      run: async (
+        params: { target: string },
+        connection: { rawRequest?: Request },
+      ) => {
+        const body = await connection.rawRequest!.text();
+        return {
+          target: params.target,
+          body,
+          bytes: new TextEncoder().encode(body).byteLength,
+          contentType: connection.rawRequest!.headers.get("content-type"),
+        };
+      },
+    } as unknown as Action;
+
+    // No `rawBody`: the framework parses the body into params as usual
+    const parsedBodyAction = {
+      name: "test:parsedBody",
+      inputs: z.object({ hello: z.string() }),
+      web: { route: "/test/parsed-body", method: HTTP_METHOD.POST },
+      run: async (
+        params: { hello: string },
+        connection: { rawRequest?: Request },
+      ) => ({
+        hello: params.hello,
+        rawRequestPresent: connection.rawRequest !== undefined,
+        bodyUsed: connection.rawRequest!.bodyUsed,
+        header: connection.rawRequest!.headers.get("x-custom-header"),
+      }),
+    } as unknown as Action;
+
+    api.actions.actions.push(rawBodyAction, parsedBodyAction);
+  });
+
+  test("hands the action an unread JSON body", async () => {
+    const res = await fetch(getUrl() + "/api/test/raw-body/from-path", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ hello: "world" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { body: string; bytes: number };
+    expect(body.body).toBe('{"hello":"world"}');
+    expect(body.bytes).toBe(17);
+  });
+
+  test("hands the action an unread body when a charset is present", async () => {
+    const res = await fetch(getUrl() + "/api/test/raw-body/from-path", {
+      method: "POST",
+      headers: { "content-type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ hello: "world" }),
+    });
+    const body = (await res.json()) as { body: string; contentType: string };
+    expect(body.body).toBe('{"hello":"world"}');
+    expect(body.contentType).toBe("application/json; charset=utf-8");
+  });
+
+  test("preserves non-JSON bodies byte-for-byte", async () => {
+    const payload = "0032want 74730d10\n00000009done\n";
+    const res = await fetch(getUrl() + "/api/test/raw-body/from-path", {
+      method: "POST",
+      headers: { "content-type": "application/x-git-upload-pack-request" },
+      body: payload,
+    });
+    const body = (await res.json()) as { body: string };
+    expect(body.body).toBe(payload);
+  });
+
+  test("a body key cannot override a path param", async () => {
+    const res = await fetch(getUrl() + "/api/test/raw-body/from-path", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ target: "from-body" }),
+    });
+    const body = (await res.json()) as { target: string };
+    expect(body.target).toBe("from-path");
+  });
+
+  test("form-encoded bodies are left unread too", async () => {
+    const res = await fetch(getUrl() + "/api/test/raw-body/from-path", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "name=Alice",
+    });
+    const body = (await res.json()) as { body: string };
+    expect(body.body).toBe("name=Alice");
+  });
+
+  test("actions without rawBody still get params, and headers via rawRequest", async () => {
+    const res = await fetch(getUrl() + "/api/test/parsed-body", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-custom-header": "keryx",
+      },
+      body: JSON.stringify({ hello: "world" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      hello: string;
+      rawRequestPresent: boolean;
+      bodyUsed: boolean;
+      header: string;
+    };
+    expect(body.hello).toBe("world");
+    expect(body.rawRequestPresent).toBe(true);
+    expect(body.bodyUsed).toBe(true);
+    expect(body.header).toBe("keryx");
+  });
+
+  test("a JSON body with a charset is parsed into params", async () => {
+    const res = await fetch(getUrl() + "/api/test/parsed-body", {
+      method: "POST",
+      headers: { "content-type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ hello: "world" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { hello: string };
+    expect(body.hello).toBe("world");
+  });
+
+  test("swagger documents a raw-body endpoint as opaque bytes", async () => {
+    const res = await fetch(getUrl() + "/api/swagger");
+    const doc = (await res.json()) as {
+      paths: Record<string, Record<string, any>>;
+    };
+    const operation = doc.paths["/test/raw-body/{target}"].post;
+    expect(operation.requestBody.content["*/*"].schema).toEqual({
+      type: "string",
+      format: "binary",
+    });
+    // `target` is a path param, so it is not also documented as a query param
+    expect(
+      operation.parameters.filter((p: any) => p.in === "query"),
+    ).toHaveLength(0);
+    expect(operation.parameters).toContainEqual(
+      expect.objectContaining({ name: "target", in: "path", required: true }),
+    );
+  });
+});
+
 describe("compression", () => {
   // The /api/swagger endpoint returns a large OpenAPI spec (well above 1024 bytes)
   test("returns gzip-compressed response when Accept-Encoding: gzip", async () => {
@@ -674,6 +825,56 @@ describe("request hooks", () => {
     const res = await fetch(getUrl() + "/.well-known/does-not-exist");
     expect(res.status).toBe(404);
     expect(fired).toBe(2);
+  });
+
+  test("a beforeRequest hook that returns a Response short-circuits routing", async () => {
+    resetHooks();
+    let laterHookRan = false;
+    api.hooks.web.beforeRequest(
+      () =>
+        new Response(JSON.stringify({ intercepted: true }), {
+          status: 418,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    api.hooks.web.beforeRequest(() => {
+      laterHookRan = true;
+    });
+
+    const res = await fetch(getUrl() + "/api/status");
+    expect(res.status).toBe(418);
+    const body = (await res.json()) as { intercepted: boolean };
+    expect(body.intercepted).toBe(true);
+    expect(laterHookRan).toBe(false);
+  });
+
+  test("afterRequest still fires for a short-circuited request", async () => {
+    resetHooks();
+    let outcome: { status: number; actionName?: string } | undefined;
+    api.hooks.web.beforeRequest((_req, ctx) => {
+      ctx.metadata.marker = "short-circuit";
+      return new Response("nope", { status: 403 });
+    });
+    api.hooks.web.afterRequest((_req, res, ctx, o) => {
+      outcome = { status: o.status, actionName: o.actionName };
+      expect(ctx.metadata.marker).toBe("short-circuit");
+      expect(res.status).toBe(403);
+    });
+
+    const res = await fetch(getUrl() + "/api/status");
+    expect(res.status).toBe(403);
+    expect(await res.text()).toBe("nope");
+    expect(outcome?.status).toBe(403);
+    expect(outcome?.actionName).toBeUndefined();
+  });
+
+  test("returning a non-Response value does not short-circuit", async () => {
+    resetHooks();
+    // @ts-expect-error — hooks may only return a Response or nothing
+    api.hooks.web.beforeRequest(() => "not-a-response");
+
+    const res = await fetch(getUrl() + "/api/status");
+    expect(res.status).toBe(200);
   });
 
   test("multiple beforeRequest hooks run in registration order", async () => {

@@ -226,6 +226,19 @@ api.hooks.web.afterRequest((_req, _res, _ctx, outcome) => {
 });
 ```
 
+A `beforeRequest` hook that returns a `Response` **short-circuits** the request: later `beforeRequest` hooks and all routing are skipped, and that response goes to the client. `afterRequest` hooks still fire (with `outcome.actionName` unset), and the response is still compressed. Use this for concerns that have to answer before routing — health checks, a maintenance mode, blocklists:
+
+```ts
+api.hooks.web.beforeRequest((req) => {
+  if (maintenanceMode) {
+    return new Response("Down for maintenance", { status: 503 });
+  }
+  // Return nothing to let the request continue
+});
+```
+
+Reading the request body in a hook consumes it — the action or handler downstream then sees an empty body. If an action needs the bytes, have it declare [`web.rawBody`](/guide/actions#raw-request-bodies) and read `connection.rawRequest` instead.
+
 **WebSocket hooks** — `api.hooks.ws.onConnect` fires when a WebSocket is accepted (after the `Connection` is constructed); `onMessage` fires for each inbound message before parsing; `onDisconnect` fires when the socket closes, before channel presence cleanup. All three receive the persistent per-session `Connection` instance:
 
 ```ts
