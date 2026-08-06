@@ -6,6 +6,39 @@ description: Deploying Keryx — Docker, production builds, reverse proxies, and
 
 Keryx is a backend API server. The included Vite + React frontend is a demo app — in production you'll bring your own client. This guide focuses on deploying the backend.
 
+## Build Step
+
+Run `keryx build` at image build time. It is the one deploy step Keryx really wants you to have:
+
+```bash
+cd backend && bun keryx.ts build
+```
+
+The command analyzes every action's return type with [ts-morph](https://ts-morph.com) and writes the result to `.cache/swagger-schemas.json`. At startup the server looks for that file, and — if its hash still matches your action sources — loads the schemas and moves on.
+
+**Without it, the server does the same analysis on every boot.** ts-morph loads the whole TypeScript program into memory, so peak RSS during that window scales with your action count: an app with ~100 actions peaks near 1.5 GB, roughly 18× its ~80 MB steady state, for about three seconds. On a 512 MB container the kernel kills the process before it finishes, and because the kill lands mid-analysis you get no application log at all — just the host's OOM notice. Container filesystems don't survive a restart, so a fresh container never has the cache and every deploy pays it.
+
+Keryx now warns before it starts generating, so if you do hit this the log names the cause:
+
+```
+warning: no swagger schema cache found at .cache/swagger-schemas.json;
+generating response schemas via ts-morph. This takes seconds and can peak
+over 1 GB of RSS, which will OOM a memory-capped host. Run `keryx build`
+at build time to pre-generate them and skip this step.
+```
+
+`keryx build` needs no database and no Redis, which is what makes it safe to run inside an image build:
+
+```dockerfile
+COPY . .
+RUN cd backend && bun keryx.ts build
+CMD ["bun", "keryx.ts", "start"]
+```
+
+If you can't add a build step, the fallbacks are to give the runtime host enough headroom to absorb the spike (~1.5 GB for a large app), or to bake the cache in some other way — a persistent volume mounted at `.cache/` also works, since the server rewrites the file whenever it does regenerate.
+
+See [`keryx build`](/guide/cli#keryx-build) for the full command reference.
+
 ## Production Start
 
 ```bash
@@ -23,7 +56,7 @@ There's a `docker-compose.yaml` to run the backend with PostgreSQL and Redis:
 docker compose up
 ```
 
-You probably won't use this exact setup in production, but it shows how the pieces fit together and gives you a working reference for your own deployment config.
+You probably won't use this exact setup in production, but it shows how the pieces fit together and gives you a working reference for your own deployment config. The backend `Dockerfile` runs `bun keryx.ts build` before its `CMD` — keep that line in whatever image you build.
 
 ## Environment Variables
 

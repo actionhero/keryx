@@ -252,6 +252,16 @@ If you're coming from ActionHero, the biggest changes are: unified controllers (
 
 Each application has its own `Dockerfile`, and a `docker-compose.yml` runs them together. You probably won't use this exact setup in production, but it shows how the pieces fit together.
 
+**Run `keryx build` at image build time.** It pre-generates the OpenAPI response schemas into `.cache/swagger-schemas.json` so the server doesn't have to derive them from your action return types on every boot:
+
+```dockerfile
+COPY . .
+RUN cd backend && bun keryx.ts build
+CMD ["bun", "keryx.ts", "start"]
+```
+
+See the [deployment guide](https://keryxjs.com/guide/deployment#build-step) for details.
+
 ## Documentation
 
 Full docs at [keryxjs.com](https://keryxjs.com), including:

@@ -137,7 +137,9 @@ RUN bun keryx.ts build
 CMD ["bun", "keryx.ts", "start"]
 ```
 
-If you skip this step, the server will attempt to generate schemas on the fly at startup. On machines with limited memory this may cause an out-of-memory crash. If ts-morph fails without crashing the process, the server will start with empty swagger response schemas.
+If you skip this step, the server generates the schemas on the fly at startup instead. That analysis can peak over 1 GB of RSS on a large app, which is enough to get the process OOM-killed on a small container before it finishes booting. The server logs a warning naming this remedy *before* it starts generating, so the message survives a kill. If ts-morph fails without crashing the process, the server starts with empty swagger response schemas.
+
+See [Deployment](/guide/deployment#build-step) for the full picture.
 
 ### `keryx start`
 

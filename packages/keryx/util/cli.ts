@@ -107,7 +107,9 @@ export async function buildProgram(opts: {
     .description(
       "Run build-time code generation. Analyzes Action return types via ts-morph\n" +
         "and writes .cache/swagger-schemas.json so the server can skip this step at\n" +
-        "startup. Recommended for memory-constrained environments (e.g., Docker).\n\n" +
+        "startup. Strongly recommended for memory-constrained environments (e.g.,\n" +
+        "Docker): the analysis can peak over 1 GB of RSS and will OOM a small\n" +
+        "container if it runs at boot instead. Needs no database and no Redis.\n\n" +
         "Example Dockerfile usage:\n" +
         "  COPY . .\n" +
         "  RUN bun keryx.ts build\n" +
