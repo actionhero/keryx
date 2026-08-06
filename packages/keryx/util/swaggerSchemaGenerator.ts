@@ -2,6 +2,13 @@ import { mkdir } from "fs/promises";
 import path from "path";
 import type { Type } from "ts-morph";
 
+/** Directory (relative to the app root) holding build-time generated artifacts. */
+export const SCHEMA_CACHE_DIR = ".cache";
+/** File name of the pre-generated swagger response schema cache. */
+export const SCHEMA_CACHE_FILE = "swagger-schemas.json";
+/** Human-readable path to the schema cache, for log and doc messages. */
+export const SCHEMA_CACHE_RELATIVE_PATH = `${SCHEMA_CACHE_DIR}/${SCHEMA_CACHE_FILE}`;
+
 export type JSONSchema = {
   type?: string;
   properties?: Record<string, JSONSchema>;
@@ -202,7 +209,7 @@ export async function loadCachedSchemas(rootDir: string): Promise<{
   hash: string;
   responseSchemas: Record<string, JSONSchema>;
 } | null> {
-  const cacheFile = path.join(rootDir, ".cache", "swagger-schemas.json");
+  const cacheFile = path.join(rootDir, SCHEMA_CACHE_DIR, SCHEMA_CACHE_FILE);
   const cacheFileHandle = Bun.file(cacheFile);
   if (await cacheFileHandle.exists()) {
     try {
@@ -325,10 +332,10 @@ export async function writeSchemasCache(
   rootDir: string,
   data: { hash: string; responseSchemas: Record<string, JSONSchema> },
 ): Promise<void> {
-  const cacheDir = path.join(rootDir, ".cache");
+  const cacheDir = path.join(rootDir, SCHEMA_CACHE_DIR);
   await mkdir(cacheDir, { recursive: true });
   await Bun.write(
-    path.join(cacheDir, "swagger-schemas.json"),
+    path.join(cacheDir, SCHEMA_CACHE_FILE),
     JSON.stringify(data, null, 2),
   );
 }

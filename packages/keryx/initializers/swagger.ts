@@ -5,6 +5,7 @@ import {
   computeActionsHash,
   generateSwaggerSchemas,
   loadCachedSchemas,
+  SCHEMA_CACHE_RELATIVE_PATH,
   writeSchemasCache,
 } from "../util/swaggerSchemaGenerator";
 
@@ -33,6 +34,18 @@ export class SwaggerInitializer extends Initializer {
       );
       return { responseSchemas: cached.responseSchemas };
     }
+
+    // No usable cache, so we fall through to ts-morph. This is by far the most
+    // expensive thing that happens at boot (it can peak over 1 GB of RSS on a
+    // large app) and it is the usual cause of an unexplained OOM kill during
+    // startup on a memory-capped host. Warn *before* doing the work — a process
+    // that cannot afford the allocation never reaches a message logged after it.
+    const cacheState = cached
+      ? `swagger schema cache at ${SCHEMA_CACHE_RELATIVE_PATH} is stale`
+      : `no swagger schema cache found at ${SCHEMA_CACHE_RELATIVE_PATH}`;
+    logger.warn(
+      `${cacheState}; generating response schemas via ts-morph. This takes seconds and can peak over 1 GB of RSS, which will OOM a memory-capped host. Run \`keryx build\` at build time to pre-generate them and skip this step — see \`keryx build --help\`.`,
+    );
 
     // Generate schemas via ts-morph
     let responseSchemas: Record<string, JSONSchema> = {};
