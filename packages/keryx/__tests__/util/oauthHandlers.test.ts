@@ -822,6 +822,26 @@ describe("handleAuthorizePost", () => {
     expect(html).toContain("Invalid redirect URI");
   });
 
+  test("portless loopback redirect_uri accepts any requested port (RFC 8252 §7.3)", async () => {
+    const { clientId } = await registerClient("http://localhost/cb");
+    const res = await handleAuthorizePost(
+      buildPost({
+        client_id: clientId,
+        redirect_uri: "http://localhost:3118/cb",
+        code_challenge: "chal",
+        code_challenge_method: "S256",
+        response_type: "code",
+      }),
+      templates,
+      "https://example.com",
+    );
+    const html = await res.text();
+    // The redirect URI matched, so the flow got as far as the (unconfigured) login
+    // action rather than stopping at the redirect URI check.
+    expect(html).not.toContain("Invalid redirect URI");
+    expect(html.toLowerCase()).toContain("no login action");
+  });
+
   test("non-S256 code_challenge_method is rejected", async () => {
     const { clientId } = await registerClient("http://localhost:9999/cb");
     const res = await handleAuthorizePost(
