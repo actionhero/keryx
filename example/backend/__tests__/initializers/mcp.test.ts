@@ -1112,6 +1112,75 @@ describe("mcp initializer (enabled)", () => {
       }
     });
 
+    test("OAuth flow with a portless loopback redirect_uri (RFC 8252 §7.3)", async () => {
+      const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const email = `oauth-loopback-${unique}@example.com`;
+      const name = `OAuth Loopback ${unique}`;
+      const password = "password123!";
+      // A native/CLI client cannot know its port ahead of time, so it registers
+      // portless and binds an ephemeral port when the flow actually starts.
+      const registeredUri = "http://localhost/callback";
+      const requestedUri = "http://localhost:3118/callback";
+
+      const regRes = await fetch(`${baseUrl()}/oauth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          redirect_uris: [registeredUri],
+          client_name: "Loopback Test Client",
+        }),
+      });
+      expect(regRes.status).toBe(201);
+      const { client_id: clientId } = (await regRes.json()) as {
+        client_id: string;
+      };
+
+      const codeVerifier = randomString(43);
+      const codeChallenge = await computeS256Challenge(codeVerifier);
+
+      const authRes = await fetch(`${baseUrl()}/oauth/authorize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          mode: "signup",
+          name,
+          email,
+          password,
+          client_id: clientId,
+          redirect_uri: requestedUri,
+          code_challenge: codeChallenge,
+          code_challenge_method: "S256",
+          response_type: "code",
+          state: "loopback-state",
+        }).toString(),
+        redirect: "manual",
+      });
+      expect(authRes.status).toBe(302);
+
+      const redirectUrl = new URL(authRes.headers.get("location")!);
+      // The redirect goes to the URI the client actually asked for, port included.
+      expect(redirectUrl.origin).toBe("http://localhost:3118");
+      const code = redirectUrl.searchParams.get("code");
+      expect(code).toBeTruthy();
+      expect(redirectUrl.searchParams.get("state")).toBe("loopback-state");
+
+      // The code stores the requested URI, so the token exchange uses the ported one.
+      const tokenRes = await fetch(`${baseUrl()}/oauth/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code: code!,
+          code_verifier: codeVerifier,
+          client_id: clientId,
+          redirect_uri: requestedUri,
+        }).toString(),
+      });
+      expect(tokenRes.status).toBe(200);
+      const tokenBody = (await tokenRes.json()) as { access_token: string };
+      expect(tokenBody.access_token).toBeTruthy();
+    });
+
     test("end-to-end: create user, sign in, post message", async () => {
       const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const email = `e2e-${unique}@example.com`;

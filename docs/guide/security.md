@@ -138,7 +138,7 @@ When clients register via `/oauth/register`, redirect URIs are validated:
 - Must not contain userinfo (username/password in the URL)
 - Must use HTTPS for non-localhost URIs
 
-When authorizing or exchanging authorization codes, the redirect URI must match a registered URI using exact string comparison (per RFC 6749 §3.1.2.3).
+When authorizing or exchanging authorization codes, the redirect URI must match a registered URI using exact string comparison (per RFC 6749 §3.1.2.3), with one exception: for `http:` loopback URIs (`localhost`, `127.0.0.1`, `[::1]`) the port is ignored, as [RFC 8252 §7.3](https://datatracker.ietf.org/doc/html/rfc8252#section-7.3) requires — a CLI or native client takes an ephemeral port from the OS when it starts its callback listener, so it cannot register the port ahead of time. Scheme, host, path, query, and fragment stay byte-exact, and `localhost` still does not match `127.0.0.1`.
 
 ### Client ID Metadata Documents
 
@@ -148,7 +148,7 @@ A client may identify itself with an HTTPS URL as its `client_id` instead of reg
 - **No redirects** — a `3xx` is rejected rather than followed, so a redirect cannot hop past the host check to a private address.
 - **Bounded reads** — the response must be HTTP 200, served as JSON, within `MCP_OAUTH_CIMD_FETCH_TIMEOUT_MS`, and no larger than `MCP_OAUTH_CIMD_MAX_BYTES` (streamed and aborted once the cap is passed, whether or not `Content-Length` is honest).
 - **Self-consistency** — the document's `client_id` must exactly equal the URL it was served from, so a document cannot claim an identity it is not hosted at.
-- **Exact redirect URI match** — the request's `redirect_uri` must appear verbatim in the document, and each `redirect_uris` entry is validated by the rules above.
+- **Exact redirect URI match** — the request's `redirect_uri` must appear verbatim in the document, apart from the loopback port exception above, and each `redirect_uris` entry is validated by the rules above. That exception is what lets a CLI client declare `http://localhost/callback` in its document and authorize on whatever port it ends up binding.
 - **Consent transparency** — the authorization page names the client and always displays the host the authorization is redirected to, with an added warning for loopback callbacks, which a metadata document cannot attest to.
 
 Only successful lookups are cached; a rejected document is refetched on the next attempt rather than remembered.

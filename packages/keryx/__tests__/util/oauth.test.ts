@@ -135,10 +135,88 @@ describe("redirectUrisMatch", () => {
     ).toBe(false);
   });
 
-  test("different port returns false", () => {
+  test("different port on a non-loopback host returns false", () => {
+    expect(
+      redirectUrisMatch(
+        "https://example.com/cb",
+        "https://example.com:8443/cb",
+      ),
+    ).toBe(false);
+  });
+
+  test("https loopback still compares the port (http: only carve-out)", () => {
+    expect(
+      redirectUrisMatch("https://localhost/cb", "https://localhost:8443/cb"),
+    ).toBe(false);
+  });
+
+  test("portless localhost matches any requested port (RFC 8252 §7.3)", () => {
+    expect(
+      redirectUrisMatch(
+        "http://localhost/callback",
+        "http://localhost:3118/callback",
+      ),
+    ).toBe(true);
+  });
+
+  test("portless 127.0.0.1 matches an ephemeral port", () => {
+    expect(
+      redirectUrisMatch(
+        "http://127.0.0.1/callback",
+        "http://127.0.0.1:49152/callback",
+      ),
+    ).toBe(true);
+  });
+
+  test("portless [::1] matches a requested port", () => {
+    expect(redirectUrisMatch("http://[::1]/cb", "http://[::1]:1234/cb")).toBe(
+      true,
+    );
+  });
+
+  test("different loopback ports match", () => {
     expect(
       redirectUrisMatch("http://localhost:3000/cb", "http://localhost:4000/cb"),
+    ).toBe(true);
+  });
+
+  test("a registered port matches a portless request", () => {
+    expect(
+      redirectUrisMatch(
+        "http://localhost:3118/callback",
+        "http://localhost/callback",
+      ),
+    ).toBe(true);
+  });
+
+  test("loopback hostnames are not interchangeable (RFC 8252 §8.3)", () => {
+    expect(
+      redirectUrisMatch(
+        "http://localhost/callback",
+        "http://127.0.0.1:3118/callback",
+      ),
     ).toBe(false);
+  });
+
+  test("loopback path must still match exactly", () => {
+    expect(
+      redirectUrisMatch(
+        "http://localhost/callback",
+        "http://localhost:3118/other",
+      ),
+    ).toBe(false);
+  });
+
+  test("loopback query params must still match exactly", () => {
+    expect(
+      redirectUrisMatch("http://localhost/cb", "http://localhost:3118/cb?x=1"),
+    ).toBe(false);
+  });
+
+  test("unparseable URI returns false", () => {
+    expect(redirectUrisMatch("not-a-url", "http://localhost:3118/cb")).toBe(
+      false,
+    );
   });
 });
 
