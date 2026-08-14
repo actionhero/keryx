@@ -107,6 +107,8 @@ try {
 }
 ```
 
+`setUser` and `setTag` are scoped to the current action's request context, not the process. The identity you set is buffered per-request and applied to any `captureException` / `captureMessage` (and the automatic 5xx capture) that fires while handling that request, so it never bleeds onto a concurrent or later request's events.
+
 When the plugin is disabled (no DSN, or `SENTRY_ENABLED=false`), every method is a no-op — `captureException()` returns `undefined` and `flush()` resolves `true`. Leave the calls in place; they cost nothing until you turn Sentry on.
 
 For custom spans, import the SDK directly:
@@ -130,9 +132,9 @@ The plugin is fully hook-based — it does **not** modify core Keryx code. It re
 - `api.hooks.mcp.onConnect` / `onMessage` / `onDisconnect` — MCP session and message spans
 - `api.hooks.actions.beforeAct` / `afterAct` — create and finalize the action span; capture 5xx exceptions
 - `api.hooks.actions.onEnqueue` — inject Sentry trace headers into task params
-- `api.hooks.resque.beforeJob` — continue the enqueuer's trace when a worker picks up a task
+- `api.hooks.resque.beforeJob` / `afterJob` — start a root job span that continues the enqueuer's trace when a worker picks up a task, and end it when the job finishes
 
-The plugin also wraps `api.redis.redis.sendCommand` and the node-postgres `Pool` on `api.db.pool` after those initializers run. Drizzle goes through that pool, so `api.db.db.execute(...)` and query builders show up as `pg.*` spans.
+The plugin also wraps `api.redis.redis.sendCommand` and the node-postgres `Pool` on `api.db.pool` after those initializers run. Only the checked-out client's `query` is wrapped (never `Pool.query`, which internally delegates to it), so each SQL statement is a single `pg.*` span. Drizzle goes through that pool, so `api.db.db.execute(...)` and query builders show up as `pg.*` spans.
 
 Sentry's built-in `BunServer` integration is filtered out so you don't get a second, nameless HTTP transaction alongside the Keryx one.
 
