@@ -458,6 +458,10 @@ export class SentryPlugin extends Initializer {
       if (!api.sentry.enabled) return;
       const parent = this.spanALS.getStore();
       if (!parent) return;
+      // Ended spans (afterJob has already closed the job root) must not
+      // propagate into enqueueRecurrent — that would chain cron runs.
+      // Unsampled *live* spans still propagate so workers honor head sampling.
+      if (typeof Sentry.spanToJSON(parent).timestamp === "number") return;
       const ctx = parent.spanContext();
       if (!ctx.traceId || !ctx.spanId) return;
       const sampled = ctx.traceFlags & 1 ? 1 : 0;
@@ -511,9 +515,6 @@ export class SentryPlugin extends Initializer {
         });
       }
       jobSpan.end();
-      // enqueueRecurrent runs after afterJob in the same async context.
-      // Drop the ended span so the next occurrence starts a fresh trace.
-      this.spanALS.enterWith(undefined);
     });
   }
 
