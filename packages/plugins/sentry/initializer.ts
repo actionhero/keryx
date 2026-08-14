@@ -220,8 +220,12 @@ export class SentryPlugin extends Initializer {
       sendDefaultPii: config.sentry.sendDefaultPii,
       debug: config.sentry.debug,
       serverName: serviceName,
+      enableLogs: config.sentry.enableLogs,
+      enableMetrics: config.sentry.enableMetrics,
       beforeSend: config.sentry.beforeSend,
       beforeSendSpan: config.sentry.beforeSendSpan,
+      beforeSendLog: config.sentry.beforeSendLog,
+      beforeSendMetric: config.sentry.beforeSendMetric,
       transport: config.sentry.transport,
       integrations: (integrations) =>
         integrations.filter((integration) => integration.name !== "BunServer"),
@@ -277,6 +281,46 @@ export class SentryPlugin extends Initializer {
     if (data.user !== undefined) scope.setUser(data.user);
     for (const [key, value] of Object.entries(data.tags)) {
       scope.setTag(key, value);
+    }
+  }
+
+  /**
+   * Emit optional Sentry logs and metrics for a completed action. Both are
+   * off by default and gated on `config.sentry.enableLogs` /
+   * `config.sentry.enableMetrics`.
+   *
+   * The metric is a counter named `keryx.action.count`, incremented once per
+   * action with the action name and connection type as attributes so you can
+   * break the count down by action in Sentry. The log is an `info` line for
+   * the same action with duration and success attached.
+   *
+   * @param actionName - Name of the action that ran, or `undefined` when the
+   *   router could not resolve one (recorded as `unknown`).
+   * @param connectionType - Transport the action ran on (web, websocket, task…).
+   * @param outcome - Result of the action: `success` and `duration` in ms.
+   */
+  private recordActionTelemetry(
+    actionName: string | undefined,
+    connectionType: string,
+    outcome: { success: boolean; duration: number },
+  ): void {
+    const name = actionName ?? "unknown";
+    if (config.sentry.enableMetrics) {
+      Sentry.metrics.count("keryx.action.count", 1, {
+        attributes: {
+          "keryx.action": name,
+          "keryx.connection.type": connectionType,
+          "keryx.action.success": outcome.success,
+        },
+      });
+    }
+    if (config.sentry.enableLogs) {
+      Sentry.logger.info(Sentry.logger.fmt`action ${name} ran`, {
+        "keryx.action": name,
+        "keryx.connection.type": connectionType,
+        "keryx.action.success": outcome.success,
+        "keryx.action.duration_ms": outcome.duration,
+      });
     }
   }
 
@@ -469,6 +513,8 @@ export class SentryPlugin extends Initializer {
 
     api.hooks.actions.afterAct(
       (actionName, _params, connection, actCtx, outcome) => {
+        this.recordActionTelemetry(actionName, connection.type, outcome);
+
         const span = actCtx.metadata.sentrySpan as SentrySpan | undefined;
         const parent = actCtx.metadata.sentryParentSpan as
           | SentrySpan

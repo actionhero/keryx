@@ -1,6 +1,6 @@
 {
   "name": "@keryxjs/sentry",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "module": "index.ts",
   "type": "module",
   "license": "MIT",

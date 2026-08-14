@@ -159,6 +159,13 @@ describe("sentry plugin (disabled)", () => {
 describe("sentry plugin (enabled)", () => {
   const events: Array<Record<string, unknown>> = [];
   const spans: CapturedSpan[] = [];
+  const logs: Array<{ message: string; attributes: Record<string, unknown> }> =
+    [];
+  const metrics: Array<{
+    name: string;
+    value: number;
+    attributes: Record<string, unknown>;
+  }> = [];
 
   beforeAll(async () => {
     config.plugins = [sentryPlugin];
@@ -167,6 +174,8 @@ describe("sentry plugin (enabled)", () => {
     config.sentry.dsn = DUMMY_DSN;
     config.sentry.tracesSampleRate = 1;
     config.sentry.captureClientErrors = false;
+    config.sentry.enableLogs = true;
+    config.sentry.enableMetrics = true;
     config.sentry.transport = () => ({
       send: async () => ({ statusCode: 200 }),
       flush: async () => true,
@@ -178,6 +187,21 @@ describe("sentry plugin (enabled)", () => {
     config.sentry.beforeSendSpan = (span) => {
       spans.push(asSpan(span as unknown as Record<string, unknown>));
       return span;
+    };
+    config.sentry.beforeSendLog = (log) => {
+      logs.push({
+        message: String(log.message),
+        attributes: (log.attributes ?? {}) as Record<string, unknown>,
+      });
+      return log;
+    };
+    config.sentry.beforeSendMetric = (metric) => {
+      metrics.push({
+        name: metric.name,
+        value: metric.value,
+        attributes: (metric.attributes ?? {}) as Record<string, unknown>,
+      });
+      return metric;
     };
     await api.start();
     const boom = new SentryBoom();
@@ -212,10 +236,87 @@ describe("sentry plugin (enabled)", () => {
   beforeAll(() => {
     events.length = 0;
     spans.length = 0;
+    logs.length = 0;
+    metrics.length = 0;
   });
 
   test("api.sentry is enabled after start", () => {
     expect(api.sentry.enabled).toBe(true);
+  });
+
+  test("actions emit a per-action count metric grouped by name", async () => {
+    metrics.length = 0;
+    const res = await fetch(`${serverUrl()}/api/status`);
+    expect(res.status).toBe(200);
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const actionMetrics = metrics.filter(
+      (m) => m.name === "keryx.action.count",
+    );
+    expect(actionMetrics.length).toBeGreaterThan(0);
+    const statusMetric = actionMetrics.find(
+      (m) => m.attributes["keryx.action"] === "status",
+    );
+    expect(statusMetric).toBeDefined();
+    expect(statusMetric!.value).toBe(1);
+    expect(statusMetric!.attributes["keryx.connection.type"]).toBe("web");
+    expect(statusMetric!.attributes["keryx.action.success"]).toBe(true);
+  });
+
+  test("failed actions still emit a count metric marked unsuccessful", async () => {
+    metrics.length = 0;
+    const res = await fetch(`${serverUrl()}/api/sentry-boom`);
+    expect(res.status).toBe(500);
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const boomMetric = metrics.find(
+      (m) =>
+        m.name === "keryx.action.count" &&
+        m.attributes["keryx.action"] === "sentry:boom",
+    );
+    expect(boomMetric).toBeDefined();
+    expect(boomMetric!.attributes["keryx.action.success"]).toBe(false);
+  });
+
+  test("actions emit a per-action info log", async () => {
+    logs.length = 0;
+    const res = await fetch(`${serverUrl()}/api/status`);
+    expect(res.status).toBe(200);
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const statusLog = logs.find(
+      (l) => l.attributes["keryx.action"] === "status",
+    );
+    expect(statusLog).toBeDefined();
+    expect(statusLog!.message).toContain("status");
+    expect(statusLog!.attributes["keryx.connection.type"]).toBe("web");
+    expect(typeof statusLog!.attributes["keryx.action.duration_ms"]).toBe(
+      "number",
+    );
+  });
+
+  test("logs and metrics are suppressed when their toggles are off", async () => {
+    logs.length = 0;
+    metrics.length = 0;
+    config.sentry.enableLogs = false;
+    config.sentry.enableMetrics = false;
+    try {
+      const res = await fetch(`${serverUrl()}/api/status`);
+      expect(res.status).toBe(200);
+      await api.sentry.flush(2000);
+      await Bun.sleep(50);
+
+      expect(metrics.some((m) => m.name === "keryx.action.count")).toBe(false);
+      expect(logs.some((l) => l.attributes["keryx.action"] === "status")).toBe(
+        false,
+      );
+    } finally {
+      config.sentry.enableLogs = true;
+      config.sentry.enableMetrics = true;
+    }
   });
 
   test("HTTP request creates a transport span and an action span", async () => {
