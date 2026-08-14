@@ -465,6 +465,60 @@ describe("sentry plugin (enabled)", () => {
     );
     expect(event).toBeDefined();
     expect((event?.user as { id?: string } | undefined)?.id).toBe("outer-user");
+
+    // Restore the outer action's buffer so this test leaves the shared async
+    // context clean for the ones that follow.
+    for (const hook of api.hooks.actions.afterActHooks) {
+      await hook("outer", {}, connection, outerCtx, {
+        success: true,
+        response: null,
+        duration: 1,
+      });
+    }
+  });
+
+  test("identity does not leak across sequential actions", async () => {
+    events.length = 0;
+    const connection = new Connection(CONNECTION_TYPE.WEBSOCKET, "ws:seq-test");
+
+    // First action sets a user and completes.
+    const ctx1 = { metadata: {} as Record<string, unknown> };
+    for (const hook of api.hooks.actions.beforeActHooks) {
+      await hook("first", {}, connection, ctx1);
+    }
+    api.sentry.setUser({ id: "first-user" });
+    for (const hook of api.hooks.actions.afterActHooks) {
+      await hook("first", {}, connection, ctx1, {
+        success: true,
+        response: null,
+        duration: 1,
+      });
+    }
+
+    // A later action on the same long-lived context must not inherit the first
+    // action's identity buffer.
+    const ctx2 = { metadata: {} as Record<string, unknown> };
+    for (const hook of api.hooks.actions.beforeActHooks) {
+      await hook("second", {}, connection, ctx2);
+    }
+    api.sentry.captureException(new Error("sequential identity capture"));
+    for (const hook of api.hooks.actions.afterActHooks) {
+      await hook("second", {}, connection, ctx2, {
+        success: true,
+        response: null,
+        duration: 1,
+      });
+    }
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const event = events.find((e) =>
+      eventMessage(e).includes("sequential identity capture"),
+    );
+    expect(event).toBeDefined();
+    expect((event?.user as { id?: string } | undefined)?.id).not.toBe(
+      "first-user",
+    );
   });
 
   test("background task spans continue the enqueuer's trace", async () => {

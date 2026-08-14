@@ -167,7 +167,9 @@ export class SentryPlugin extends Initializer {
    * `beforeAct` (and transport hooks) so `setUser` / `setTag` isolate to the
    * current request instead of leaking through a shared global scope.
    */
-  private requestScopeALS = new AsyncLocalStorage<RequestScopeData>();
+  private requestScopeALS = new AsyncLocalStorage<
+    RequestScopeData | undefined
+  >();
   private wsConnections = new WeakMap<object, SentrySpan>();
   private wsMessageSpans = new WeakMap<object, SentrySpan>();
   private mcpSessions = new Map<string, SentrySpan>();
@@ -438,14 +440,18 @@ export class SentryPlugin extends Initializer {
     });
 
     api.hooks.actions.beforeAct((actionName, _params, connection, actCtx) => {
-      // Establish one identity buffer per request, at the outermost action.
-      // Nested `connection.act()` calls inherit it (getStore() is already set)
-      // instead of clobbering the outer action's setUser / setTag data, while a
-      // brand-new request — a fresh async context — still starts empty, so
-      // identity never bleeds across connections.
-      if (!this.requestScopeALS.getStore()) {
-        this.requestScopeALS.enterWith({ tags: {} });
-      }
+      // Give each action its own identity buffer, seeded from the parent so a
+      // nested connection.act() inherits the outer user/tags without mutating
+      // them. afterAct restores the previous buffer, so sequential actions on a
+      // long-lived async context (a WS connection or a task worker) never
+      // inherit stale identity and it never bleeds across requests.
+      const prevScope = this.requestScopeALS.getStore();
+      actCtx.metadata.sentryPrevScope = prevScope;
+      this.requestScopeALS.enterWith(
+        prevScope
+          ? { user: prevScope.user, tags: { ...prevScope.tags } }
+          : { tags: {} },
+      );
       const parent = this.spanALS.getStore();
       const actionSpan = Sentry.startInactiveSpan({
         name: `action:${actionName ?? "unknown"}`,
@@ -521,6 +527,12 @@ export class SentryPlugin extends Initializer {
         }
 
         if (parent) this.spanALS.enterWith(parent);
+        // Restore the identity buffer captured in beforeAct so this action's
+        // user/tags do not leak into sibling or sequential actions sharing the
+        // same async context (e.g. a task worker or WS connection).
+        this.requestScopeALS.enterWith(
+          actCtx.metadata.sentryPrevScope as RequestScopeData | undefined,
+        );
       },
     );
 
