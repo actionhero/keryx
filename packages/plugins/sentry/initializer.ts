@@ -236,7 +236,7 @@ export class SentryPlugin extends Initializer {
    *  - `mcp.onConnect` / `onMessage` / `onDisconnect`: MCP transport
    *  - `actions.beforeAct` / `actions.afterAct`: action span + errors
    *  - `actions.onEnqueue`: inject Sentry trace headers into task params
-   *  - `resque.beforeJob`: continue the enqueuer's trace
+   *  - `resque.beforeJob` / `afterJob`: root `queue.process` transaction
    */
   private registerTracingHooks() {
     api.hooks.web.beforeRequest((req, ctx) => {
@@ -380,10 +380,7 @@ export class SentryPlugin extends Initializer {
       const parent = this.spanALS.getStore();
       const actionSpan = Sentry.startInactiveSpan({
         name: `action:${actionName ?? "unknown"}`,
-        op:
-          connection.type === CONNECTION_TYPE.TASK
-            ? "queue.process"
-            : "keryx.action",
+        op: "keryx.action",
         parentSpan: parent,
         attributes: {
           "keryx.action": actionName ?? "unknown",
@@ -463,18 +460,47 @@ export class SentryPlugin extends Initializer {
       return next;
     });
 
-    api.hooks.resque.beforeJob((_actionName, params) => {
+    api.hooks.resque.beforeJob((actionName, params, jobCtx) => {
       const p = params as Record<string, unknown>;
       const sentryTrace = p._sentryTrace as string | undefined;
-      if (!sentryTrace) return;
       const baggage = p._sentryBaggage as string | undefined;
       delete p._sentryTrace;
       delete p._sentryBaggage;
-      Sentry.continueTrace({ sentryTrace, baggage }, () => {
-        // continueTrace applies the incoming propagation context to the
-        // current scope so the action span started in beforeAct joins the
-        // enqueuer's trace.
-      });
+
+      const start = () =>
+        Sentry.startInactiveSpan({
+          name: `task:${actionName}`,
+          op: "queue.process",
+          forceTransaction: true,
+          attributes: {
+            "keryx.action": actionName,
+            "keryx.connection.type": CONNECTION_TYPE.TASK,
+            "messaging.destination.name": jobCtx.queue || "default",
+          },
+        });
+      const jobSpan =
+        sentryTrace || baggage
+          ? Sentry.continueTrace({ sentryTrace, baggage }, start)
+          : start();
+      jobCtx.metadata.sentrySpan = jobSpan;
+      this.spanALS.enterWith(jobSpan);
+    });
+
+    api.hooks.resque.afterJob((_actionName, _params, jobCtx, outcome) => {
+      const jobSpan = jobCtx.metadata.sentrySpan as SentrySpan | undefined;
+      if (!jobSpan) return;
+      if (outcome.success) {
+        jobSpan.setStatus({ code: 1 });
+      } else {
+        jobSpan.setStatus({
+          code: 2,
+          message:
+            outcome.error instanceof Error
+              ? outcome.error.message
+              : String(outcome.error),
+        });
+      }
+      jobSpan.end();
     });
   }
 

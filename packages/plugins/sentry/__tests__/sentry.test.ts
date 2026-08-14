@@ -54,6 +54,27 @@ class SentryBoom implements Action {
   }
 }
 
+class SentryEnqueue implements Action {
+  name = "sentry:enqueue";
+  description = "Enqueues status as a background task";
+  inputs = z.object({});
+  web = { route: "/sentry-enqueue", method: HTTP_METHOD.GET };
+  mcp = { tool: false };
+  async run() {
+    await api.actions.enqueue("status");
+    return { enqueued: true };
+  }
+}
+
+async function performJob(
+  actionName: string,
+  params: Record<string, unknown> = {},
+) {
+  const job = api.resque.jobs[actionName];
+  if (!job) throw new Error(`No resque job registered for ${actionName}`);
+  return job.perform.call({ queue: "default" }, params);
+}
+
 describe("sentry plugin (disabled)", () => {
   beforeAll(async () => {
     config.plugins = [sentryPlugin];
@@ -110,13 +131,17 @@ describe("sentry plugin (enabled)", () => {
       return span;
     };
     await api.start();
-    api.actions.actions.push(new SentryBoom());
+    const boom = new SentryBoom();
+    api.actions.actions.push(boom);
+    api.resque.jobs[boom.name] = api.resque.wrapActionAsJob(boom);
+    api.actions.actions.push(new SentryEnqueue());
   }, HOOK_TIMEOUT);
 
   afterAll(async () => {
     api.actions.actions = api.actions.actions.filter(
-      (a: Action) => a.name !== "sentry:boom",
+      (a: Action) => a.name !== "sentry:boom" && a.name !== "sentry:enqueue",
     );
+    delete api.resque.jobs["sentry:boom"];
     await api.stop();
     config.plugins = [];
   }, HOOK_TIMEOUT);
@@ -272,6 +297,68 @@ describe("sentry plugin (enabled)", () => {
     api.sentry.captureMessage("sentry plugin smoke");
     await api.sentry.flush(2000);
     await Bun.sleep(50);
+    expect(events.length).toBeGreaterThan(0);
+  });
+
+  test("background tasks create a root queue.process span and a child action span", async () => {
+    spans.length = 0;
+    await performJob("status");
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const taskSpan = spans.find((s) => s.name === "task:status");
+    const actionSpan = spans.find(
+      (s) =>
+        s.name === "action:status" &&
+        s.data["keryx.connection.type"] === "task",
+    );
+    expect(taskSpan).toBeDefined();
+    expect(taskSpan!.op).toBe("queue.process");
+    expect(taskSpan!.data["keryx.action"]).toBe("status");
+    expect(taskSpan!.data["keryx.connection.type"]).toBe("task");
+    expect(taskSpan!.data["messaging.destination.name"]).toBe("default");
+    expect(actionSpan).toBeDefined();
+    expect(actionSpan!.op).toBe("keryx.action");
+    expect(actionSpan!.parentSpanId).toBeDefined();
+    expect(actionSpan!.traceId).toBe(taskSpan!.traceId);
+  });
+
+  test("enqueued tasks continue the originating HTTP trace", async () => {
+    spans.length = 0;
+    const res = await fetch(`${serverUrl()}/api/sentry-enqueue`);
+    expect(res.status).toBe(200);
+
+    const queued = await api.actions.queued();
+    const statusJob = queued.find((j) => j.class === "status");
+    expect(statusJob).toBeDefined();
+    const payload = statusJob!.args[0] as Record<string, unknown>;
+    expect(typeof payload._sentryTrace).toBe("string");
+
+    await performJob("status", payload);
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const httpSpan = spans.find(
+      (s) => s.op === "http.server" || s.name.includes("sentry:enqueue"),
+    );
+    const taskSpan = spans.find((s) => s.name === "task:status");
+    expect(httpSpan).toBeDefined();
+    expect(taskSpan).toBeDefined();
+    expect(taskSpan!.traceId).toBe(httpSpan!.traceId);
+  });
+
+  test("failed background tasks mark the root span as error and capture the exception", async () => {
+    spans.length = 0;
+    events.length = 0;
+    await expect(performJob("sentry:boom")).rejects.toThrow(
+      "intentional sentry test failure",
+    );
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const taskSpan = spans.find((s) => s.name === "task:sentry:boom");
+    expect(taskSpan).toBeDefined();
+    expect(taskSpan!.op).toBe("queue.process");
     expect(events.length).toBeGreaterThan(0);
   });
 });
