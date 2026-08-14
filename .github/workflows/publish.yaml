@@ -7,6 +7,7 @@ on:
       - packages/keryx/package.json
       - packages/mcpApp/package.json
       - packages/plugins/tracing/package.json
+      - packages/plugins/sentry/package.json
       - packages/plugins/resque-admin/package.json
       - packages/plugins/csrf/package.json
 
@@ -28,6 +29,9 @@ jobs:
           - package: tracing
             dir: packages/plugins/tracing
             npm_name: "@keryxjs/tracing"
+          - package: sentry
+            dir: packages/plugins/sentry
+            npm_name: "@keryxjs/sentry"
           - package: resque-admin
             dir: packages/plugins/resque-admin
             npm_name: "@keryxjs/resque-admin"

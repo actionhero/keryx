@@ -9,6 +9,7 @@ packages/keryx/tmp-schema-*
 packages/keryx/README.md
 packages/keryx/assets/
 packages/plugins/tracing/.env
+packages/plugins/sentry/.env
 packages/plugins/resque-admin/.env
 packages/plugins/csrf/.env
 example/backend/.env

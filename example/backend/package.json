@@ -21,6 +21,7 @@
     "@keryxjs/csrf": "workspace:*",
     "@keryxjs/mcp-app": "workspace:*",
     "@keryxjs/resque-admin": "workspace:*",
+    "@keryxjs/sentry": "workspace:*",
     "@keryxjs/tracing": "workspace:*",
     "commander": "^14.0.3",
     "drizzle-orm": "^0.45.2",

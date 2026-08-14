@@ -11,6 +11,7 @@ The Keryx team maintains a set of first-party plugins under the `@keryxjs` npm s
 | Plugin | Package | Description |
 |--------|---------|-------------|
 | [Tracing](/plugins/tracing) | `@keryxjs/tracing` | OpenTelemetry distributed tracing (OTLP) for HTTP, actions, tasks, Redis, and Drizzle |
+| [Sentry](/plugins/sentry) | `@keryxjs/sentry` | Sentry error monitoring and tracing for HTTP, WebSocket, MCP, actions, tasks, Redis, and Postgres |
 | [Resque Admin](/plugins/resque-admin) | `@keryxjs/resque-admin` | Web dashboard and API for monitoring Redis, queues, workers, failed jobs, and locks |
 | [CSRF](/plugins/csrf) | `@keryxjs/csrf` | Per-session CSRF tokens and middleware to protect state-changing endpoints |
 

@@ -27,6 +27,7 @@ keryx/
       __tests__/           # Framework-level tests
     plugins/               # First-party plugins (each is its own workspace)
       tracing/             # OpenTelemetry tracing plugin
+      sentry/              # Sentry error monitoring and tracing plugin
       resque-admin/        # Web UI for inspecting Resque queues
   example/
     backend/               # Example app using keryx
@@ -80,7 +81,9 @@ bun tests                          # Run tests for every workspace (package, plu
 # Per-workspace test scripts (from root)
 bun test-package                   # packages/keryx
 bun test-plugin-tracing            # packages/plugins/tracing
+bun test-plugin-sentry             # packages/plugins/sentry
 bun test-plugin-resque-admin       # packages/plugins/resque-admin
+bun test-plugin-csrf               # packages/plugins/csrf
 bun test-example-backend           # example/backend
 bun test-example-frontend          # example/frontend
 
