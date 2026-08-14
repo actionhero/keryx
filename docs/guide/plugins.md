@@ -15,6 +15,7 @@ Plugins package reusable functionality — initializers, actions, channels, serv
 | Package | Description |
 |---------|-------------|
 | [`@keryxjs/tracing`](/plugins/tracing) | OpenTelemetry distributed tracing (OTLP) for HTTP, actions, tasks, Redis, and Drizzle |
+| [`@keryxjs/sentry`](/plugins/sentry) | Sentry error monitoring and tracing for HTTP, WebSocket, MCP, actions, tasks, Redis, and Postgres |
 | [`@keryxjs/resque-admin`](/plugins/resque-admin) | Web dashboard and API for monitoring Redis, queues, workers, failed jobs, and locks |
 
 ## Using a Plugin

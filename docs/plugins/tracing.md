@@ -6,7 +6,7 @@ description: OpenTelemetry distributed tracing for Keryx — emits OTLP spans fo
 
 `@keryxjs/tracing` adds OpenTelemetry distributed tracing to your Keryx app. It exports OTLP spans for HTTP requests, action executions, background task enqueue/execute, Redis commands, and Drizzle DB queries — and propagates W3C trace context across service and process boundaries.
 
-For metrics, see the built-in [Observability](/guide/observability) feature — that ships with the core framework. This plugin is tracing-only.
+For metrics, see the built-in [Observability](/guide/observability) feature — that ships with the core framework. This plugin is tracing-only. For error monitoring and traces in Sentry, see [`@keryxjs/sentry`](/plugins/sentry) instead — don't run both.
 
 ## Quick Start
 

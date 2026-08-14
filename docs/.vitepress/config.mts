@@ -106,6 +106,7 @@ export const PLUGINS_SIDEBAR: SidebarGroup[] = [
     items: [
       { text: "Overview", link: "/plugins/" },
       { text: "Tracing", link: "/plugins/tracing" },
+      { text: "Sentry", link: "/plugins/sentry" },
       { text: "Resque Admin", link: "/plugins/resque-admin" },
       { text: "CSRF", link: "/plugins/csrf" },
     ],
