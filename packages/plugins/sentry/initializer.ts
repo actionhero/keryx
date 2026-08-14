@@ -438,9 +438,14 @@ export class SentryPlugin extends Initializer {
     });
 
     api.hooks.actions.beforeAct((actionName, _params, connection, actCtx) => {
-      // Fresh per-action identity buffer so setUser / setTag isolate to this
-      // request and never bleed onto other connections' events.
-      this.requestScopeALS.enterWith({ tags: {} });
+      // Establish one identity buffer per request, at the outermost action.
+      // Nested `connection.act()` calls inherit it (getStore() is already set)
+      // instead of clobbering the outer action's setUser / setTag data, while a
+      // brand-new request — a fresh async context — still starts empty, so
+      // identity never bleeds across connections.
+      if (!this.requestScopeALS.getStore()) {
+        this.requestScopeALS.enterWith({ tags: {} });
+      }
       const parent = this.spanALS.getStore();
       const actionSpan = Sentry.startInactiveSpan({
         name: `action:${actionName ?? "unknown"}`,
