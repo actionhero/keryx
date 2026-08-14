@@ -38,6 +38,17 @@ declare module "keryx" {
 type SentrySpan = ReturnType<typeof Sentry.startInactiveSpan>;
 
 /**
+ * Per-request identity buffer. `api.sentry.setUser` / `setTag` write here
+ * instead of a process-global scope so that identity set while handling one
+ * request never bleeds onto a concurrent or subsequent request's events. The
+ * buffer is applied to a forked scope at capture time.
+ */
+type RequestScopeData = {
+  user?: Sentry.User | null;
+  tags: Record<string, string>;
+};
+
+/**
  * Build the `db.query.text` attribute for a Redis span: `"<command> <key>..."`
  * with keys-only (values never captured). Uses ioredis `Command.getKeys()`
  * to determine which args are keys; falls back to the command name alone if
@@ -151,6 +162,14 @@ export class SentryPlugin extends Initializer {
    * `Sentry.startSpan(...)`.
    */
   private spanALS = new AsyncLocalStorage<SentrySpan | undefined>();
+  /**
+   * Per-request identity buffer keyed by async context. Established in
+   * `beforeAct` (and transport hooks) so `setUser` / `setTag` isolate to the
+   * current request instead of leaking through a shared global scope.
+   */
+  private requestScopeALS = new AsyncLocalStorage<
+    RequestScopeData | undefined
+  >();
   private wsConnections = new WeakMap<object, SentrySpan>();
   private wsMessageSpans = new WeakMap<object, SentrySpan>();
   private mcpSessions = new Map<string, SentrySpan>();
@@ -211,14 +230,32 @@ export class SentryPlugin extends Initializer {
     const ns = api.sentry;
     ns.enabled = true;
     ns.captureException = (exception) =>
-      Sentry.captureException(exception) ?? undefined;
+      Sentry.withScope((scope) => {
+        this.applyRequestScope(scope);
+        return Sentry.captureException(exception);
+      }) ?? undefined;
     ns.captureMessage = (message, level) =>
-      Sentry.captureMessage(message, level) ?? undefined;
+      Sentry.withScope((scope) => {
+        this.applyRequestScope(scope);
+        return Sentry.captureMessage(message, level);
+      }) ?? undefined;
     ns.setUser = (user) => {
-      Sentry.setUser(user);
+      const data = this.requestScopeALS.getStore();
+      if (data) {
+        data.user = user;
+      } else {
+        // No active request context (e.g. called during boot). Fall back to
+        // the global scope; there is no per-request isolation to preserve.
+        Sentry.setUser(user);
+      }
     };
     ns.setTag = (key, value) => {
-      Sentry.setTag(key, value);
+      const data = this.requestScopeALS.getStore();
+      if (data) {
+        data.tags[key] = value;
+      } else {
+        Sentry.setTag(key, value);
+      }
     };
     ns.flush = (timeoutMs) => Sentry.flush(timeoutMs);
 
@@ -230,13 +267,28 @@ export class SentryPlugin extends Initializer {
   }
 
   /**
+   * Copy the current request's buffered identity (user + tags) onto a forked
+   * Sentry scope. Called from a `withScope` callback right before a capture so
+   * the identity applies only to that event, never to the shared global scope.
+   */
+  private applyRequestScope(scope: Sentry.Scope): void {
+    const data = this.requestScopeALS.getStore();
+    if (!data) return;
+    if (data.user !== undefined) scope.setUser(data.user);
+    for (const [key, value] of Object.entries(data.tags)) {
+      scope.setTag(key, value);
+    }
+  }
+
+  /**
    * Wire up Sentry spans and exception capture via framework hooks:
    *  - `web.beforeRequest` / `web.afterRequest`: root HTTP span
    *  - `ws.onConnect` / `onMessage` / `onDisconnect`: WebSocket transport
    *  - `mcp.onConnect` / `onMessage` / `onDisconnect`: MCP transport
    *  - `actions.beforeAct` / `actions.afterAct`: action span + errors
    *  - `actions.onEnqueue`: inject Sentry trace headers into task params
-   *  - `resque.beforeJob` / `afterJob`: root `queue.process` transaction
+   *  - `resque.beforeJob` / `afterJob`: root `queue.process` transaction that
+   *    continues the enqueuer's trace
    */
   private registerTracingHooks() {
     api.hooks.web.beforeRequest((req, ctx) => {
@@ -309,6 +361,11 @@ export class SentryPlugin extends Initializer {
       });
       this.spanALS.enterWith(span);
       if (messageType === "action") {
+        // End any previous in-flight action span for this connection before
+        // overwriting the slot, so a burst of messages can't leak spans that
+        // never reach afterAct.
+        const prev = this.wsMessageSpans.get(connection);
+        if (prev && prev !== span) prev.end();
         this.wsMessageSpans.set(connection, span);
       } else {
         span.setStatus({ code: 1 });
@@ -356,6 +413,12 @@ export class SentryPlugin extends Initializer {
       });
       this.spanALS.enterWith(span);
       if (sessionId) {
+        // onMessage fires for every session request — including pings and
+        // notifications that never reach afterAct. End any previous in-flight
+        // message span before overwriting the slot so those never accumulate
+        // until disconnect.
+        const prev = this.mcpMessageSpans.get(sessionId);
+        if (prev && prev !== span) prev.end();
         this.mcpMessageSpans.set(sessionId, span);
       } else {
         span.setStatus({ code: 1 });
@@ -377,6 +440,18 @@ export class SentryPlugin extends Initializer {
     });
 
     api.hooks.actions.beforeAct((actionName, _params, connection, actCtx) => {
+      // Give each action its own identity buffer, seeded from the parent so a
+      // nested connection.act() inherits the outer user/tags without mutating
+      // them. afterAct restores the previous buffer, so sequential actions on a
+      // long-lived async context (a WS connection or a task worker) never
+      // inherit stale identity and it never bleeds across requests.
+      const prevScope = this.requestScopeALS.getStore();
+      actCtx.metadata.sentryPrevScope = prevScope;
+      this.requestScopeALS.enterWith(
+        prevScope
+          ? { user: prevScope.user, tags: { ...prevScope.tags } }
+          : { tags: {} },
+      );
       const parent = this.spanALS.getStore();
       const actionSpan = Sentry.startInactiveSpan({
         name: `action:${actionName ?? "unknown"}`,
@@ -412,6 +487,7 @@ export class SentryPlugin extends Initializer {
               shouldCapture(outcome.error, config.sentry.captureClientErrors)
             ) {
               Sentry.withScope((scope) => {
+                this.applyRequestScope(scope);
                 scope.setTag("keryx.action", actionName);
                 scope.setTag("keryx.connection.type", connection.type);
                 Sentry.captureException(outcome.error);
@@ -451,6 +527,12 @@ export class SentryPlugin extends Initializer {
         }
 
         if (parent) this.spanALS.enterWith(parent);
+        // Restore the identity buffer captured in beforeAct so this action's
+        // user/tags do not leak into sibling or sequential actions sharing the
+        // same async context (e.g. a task worker or WS connection).
+        this.requestScopeALS.enterWith(
+          actCtx.metadata.sentryPrevScope as RequestScopeData | undefined,
+        );
       },
     );
 
@@ -478,6 +560,8 @@ export class SentryPlugin extends Initializer {
       const p = params as Record<string, unknown>;
       const sentryTrace = p._sentryTrace as string | undefined;
       const baggage = p._sentryBaggage as string | undefined;
+      // Strip internal trace-propagation fields so they never reach the
+      // action's validated params.
       delete p._sentryTrace;
       delete p._sentryBaggage;
 
@@ -557,13 +641,20 @@ export class SentryPlugin extends Initializer {
    * Wrap the node-postgres `Pool` used by Drizzle so every SQL command
    * (including those issued through `api.db.db`) becomes a Sentry span.
    * Query text is captured up to 1000 characters; bind values are not.
+   *
+   * Only the checked-out client's `query` is wrapped — never `Pool.query`.
+   * `Pool.query` internally acquires a client via `Pool.connect` and delegates
+   * to `client.query`, so wrapping both would emit two stacked `pg.*` spans per
+   * statement. Wrapping only the client covers direct `Pool.query`, pooled
+   * clients, and transactions with exactly one span each. Wrapped clients are
+   * tracked in a `WeakSet` so pooled clients (reused across checkouts) are
+   * never re-wrapped, which would otherwise grow the wrapper chain unbounded.
    */
   private instrumentPostgres() {
     const pool = (
       api as {
         db?: {
           pool?: {
-            query: (...args: unknown[]) => unknown;
             connect: (...args: unknown[]) => unknown;
           };
         };
@@ -571,24 +662,10 @@ export class SentryPlugin extends Initializer {
     ).db?.pool;
     if (!pool) return;
 
-    const originalQuery = pool.query.bind(pool);
-    pool.query = (...args: unknown[]) => {
-      const sqlText = queryTextFromArgs(args);
-      const span = Sentry.startInactiveSpan({
-        name: `pg.${pgOperation(sqlText)}`,
-        op: "db",
-        parentSpan: this.spanALS.getStore(),
-        attributes: {
-          "db.system": "postgresql",
-          "db.operation.name": pgOperation(sqlText),
-          "db.query.text": truncateSql(sqlText),
-        },
-      });
-      return finishSpan(span, originalQuery(...args));
-    };
-
-    const originalConnect = pool.connect.bind(pool);
+    const wrappedClients = new WeakSet<object>();
     const wrapClient = (client: { query: (...args: unknown[]) => unknown }) => {
+      if (wrappedClients.has(client)) return;
+      wrappedClients.add(client);
       const originalClientQuery = client.query.bind(client);
       client.query = (...args: unknown[]) => {
         const sqlText = queryTextFromArgs(args);
@@ -602,10 +679,31 @@ export class SentryPlugin extends Initializer {
             "db.query.text": truncateSql(sqlText),
           },
         });
+        // `Pool.query` calls `client.query(text, values, cb)` with a callback;
+        // node-postgres returns a `Query` (not a thenable) in that form, so end
+        // the span when the callback fires rather than immediately.
+        const last = args[args.length - 1];
+        if (typeof last === "function") {
+          const cb = last as (...a: unknown[]) => unknown;
+          args[args.length - 1] = (
+            err: Error | undefined,
+            ...rest: unknown[]
+          ) => {
+            if (err) {
+              span.setStatus({ code: 2, message: err.message });
+            } else {
+              span.setStatus({ code: 1 });
+            }
+            span.end();
+            return cb(err, ...rest);
+          };
+          return originalClientQuery(...args);
+        }
         return finishSpan(span, originalClientQuery(...args));
       };
     };
 
+    const originalConnect = pool.connect.bind(pool);
     pool.connect = (...args: unknown[]) => {
       const cb = args[0];
       if (typeof cb === "function") {

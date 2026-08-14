@@ -2,7 +2,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   type Action,
   api,
-  type Connection,
+  CONNECTION_TYPE,
+  Connection,
   config,
   ErrorType,
   HTTP_METHOD,
@@ -55,6 +56,21 @@ class SentryBoom implements Action {
   }
 }
 
+class SentryUserBoom implements Action {
+  name = "sentry:user-boom";
+  description = "Sets a user then throws a 500 for isolation tests";
+  inputs = z.object({});
+  web = { route: "/sentry-user-boom", method: HTTP_METHOD.GET };
+  mcp = { tool: false };
+  async run() {
+    api.sentry.setUser({ id: "user-42" });
+    throw new TypedError({
+      message: "user boom failure",
+      type: ErrorType.CONNECTION_ACTION_RUN,
+    });
+  }
+}
+
 class SentryEnqueue implements Action {
   name = "sentry:enqueue";
   description = "Enqueues status as a background task";
@@ -99,6 +115,13 @@ async function performJob(
   const job = api.resque.jobs[actionName];
   if (!job) throw new Error(`No resque job registered for ${actionName}`);
   return job.perform.call({ queue: "default" }, params);
+}
+
+function eventMessage(event: Record<string, unknown>): string {
+  const exc = event.exception as
+    | { values?: Array<{ value?: string }> }
+    | undefined;
+  return exc?.values?.[0]?.value ?? String(event.message ?? "");
 }
 
 describe("sentry plugin (disabled)", () => {
@@ -160,6 +183,7 @@ describe("sentry plugin (enabled)", () => {
     const boom = new SentryBoom();
     api.actions.actions.push(boom);
     api.resque.jobs[boom.name] = api.resque.wrapActionAsJob(boom);
+    api.actions.actions.push(new SentryUserBoom());
     api.actions.actions.push(new SentryEnqueue());
     const nest = new SentryNest();
     api.actions.actions.push(nest);
@@ -173,6 +197,7 @@ describe("sentry plugin (enabled)", () => {
     api.actions.actions = api.actions.actions.filter(
       (a: Action) =>
         a.name !== "sentry:boom" &&
+        a.name !== "sentry:user-boom" &&
         a.name !== "sentry:enqueue" &&
         a.name !== "sentry:nest" &&
         a.name !== "sentry:recurring",
@@ -336,6 +361,217 @@ describe("sentry plugin (enabled)", () => {
     await api.sentry.flush(2000);
     await Bun.sleep(50);
     expect(events.length).toBeGreaterThan(0);
+  });
+
+  test("Postgres queries are not double-instrumented", async () => {
+    spans.length = 0;
+    await api.db.pool.query("SELECT 1 AS one");
+    await api.db.pool.query("SELECT 1 AS one");
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const selectSpans = spans.filter(
+      (s) => s.data["db.query.text"] === "SELECT 1 AS one",
+    );
+    // One span per query — no stacked pool.query + client.query duplicate.
+    expect(selectSpans.length).toBe(2);
+    for (const span of selectSpans) {
+      expect(span.name).toBe("pg.SELECT");
+      expect(span.data["db.system"]).toBe("postgresql");
+    }
+  });
+
+  test("MCP message spans do not leak across overlapping messages", async () => {
+    spans.length = 0;
+    const sessionId = "sentry-leak-session";
+    for (const hook of api.hooks.mcp.onConnectHooks) {
+      await hook(sessionId);
+    }
+    // Two messages for the same session without an intervening afterAct: the
+    // first must be ended when the second arrives instead of leaking.
+    for (const hook of api.hooks.mcp.onMessageHooks) {
+      await hook(sessionId);
+    }
+    for (const hook of api.hooks.mcp.onMessageHooks) {
+      await hook(sessionId);
+    }
+    for (const hook of api.hooks.mcp.onDisconnectHooks) {
+      await hook(sessionId);
+    }
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const messageSpans = spans.filter((s) => s.name === "mcp.message");
+    expect(messageSpans.length).toBe(2);
+  });
+
+  test("user identity is isolated per request", async () => {
+    events.length = 0;
+    // First request sets a user and fails; second fails without a user.
+    const withUser = await fetch(`${serverUrl()}/api/sentry-user-boom`);
+    expect(withUser.status).toBe(500);
+    const withoutUser = await fetch(`${serverUrl()}/api/sentry-boom`);
+    expect(withoutUser.status).toBe(500);
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const userEvent = events.find((e) =>
+      eventMessage(e).includes("user boom failure"),
+    );
+    const plainEvent = events.find((e) =>
+      eventMessage(e).includes("intentional sentry test failure"),
+    );
+    expect(userEvent).toBeDefined();
+    expect(plainEvent).toBeDefined();
+    expect((userEvent?.user as { id?: string } | undefined)?.id).toBe(
+      "user-42",
+    );
+    // The identity from the first request must not bleed onto the second.
+    expect(plainEvent?.user).toBeUndefined();
+  });
+
+  test("nested actions preserve the outer request identity", async () => {
+    events.length = 0;
+    const connection = new Connection(CONNECTION_TYPE.CLI, "cli:nested-test");
+
+    // Outer action establishes the request's identity.
+    const outerCtx = { metadata: {} as Record<string, unknown> };
+    for (const hook of api.hooks.actions.beforeActHooks) {
+      await hook("outer", {}, connection, outerCtx);
+    }
+    api.sentry.setUser({ id: "outer-user" });
+
+    // A nested action runs to completion without touching identity; it must
+    // not reset the outer action's buffer.
+    const innerCtx = { metadata: {} as Record<string, unknown> };
+    for (const hook of api.hooks.actions.beforeActHooks) {
+      await hook("inner", {}, connection, innerCtx);
+    }
+    for (const hook of api.hooks.actions.afterActHooks) {
+      await hook("inner", {}, connection, innerCtx, {
+        success: true,
+        response: null,
+        duration: 1,
+      });
+    }
+
+    // The outer action's capture still sees the outer identity.
+    api.sentry.captureException(new Error("nested identity capture"));
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const event = events.find((e) =>
+      eventMessage(e).includes("nested identity capture"),
+    );
+    expect(event).toBeDefined();
+    expect((event?.user as { id?: string } | undefined)?.id).toBe("outer-user");
+
+    // Restore the outer action's buffer so this test leaves the shared async
+    // context clean for the ones that follow.
+    for (const hook of api.hooks.actions.afterActHooks) {
+      await hook("outer", {}, connection, outerCtx, {
+        success: true,
+        response: null,
+        duration: 1,
+      });
+    }
+  });
+
+  test("identity does not leak across sequential actions", async () => {
+    events.length = 0;
+    const connection = new Connection(CONNECTION_TYPE.WEBSOCKET, "ws:seq-test");
+
+    // First action sets a user and completes.
+    const ctx1 = { metadata: {} as Record<string, unknown> };
+    for (const hook of api.hooks.actions.beforeActHooks) {
+      await hook("first", {}, connection, ctx1);
+    }
+    api.sentry.setUser({ id: "first-user" });
+    for (const hook of api.hooks.actions.afterActHooks) {
+      await hook("first", {}, connection, ctx1, {
+        success: true,
+        response: null,
+        duration: 1,
+      });
+    }
+
+    // A later action on the same long-lived context must not inherit the first
+    // action's identity buffer.
+    const ctx2 = { metadata: {} as Record<string, unknown> };
+    for (const hook of api.hooks.actions.beforeActHooks) {
+      await hook("second", {}, connection, ctx2);
+    }
+    api.sentry.captureException(new Error("sequential identity capture"));
+    for (const hook of api.hooks.actions.afterActHooks) {
+      await hook("second", {}, connection, ctx2, {
+        success: true,
+        response: null,
+        duration: 1,
+      });
+    }
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const event = events.find((e) =>
+      eventMessage(e).includes("sequential identity capture"),
+    );
+    expect(event).toBeDefined();
+    expect((event?.user as { id?: string } | undefined)?.id).not.toBe(
+      "first-user",
+    );
+  });
+
+  test("background task spans continue the enqueuer's trace", async () => {
+    spans.length = 0;
+    const traceId = "abcdef12345678901234567890abcdef";
+    const parentSpanId = "1234567890abcdef";
+    const sentryTrace = `${traceId}-${parentSpanId}-1`;
+    const params: Record<string, unknown> = {
+      _sentryTrace: sentryTrace,
+      _sentryBaggage: "sentry-environment=test",
+      foo: "bar",
+    };
+    const jobCtx = {
+      queue: "default",
+      metadata: {} as Record<string, unknown>,
+    };
+
+    for (const hook of api.hooks.resque.beforeJobHooks) {
+      await hook("sentry:task", params, jobCtx);
+    }
+    // Propagation fields are stripped before the action sees params.
+    expect(params._sentryTrace).toBeUndefined();
+    expect(params._sentryBaggage).toBeUndefined();
+
+    const connection = new Connection(CONNECTION_TYPE.TASK, "task:sentry:1");
+    const actCtx = { metadata: {} as Record<string, unknown> };
+    for (const hook of api.hooks.actions.beforeActHooks) {
+      await hook("sentry:task", params, connection, actCtx);
+    }
+    for (const hook of api.hooks.actions.afterActHooks) {
+      await hook("sentry:task", params, connection, actCtx, {
+        success: true,
+        response: null,
+        duration: 1,
+      });
+    }
+    for (const hook of api.hooks.resque.afterJobHooks) {
+      await hook("sentry:task", params, jobCtx, {
+        success: true,
+        result: null,
+        duration: 1,
+      });
+    }
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const rootSpan = spans.find((s) => s.name === "task:sentry:task");
+    const actionSpan = spans.find((s) => s.name === "action:sentry:task");
+    expect(rootSpan).toBeDefined();
+    expect(actionSpan).toBeDefined();
+    // Both join the enqueuer's trace rather than starting a fresh one.
+    expect(rootSpan!.traceId).toBe(traceId);
+    expect(actionSpan!.traceId).toBe(traceId);
   });
 
   test("background tasks create a root queue.process span and a child action span", async () => {
