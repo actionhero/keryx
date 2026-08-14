@@ -1,12 +1,14 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import path from "node:path";
 import * as Sentry from "@sentry/bun";
+import type { Logger } from "keryx";
 import {
   api,
   CONNECTION_TYPE,
   config,
   ErrorStatusCodes,
   Initializer,
+  LogLevel,
   logger,
   TypedError,
 } from "keryx";
@@ -174,6 +176,12 @@ export class SentryPlugin extends Initializer {
   private wsMessageSpans = new WeakMap<object, SentrySpan>();
   private mcpSessions = new Map<string, SentrySpan>();
   private mcpMessageSpans = new Map<string, SentrySpan>();
+  /**
+   * The framework logger's original `log` method, saved when we wrap it to
+   * forward logs to Sentry. Restored on `stop()` so the singleton logger is
+   * never left double-wrapped across start/stop cycles (e.g. between tests).
+   */
+  private originalLoggerLog?: Logger["log"];
 
   constructor() {
     super(namespace);
@@ -266,6 +274,7 @@ export class SentryPlugin extends Initializer {
     this.registerTracingHooks();
     this.instrumentRedis();
     this.instrumentPostgres();
+    if (config.sentry.enableLogs) this.instrumentLogger();
 
     logger.info(`Sentry tracing initialized (service: ${serviceName})`);
   }
@@ -285,43 +294,103 @@ export class SentryPlugin extends Initializer {
   }
 
   /**
-   * Emit optional Sentry logs and metrics for a completed action. Both are
-   * off by default and gated on `config.sentry.enableLogs` /
+   * Emit a Sentry metric for a completed action, off by default and gated on
    * `config.sentry.enableMetrics`.
    *
    * The metric is a counter named `keryx.action.count`, incremented once per
    * action with the action name and connection type as attributes so you can
-   * break the count down by action in Sentry. The log is an `info` line for
-   * the same action with duration and success attached.
+   * break the count down by action in Sentry.
    *
    * @param actionName - Name of the action that ran, or `undefined` when the
    *   router could not resolve one (recorded as `unknown`).
    * @param connectionType - Transport the action ran on (web, websocket, task…).
    * @param outcome - Result of the action: `success` and `duration` in ms.
    */
-  private recordActionTelemetry(
+  private recordActionMetric(
     actionName: string | undefined,
     connectionType: string,
     outcome: { success: boolean; duration: number },
   ): void {
-    const name = actionName ?? "unknown";
-    if (config.sentry.enableMetrics) {
-      Sentry.metrics.count("keryx.action.count", 1, {
-        attributes: {
-          "keryx.action": name,
-          "keryx.connection.type": connectionType,
-          "keryx.action.success": outcome.success,
-        },
-      });
-    }
-    if (config.sentry.enableLogs) {
-      Sentry.logger.info(Sentry.logger.fmt`action ${name} ran`, {
-        "keryx.action": name,
+    if (!config.sentry.enableMetrics) return;
+    Sentry.metrics.count("keryx.action.count", 1, {
+      attributes: {
+        "keryx.action": actionName ?? "unknown",
         "keryx.connection.type": connectionType,
         "keryx.action.success": outcome.success,
-        "keryx.action.duration_ms": outcome.duration,
-      });
+      },
+    });
+  }
+
+  /**
+   * Forward the application's real logs to Sentry by wrapping the framework
+   * `logger.log` method. Every log the app already emits — the same ones that
+   * reach stdout — is mirrored to `Sentry.logger.<level>` with its structured
+   * `data` carried through as log attributes. We do not invent logs; if the
+   * app logs nothing, Sentry gets nothing.
+   *
+   * The wrapper preserves the logger's own level / `quiet` gating so a log
+   * that is filtered from stdout is never sent to Sentry either. The original
+   * method is saved on the instance and restored in `stop()`.
+   */
+  private instrumentLogger() {
+    const current = logger.log as Logger["log"] & { __sentryWrapped?: boolean };
+    if (current.__sentryWrapped) return;
+    const original = current.bind(logger) as Logger["log"];
+    this.originalLoggerLog = original;
+    const self = this;
+    const wrapped = ((level: LogLevel, message: string, data?: unknown) => {
+      original(level, message, data);
+      self.forwardLogToSentry(level, message, data);
+    }) as Logger["log"] & { __sentryWrapped?: boolean };
+    wrapped.__sentryWrapped = true;
+    logger.log = wrapped;
+  }
+
+  /**
+   * Mirror a single framework log line to Sentry, honoring the same level /
+   * `quiet` filtering the logger applies to stdout. Structured `data` becomes
+   * the Sentry log's attributes; primitive data is nested under a `data` key.
+   *
+   * @param level - The framework log level; maps 1:1 to a `Sentry.logger` method.
+   * @param message - The log message.
+   * @param data - Optional structured data attached to the log.
+   */
+  private forwardLogToSentry(
+    level: LogLevel,
+    message: string,
+    data?: unknown,
+  ): void {
+    if (!config.sentry.enableLogs) return;
+    if (logger.quiet) return;
+    const levels = Object.values(LogLevel);
+    if (levels.indexOf(level) < levels.indexOf(logger.level)) return;
+
+    const emitters: Record<
+      LogLevel,
+      (message: string, attributes?: Record<string, unknown>) => void
+    > = {
+      [LogLevel.trace]: Sentry.logger.trace,
+      [LogLevel.debug]: Sentry.logger.debug,
+      [LogLevel.info]: Sentry.logger.info,
+      [LogLevel.warn]: Sentry.logger.warn,
+      [LogLevel.error]: Sentry.logger.error,
+      [LogLevel.fatal]: Sentry.logger.fatal,
+    };
+    const emit = emitters[level];
+    if (emit) emit(message, this.logAttributes(data));
+  }
+
+  /**
+   * Normalize a framework log's `data` argument into Sentry log attributes.
+   * Plain objects pass through as-is; anything else (arrays, primitives) is
+   * nested under a `data` key so the attribute map stays a flat record.
+   */
+  private logAttributes(data: unknown): Record<string, unknown> | undefined {
+    if (data === undefined || data === null) return undefined;
+    if (typeof data === "object" && !Array.isArray(data)) {
+      return data as Record<string, unknown>;
     }
+    return { data };
   }
 
   /**
@@ -513,7 +582,7 @@ export class SentryPlugin extends Initializer {
 
     api.hooks.actions.afterAct(
       (actionName, _params, connection, actCtx, outcome) => {
-        this.recordActionTelemetry(actionName, connection.type, outcome);
+        this.recordActionMetric(actionName, connection.type, outcome);
 
         const span = actCtx.metadata.sentrySpan as SentrySpan | undefined;
         const parent = actCtx.metadata.sentryParentSpan as
@@ -780,6 +849,11 @@ export class SentryPlugin extends Initializer {
   async stop() {
     const ns = api.sentry;
     Object.assign(ns, createNoopNamespace());
+
+    if (this.originalLoggerLog) {
+      logger.log = this.originalLoggerLog;
+      this.originalLoggerLog = undefined;
+    }
 
     if (Sentry.getClient()) {
       try {

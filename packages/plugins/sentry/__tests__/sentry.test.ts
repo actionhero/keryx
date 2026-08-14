@@ -7,6 +7,8 @@ import {
   config,
   ErrorType,
   HTTP_METHOD,
+  LogLevel,
+  logger,
   TypedError,
 } from "keryx";
 import { z } from "zod";
@@ -159,8 +161,11 @@ describe("sentry plugin (disabled)", () => {
 describe("sentry plugin (enabled)", () => {
   const events: Array<Record<string, unknown>> = [];
   const spans: CapturedSpan[] = [];
-  const logs: Array<{ message: string; attributes: Record<string, unknown> }> =
-    [];
+  const logs: Array<{
+    level: string;
+    message: string;
+    attributes: Record<string, unknown>;
+  }> = [];
   const metrics: Array<{
     name: string;
     value: number;
@@ -190,6 +195,7 @@ describe("sentry plugin (enabled)", () => {
     };
     config.sentry.beforeSendLog = (log) => {
       logs.push({
+        level: String(log.level),
         message: String(log.message),
         attributes: (log.attributes ?? {}) as Record<string, unknown>,
       });
@@ -280,42 +286,72 @@ describe("sentry plugin (enabled)", () => {
     expect(boomMetric!.attributes["keryx.action.success"]).toBe(false);
   });
 
-  test("actions emit a per-action info log", async () => {
+  test("the application's real logs are forwarded to Sentry", async () => {
     logs.length = 0;
-    const res = await fetch(`${serverUrl()}/api/status`);
-    expect(res.status).toBe(200);
-    await api.sentry.flush(2000);
-    await Bun.sleep(50);
+    const previousLevel = logger.level;
+    logger.level = LogLevel.info;
+    try {
+      logger.warn("real app log to sentry", { requestId: "req-123", count: 7 });
+      await api.sentry.flush(2000);
+      await Bun.sleep(50);
 
-    const statusLog = logs.find(
-      (l) => l.attributes["keryx.action"] === "status",
-    );
-    expect(statusLog).toBeDefined();
-    expect(statusLog!.message).toContain("status");
-    expect(statusLog!.attributes["keryx.connection.type"]).toBe("web");
-    expect(typeof statusLog!.attributes["keryx.action.duration_ms"]).toBe(
-      "number",
-    );
+      const forwarded = logs.find(
+        (l) => l.message === "real app log to sentry",
+      );
+      expect(forwarded).toBeDefined();
+      expect(forwarded!.level).toBe("warn");
+      // The log's structured data is carried through as Sentry attributes.
+      expect(forwarded!.attributes.requestId).toBe("req-123");
+      expect(forwarded!.attributes.count).toBe(7);
+    } finally {
+      logger.level = previousLevel;
+    }
+  });
+
+  test("logs filtered by the logger's level are not forwarded", async () => {
+    logs.length = 0;
+    const previousLevel = logger.level;
+    // Only error and above reach stdout, so an info log must not reach Sentry.
+    logger.level = LogLevel.error;
+    try {
+      logger.info("below the threshold, should be dropped");
+      await api.sentry.flush(2000);
+      await Bun.sleep(50);
+
+      expect(
+        logs.some(
+          (l) => l.message === "below the threshold, should be dropped",
+        ),
+      ).toBe(false);
+    } finally {
+      logger.level = previousLevel;
+    }
   });
 
   test("logs and metrics are suppressed when their toggles are off", async () => {
     logs.length = 0;
     metrics.length = 0;
+    const previousLevel = logger.level;
+    logger.level = LogLevel.info;
     config.sentry.enableLogs = false;
     config.sentry.enableMetrics = false;
     try {
+      logger.warn("should not reach sentry while logs are off");
       const res = await fetch(`${serverUrl()}/api/status`);
       expect(res.status).toBe(200);
       await api.sentry.flush(2000);
       await Bun.sleep(50);
 
       expect(metrics.some((m) => m.name === "keryx.action.count")).toBe(false);
-      expect(logs.some((l) => l.attributes["keryx.action"] === "status")).toBe(
-        false,
-      );
+      expect(
+        logs.some(
+          (l) => l.message === "should not reach sentry while logs are off",
+        ),
+      ).toBe(false);
     } finally {
       config.sentry.enableLogs = true;
       config.sentry.enableMetrics = true;
+      logger.level = previousLevel;
     }
   });
 
