@@ -161,7 +161,7 @@ export class SentryPlugin extends Initializer {
    * inherit the right parent without wrapping the rest of the request in
    * `Sentry.startSpan(...)`.
    */
-  private spanALS = new AsyncLocalStorage<SentrySpan>();
+  private spanALS = new AsyncLocalStorage<SentrySpan | undefined>();
   /**
    * Per-request identity buffer keyed by async context. Established in
    * `beforeAct` (and transport hooks) so `setUser` / `setTag` isolate to the
@@ -285,8 +285,8 @@ export class SentryPlugin extends Initializer {
    *  - `mcp.onConnect` / `onMessage` / `onDisconnect`: MCP transport
    *  - `actions.beforeAct` / `actions.afterAct`: action span + errors
    *  - `actions.onEnqueue`: inject Sentry trace headers into task params
-   *  - `resque.beforeJob` / `resque.afterJob`: continue the enqueuer's trace
-   *    under a root job span
+   *  - `resque.beforeJob` / `afterJob`: root `queue.process` transaction that
+   *    continues the enqueuer's trace
    */
   private registerTracingHooks() {
     api.hooks.web.beforeRequest((req, ctx) => {
@@ -464,6 +464,9 @@ export class SentryPlugin extends Initializer {
     api.hooks.actions.afterAct(
       (actionName, _params, connection, actCtx, outcome) => {
         const span = actCtx.metadata.sentrySpan as SentrySpan | undefined;
+        const parent = actCtx.metadata.sentryParentSpan as
+          | SentrySpan
+          | undefined;
         if (span) {
           span.setAttribute("keryx.action.duration_ms", outcome.duration);
           if (!outcome.success) {
@@ -490,47 +493,58 @@ export class SentryPlugin extends Initializer {
           span.end();
         }
 
+        // Nested connection.act() must not close the transport span — only the
+        // outermost action (whose parent is the message/session span) does.
         if (connection.type === CONNECTION_TYPE.WEBSOCKET) {
           const messageSpan = this.wsMessageSpans.get(connection);
-          if (messageSpan) {
+          if (messageSpan && messageSpan === parent) {
             messageSpan.setStatus({ code: outcome.success ? 1 : 2 });
             messageSpan.end();
             this.wsMessageSpans.delete(connection);
           }
         }
         if (connection.type === CONNECTION_TYPE.MCP) {
-          const parent = actCtx.metadata.sentryParentSpan as
-            | SentrySpan
-            | undefined;
-          if (parent && parent !== span) {
-            parent.setStatus({ code: outcome.success ? 1 : 2 });
-            parent.end();
+          let mcpSessionId: string | undefined;
+          if (parent) {
             for (const [sid, s] of this.mcpMessageSpans) {
               if (s === parent) {
-                this.mcpMessageSpans.delete(sid);
+                mcpSessionId = sid;
                 break;
               }
             }
           }
+          if (parent && mcpSessionId !== undefined) {
+            parent.setStatus({ code: outcome.success ? 1 : 2 });
+            parent.end();
+            this.mcpMessageSpans.delete(mcpSessionId);
+          }
         }
+
+        if (parent) this.spanALS.enterWith(parent);
       },
     );
 
     api.hooks.actions.onEnqueue((_actionName, inputs) => {
       if (!api.sentry.enabled) return;
       const parent = this.spanALS.getStore();
-      const traceData = parent
-        ? Sentry.withActiveSpan(parent, () => Sentry.getTraceData())
-        : Sentry.getTraceData();
-      const sentryTrace = traceData["sentry-trace"];
-      if (!sentryTrace) return;
+      if (!parent) return;
+      // Ended spans (afterJob has already closed the job root) must not
+      // propagate into enqueueRecurrent — that would chain cron runs.
+      // Unsampled *live* spans still propagate so workers honor head sampling.
+      if (typeof Sentry.spanToJSON(parent).timestamp === "number") return;
+      const ctx = parent.spanContext();
+      if (!ctx.traceId || !ctx.spanId) return;
+      const sampled = ctx.traceFlags & 1 ? 1 : 0;
       const next: Record<string, unknown> = { ...inputs };
-      next._sentryTrace = sentryTrace;
-      if (traceData.baggage) next._sentryBaggage = traceData.baggage;
+      next._sentryTrace = `${ctx.traceId}-${ctx.spanId}-${sampled}`;
+      const baggage = Sentry.withActiveSpan(parent, () =>
+        Sentry.getTraceData(),
+      ).baggage;
+      if (baggage) next._sentryBaggage = baggage;
       return next;
     });
 
-    api.hooks.resque.beforeJob((actionName, params, ctx) => {
+    api.hooks.resque.beforeJob((actionName, params, jobCtx) => {
       const p = params as Record<string, unknown>;
       const sentryTrace = p._sentryTrace as string | undefined;
       const baggage = p._sentryBaggage as string | undefined;
@@ -539,35 +553,40 @@ export class SentryPlugin extends Initializer {
       delete p._sentryTrace;
       delete p._sentryBaggage;
 
-      // `continueTrace` only applies the incoming propagation context inside
-      // its callback, so the root job span must be created there — starting it
-      // later (e.g. in beforeAct) would root a brand-new trace instead of
-      // joining the enqueuer's. The span is stashed on the shared JobContext
-      // and ended in afterJob; beforeAct parents the action span from it via
-      // spanALS.
-      const startRoot = () =>
+      const start = () =>
         Sentry.startInactiveSpan({
-          name: `task:${actionName ?? "unknown"}`,
+          name: `task:${actionName}`,
           op: "queue.process",
           forceTransaction: true,
           attributes: {
+            "keryx.action": actionName,
             "keryx.connection.type": CONNECTION_TYPE.TASK,
-            "keryx.action": actionName ?? "unknown",
-            ...(ctx.queue ? { "messaging.destination.name": ctx.queue } : {}),
+            "messaging.destination.name": jobCtx.queue || "default",
           },
         });
-      const rootSpan = sentryTrace
-        ? Sentry.continueTrace({ sentryTrace, baggage }, startRoot)
-        : startRoot();
-      ctx.metadata.sentrySpan = rootSpan;
-      this.spanALS.enterWith(rootSpan);
+      const jobSpan =
+        sentryTrace || baggage
+          ? Sentry.continueTrace({ sentryTrace, baggage }, start)
+          : start();
+      jobCtx.metadata.sentrySpan = jobSpan;
+      this.spanALS.enterWith(jobSpan);
     });
 
-    api.hooks.resque.afterJob((_actionName, _params, ctx, outcome) => {
-      const rootSpan = ctx.metadata.sentrySpan as SentrySpan | undefined;
-      if (!rootSpan) return;
-      rootSpan.setStatus({ code: outcome.success ? 1 : 2 });
-      rootSpan.end();
+    api.hooks.resque.afterJob((_actionName, _params, jobCtx, outcome) => {
+      const jobSpan = jobCtx.metadata.sentrySpan as SentrySpan | undefined;
+      if (!jobSpan) return;
+      if (outcome.success) {
+        jobSpan.setStatus({ code: 1 });
+      } else {
+        jobSpan.setStatus({
+          code: 2,
+          message:
+            outcome.error instanceof Error
+              ? outcome.error.message
+              : String(outcome.error),
+        });
+      }
+      jobSpan.end();
     });
   }
 

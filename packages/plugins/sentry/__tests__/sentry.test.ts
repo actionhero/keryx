@@ -71,6 +71,52 @@ class SentryUserBoom implements Action {
   }
 }
 
+class SentryEnqueue implements Action {
+  name = "sentry:enqueue";
+  description = "Enqueues status as a background task";
+  inputs = z.object({});
+  web = { route: "/sentry-enqueue", method: HTTP_METHOD.GET };
+  mcp = { tool: false };
+  async run() {
+    await api.actions.enqueue("status");
+    return { enqueued: true };
+  }
+}
+
+class SentryNest implements Action {
+  name = "sentry:nest";
+  description = "Calls status via connection.act()";
+  inputs = z.object({});
+  web = { route: "/sentry-nest", method: HTTP_METHOD.GET };
+  mcp = { tool: false };
+  async run(_params: Record<string, unknown>, connection?: Connection) {
+    const { error } = await connection!.act("status", {});
+    if (error) throw error;
+    return { nested: true };
+  }
+}
+
+class SentryRecurring implements Action {
+  name = "sentry:recurring";
+  description =
+    "Recurring task used to assert cron re-enqueue starts a new trace";
+  inputs = z.object({});
+  mcp = { tool: false };
+  task = { frequency: 60_000, queue: "default" };
+  async run() {
+    return { ok: true };
+  }
+}
+
+async function performJob(
+  actionName: string,
+  params: Record<string, unknown> = {},
+) {
+  const job = api.resque.jobs[actionName];
+  if (!job) throw new Error(`No resque job registered for ${actionName}`);
+  return job.perform.call({ queue: "default" }, params);
+}
+
 function eventMessage(event: Record<string, unknown>): string {
   const exc = event.exception as
     | { values?: Array<{ value?: string }> }
@@ -134,14 +180,31 @@ describe("sentry plugin (enabled)", () => {
       return span;
     };
     await api.start();
-    api.actions.actions.push(new SentryBoom());
+    const boom = new SentryBoom();
+    api.actions.actions.push(boom);
+    api.resque.jobs[boom.name] = api.resque.wrapActionAsJob(boom);
     api.actions.actions.push(new SentryUserBoom());
+    api.actions.actions.push(new SentryEnqueue());
+    const nest = new SentryNest();
+    api.actions.actions.push(nest);
+    api.resque.jobs[nest.name] = api.resque.wrapActionAsJob(nest);
+    const recurring = new SentryRecurring();
+    api.actions.actions.push(recurring);
+    api.resque.jobs[recurring.name] = api.resque.wrapActionAsJob(recurring);
   }, HOOK_TIMEOUT);
 
   afterAll(async () => {
     api.actions.actions = api.actions.actions.filter(
-      (a: Action) => a.name !== "sentry:boom" && a.name !== "sentry:user-boom",
+      (a: Action) =>
+        a.name !== "sentry:boom" &&
+        a.name !== "sentry:user-boom" &&
+        a.name !== "sentry:enqueue" &&
+        a.name !== "sentry:nest" &&
+        a.name !== "sentry:recurring",
     );
+    delete api.resque.jobs["sentry:boom"];
+    delete api.resque.jobs["sentry:nest"];
+    delete api.resque.jobs["sentry:recurring"];
     await api.stop();
     config.plugins = [];
   }, HOOK_TIMEOUT);
@@ -455,5 +518,126 @@ describe("sentry plugin (enabled)", () => {
     // Both join the enqueuer's trace rather than starting a fresh one.
     expect(rootSpan!.traceId).toBe(traceId);
     expect(actionSpan!.traceId).toBe(traceId);
+  });
+
+  test("background tasks create a root queue.process span and a child action span", async () => {
+    spans.length = 0;
+    await performJob("status");
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const taskSpan = spans.find((s) => s.name === "task:status");
+    const actionSpan = spans.find(
+      (s) =>
+        s.name === "action:status" &&
+        s.data["keryx.connection.type"] === "task",
+    );
+    expect(taskSpan).toBeDefined();
+    expect(taskSpan!.op).toBe("queue.process");
+    expect(taskSpan!.data["keryx.action"]).toBe("status");
+    expect(taskSpan!.data["keryx.connection.type"]).toBe("task");
+    expect(taskSpan!.data["messaging.destination.name"]).toBe("default");
+    expect(actionSpan).toBeDefined();
+    expect(actionSpan!.op).toBe("keryx.action");
+    expect(actionSpan!.parentSpanId).toBeDefined();
+    expect(actionSpan!.traceId).toBe(taskSpan!.traceId);
+  });
+
+  test("enqueued tasks continue the originating HTTP trace", async () => {
+    spans.length = 0;
+    await api.actions.delQueue("default");
+    const res = await fetch(`${serverUrl()}/api/sentry-enqueue`);
+    expect(res.status).toBe(200);
+
+    const queued = await api.actions.queued();
+    const statusJob = queued.find((j) => j.class === "status");
+    expect(statusJob).toBeDefined();
+    const payload = statusJob!.args[0] as Record<string, unknown>;
+    expect(typeof payload._sentryTrace).toBe("string");
+
+    await performJob("status", payload);
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const httpSpan = spans.find(
+      (s) => s.op === "http.server" && s.name.includes("sentry:enqueue"),
+    );
+    const taskSpan = spans.find((s) => s.name === "task:status");
+    expect(httpSpan).toBeDefined();
+    expect(taskSpan).toBeDefined();
+    expect(taskSpan!.traceId).toBe(httpSpan!.traceId);
+  });
+
+  test("nested connection.act() from HTTP stays on the same parent trace", async () => {
+    spans.length = 0;
+    const res = await fetch(`${serverUrl()}/api/sentry-nest`);
+    expect(res.status).toBe(200);
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const httpSpan = spans.find(
+      (s) => s.op === "http.server" || s.name.includes("sentry:nest"),
+    );
+    const outer = spans.find((s) => s.name === "action:sentry:nest");
+    const inner = spans.find(
+      (s) =>
+        s.name === "action:status" && s.data["keryx.connection.type"] === "web",
+    );
+    expect(httpSpan).toBeDefined();
+    expect(outer).toBeDefined();
+    expect(inner).toBeDefined();
+    expect(outer!.traceId).toBe(httpSpan!.traceId);
+    expect(inner!.traceId).toBe(httpSpan!.traceId);
+    expect(spans.filter((s) => s.op === "queue.process")).toEqual([]);
+  });
+
+  test("nested connection.act() from a task stays on the task root trace", async () => {
+    spans.length = 0;
+    await performJob("sentry:nest");
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const taskRoots = spans.filter((s) => s.op === "queue.process");
+    expect(taskRoots).toHaveLength(1);
+    expect(taskRoots[0]!.name).toBe("task:sentry:nest");
+    expect(spans.some((s) => s.name === "task:status")).toBe(false);
+
+    const outer = spans.find((s) => s.name === "action:sentry:nest");
+    const inner = spans.find(
+      (s) =>
+        s.name === "action:status" &&
+        s.data["keryx.connection.type"] === "task",
+    );
+    expect(outer).toBeDefined();
+    expect(inner).toBeDefined();
+    expect(outer!.traceId).toBe(taskRoots[0]!.traceId);
+    expect(inner!.traceId).toBe(taskRoots[0]!.traceId);
+  });
+
+  test("failed background tasks mark the root span as error and capture the exception", async () => {
+    spans.length = 0;
+    events.length = 0;
+    await expect(performJob("sentry:boom")).rejects.toThrow(
+      "intentional sentry test failure",
+    );
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const taskSpan = spans.find((s) => s.name === "task:sentry:boom");
+    expect(taskSpan).toBeDefined();
+    expect(taskSpan!.op).toBe("queue.process");
+    expect(events.length).toBeGreaterThan(0);
+  });
+
+  test("recurring re-enqueue does not continue the finished job's trace", async () => {
+    await performJob("sentry:recurring");
+    const delayed = await api.actions.allDelayed();
+    const jobs = Object.values(delayed).flat();
+    const recurring = jobs.filter((j) => j.class === "sentry:recurring");
+    expect(recurring.length).toBeGreaterThan(0);
+    for (const job of recurring) {
+      const payload = (job.args?.[0] ?? {}) as Record<string, unknown>;
+      expect(payload._sentryTrace).toBeUndefined();
+    }
   });
 });
