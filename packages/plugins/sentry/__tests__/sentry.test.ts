@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   type Action,
   api,
+  type Connection,
   config,
   ErrorType,
   HTTP_METHOD,
@@ -63,6 +64,19 @@ class SentryEnqueue implements Action {
   async run() {
     await api.actions.enqueue("status");
     return { enqueued: true };
+  }
+}
+
+class SentryNest implements Action {
+  name = "sentry:nest";
+  description = "Calls status via connection.act()";
+  inputs = z.object({});
+  web = { route: "/sentry-nest", method: HTTP_METHOD.GET };
+  mcp = { tool: false };
+  async run(_params: Record<string, unknown>, connection?: Connection) {
+    const { error } = await connection!.act("status", {});
+    if (error) throw error;
+    return { nested: true };
   }
 }
 
@@ -135,13 +149,20 @@ describe("sentry plugin (enabled)", () => {
     api.actions.actions.push(boom);
     api.resque.jobs[boom.name] = api.resque.wrapActionAsJob(boom);
     api.actions.actions.push(new SentryEnqueue());
+    const nest = new SentryNest();
+    api.actions.actions.push(nest);
+    api.resque.jobs[nest.name] = api.resque.wrapActionAsJob(nest);
   }, HOOK_TIMEOUT);
 
   afterAll(async () => {
     api.actions.actions = api.actions.actions.filter(
-      (a: Action) => a.name !== "sentry:boom" && a.name !== "sentry:enqueue",
+      (a: Action) =>
+        a.name !== "sentry:boom" &&
+        a.name !== "sentry:enqueue" &&
+        a.name !== "sentry:nest",
     );
     delete api.resque.jobs["sentry:boom"];
+    delete api.resque.jobs["sentry:nest"];
     await api.stop();
     config.plugins = [];
   }, HOOK_TIMEOUT);
@@ -325,6 +346,7 @@ describe("sentry plugin (enabled)", () => {
 
   test("enqueued tasks continue the originating HTTP trace", async () => {
     spans.length = 0;
+    await api.actions.delQueue("default");
     const res = await fetch(`${serverUrl()}/api/sentry-enqueue`);
     expect(res.status).toBe(200);
 
@@ -339,12 +361,58 @@ describe("sentry plugin (enabled)", () => {
     await Bun.sleep(50);
 
     const httpSpan = spans.find(
-      (s) => s.op === "http.server" || s.name.includes("sentry:enqueue"),
+      (s) => s.op === "http.server" && s.name.includes("sentry:enqueue"),
     );
     const taskSpan = spans.find((s) => s.name === "task:status");
     expect(httpSpan).toBeDefined();
     expect(taskSpan).toBeDefined();
     expect(taskSpan!.traceId).toBe(httpSpan!.traceId);
+  });
+
+  test("nested connection.act() from HTTP stays on the same parent trace", async () => {
+    spans.length = 0;
+    const res = await fetch(`${serverUrl()}/api/sentry-nest`);
+    expect(res.status).toBe(200);
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const httpSpan = spans.find(
+      (s) => s.op === "http.server" || s.name.includes("sentry:nest"),
+    );
+    const outer = spans.find((s) => s.name === "action:sentry:nest");
+    const inner = spans.find(
+      (s) =>
+        s.name === "action:status" && s.data["keryx.connection.type"] === "web",
+    );
+    expect(httpSpan).toBeDefined();
+    expect(outer).toBeDefined();
+    expect(inner).toBeDefined();
+    expect(outer!.traceId).toBe(httpSpan!.traceId);
+    expect(inner!.traceId).toBe(httpSpan!.traceId);
+    expect(spans.filter((s) => s.op === "queue.process")).toEqual([]);
+  });
+
+  test("nested connection.act() from a task stays on the task root trace", async () => {
+    spans.length = 0;
+    await performJob("sentry:nest");
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const taskRoots = spans.filter((s) => s.op === "queue.process");
+    expect(taskRoots).toHaveLength(1);
+    expect(taskRoots[0]!.name).toBe("task:sentry:nest");
+    expect(spans.some((s) => s.name === "task:status")).toBe(false);
+
+    const outer = spans.find((s) => s.name === "action:sentry:nest");
+    const inner = spans.find(
+      (s) =>
+        s.name === "action:status" &&
+        s.data["keryx.connection.type"] === "task",
+    );
+    expect(outer).toBeDefined();
+    expect(inner).toBeDefined();
+    expect(outer!.traceId).toBe(taskRoots[0]!.traceId);
+    expect(inner!.traceId).toBe(taskRoots[0]!.traceId);
   });
 
   test("failed background tasks mark the root span as error and capture the exception", async () => {

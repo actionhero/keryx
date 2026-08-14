@@ -74,7 +74,7 @@ The plugin adds its own `config.sentry.*` namespace. All keys except the `before
 | `redis.<command>`            | `db`          | `db.system="redis"`, `db.operation.name`, `db.query.text`                  | `db.query.text` is `<command> <key1> <key2>…` — keys only, values are never captured           |
 | `pg.<OP>`                    | `db`          | `db.system="postgresql"`, `db.operation.name`, `db.query.text`             | Wraps the node-postgres `Pool` Drizzle uses. SQL text up to 1000 chars; bind values are not    |
 
-Spans nest naturally: the transport span (HTTP request, WebSocket message, MCP message, or background task) is the parent of the action span, which is the parent of any Redis / Postgres spans emitted during the action.
+Spans nest naturally: the transport span (HTTP request, WebSocket message, MCP message, or background task) is the parent of the action span, which is the parent of any Redis / Postgres spans emitted during the action. Nested `connection.act()` calls stay in that same trace — the inner action is a child span, not a new transaction.
 
 ## Error Capture
 
@@ -88,7 +88,7 @@ The plugin uses Sentry's native trace headers:
 
 - **Incoming HTTP**: reads `sentry-trace` / `baggage` and links the request span to the caller's trace.
 - **Outgoing tasks**: injects `_sentryTrace` / `_sentryBaggage` into background task params, so a worker picking up a job continues the originating trace.
-- **Task execution**: extracts those fields, starts a root `queue.process` transaction (`task:<name>`), and strips the headers so they never reach the action's validated params. Scheduled jobs with no incoming headers still get their own root transaction.
+- **Task execution**: extracts those fields, starts a root `queue.process` transaction (`task:<name>`), and strips the headers so they never reach the action's validated params. Scheduled jobs with no incoming headers still get their own root transaction. If that action then calls another action via `connection.act()`, the inner span stays on the same task trace — it does not open a second `task:` transaction.
 
 ## Programmatic Access
 

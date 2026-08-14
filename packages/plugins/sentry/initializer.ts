@@ -395,6 +395,9 @@ export class SentryPlugin extends Initializer {
     api.hooks.actions.afterAct(
       (actionName, _params, connection, actCtx, outcome) => {
         const span = actCtx.metadata.sentrySpan as SentrySpan | undefined;
+        const parent = actCtx.metadata.sentryParentSpan as
+          | SentrySpan
+          | undefined;
         if (span) {
           span.setAttribute("keryx.action.duration_ms", outcome.duration);
           if (!outcome.success) {
@@ -420,43 +423,50 @@ export class SentryPlugin extends Initializer {
           span.end();
         }
 
+        // Nested connection.act() must not close the transport span — only the
+        // outermost action (whose parent is the message/session span) does.
         if (connection.type === CONNECTION_TYPE.WEBSOCKET) {
           const messageSpan = this.wsMessageSpans.get(connection);
-          if (messageSpan) {
+          if (messageSpan && messageSpan === parent) {
             messageSpan.setStatus({ code: outcome.success ? 1 : 2 });
             messageSpan.end();
             this.wsMessageSpans.delete(connection);
           }
         }
         if (connection.type === CONNECTION_TYPE.MCP) {
-          const parent = actCtx.metadata.sentryParentSpan as
-            | SentrySpan
-            | undefined;
-          if (parent && parent !== span) {
-            parent.setStatus({ code: outcome.success ? 1 : 2 });
-            parent.end();
+          let mcpSessionId: string | undefined;
+          if (parent) {
             for (const [sid, s] of this.mcpMessageSpans) {
               if (s === parent) {
-                this.mcpMessageSpans.delete(sid);
+                mcpSessionId = sid;
                 break;
               }
             }
           }
+          if (parent && mcpSessionId !== undefined) {
+            parent.setStatus({ code: outcome.success ? 1 : 2 });
+            parent.end();
+            this.mcpMessageSpans.delete(mcpSessionId);
+          }
         }
+
+        if (parent) this.spanALS.enterWith(parent);
       },
     );
 
     api.hooks.actions.onEnqueue((_actionName, inputs) => {
       if (!api.sentry.enabled) return;
       const parent = this.spanALS.getStore();
-      const traceData = parent
-        ? Sentry.withActiveSpan(parent, () => Sentry.getTraceData())
-        : Sentry.getTraceData();
-      const sentryTrace = traceData["sentry-trace"];
-      if (!sentryTrace) return;
+      if (!parent) return;
+      const ctx = parent.spanContext();
+      if (!ctx.traceId || !ctx.spanId) return;
+      const sampled = ctx.traceFlags & 1 ? 1 : 0;
       const next: Record<string, unknown> = { ...inputs };
-      next._sentryTrace = sentryTrace;
-      if (traceData.baggage) next._sentryBaggage = traceData.baggage;
+      next._sentryTrace = `${ctx.traceId}-${ctx.spanId}-${sampled}`;
+      const baggage = Sentry.withActiveSpan(parent, () =>
+        Sentry.getTraceData(),
+      ).baggage;
+      if (baggage) next._sentryBaggage = baggage;
       return next;
     });
 
