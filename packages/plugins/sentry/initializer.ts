@@ -458,9 +458,6 @@ export class SentryPlugin extends Initializer {
       if (!api.sentry.enabled) return;
       const parent = this.spanALS.getStore();
       if (!parent) return;
-      if (typeof parent.isRecording === "function" && !parent.isRecording()) {
-        return;
-      }
       const ctx = parent.spanContext();
       if (!ctx.traceId || !ctx.spanId) return;
       const sampled = ctx.traceFlags & 1 ? 1 : 0;
