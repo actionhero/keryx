@@ -150,7 +150,7 @@ export class SentryPlugin extends Initializer {
    * inherit the right parent without wrapping the rest of the request in
    * `Sentry.startSpan(...)`.
    */
-  private spanALS = new AsyncLocalStorage<SentrySpan>();
+  private spanALS = new AsyncLocalStorage<SentrySpan | undefined>();
   private wsConnections = new WeakMap<object, SentrySpan>();
   private wsMessageSpans = new WeakMap<object, SentrySpan>();
   private mcpSessions = new Map<string, SentrySpan>();
@@ -458,6 +458,9 @@ export class SentryPlugin extends Initializer {
       if (!api.sentry.enabled) return;
       const parent = this.spanALS.getStore();
       if (!parent) return;
+      if (typeof parent.isRecording === "function" && !parent.isRecording()) {
+        return;
+      }
       const ctx = parent.spanContext();
       if (!ctx.traceId || !ctx.spanId) return;
       const sampled = ctx.traceFlags & 1 ? 1 : 0;
@@ -511,6 +514,9 @@ export class SentryPlugin extends Initializer {
         });
       }
       jobSpan.end();
+      // enqueueRecurrent runs after afterJob in the same async context.
+      // Drop the ended span so the next occurrence starts a fresh trace.
+      this.spanALS.enterWith(undefined);
     });
   }
 

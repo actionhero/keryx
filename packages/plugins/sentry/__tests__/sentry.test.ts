@@ -80,6 +80,18 @@ class SentryNest implements Action {
   }
 }
 
+class SentryRecurring implements Action {
+  name = "sentry:recurring";
+  description =
+    "Recurring task used to assert cron re-enqueue starts a new trace";
+  inputs = z.object({});
+  mcp = { tool: false };
+  task = { frequency: 60_000, queue: "default" };
+  async run() {
+    return { ok: true };
+  }
+}
+
 async function performJob(
   actionName: string,
   params: Record<string, unknown> = {},
@@ -152,6 +164,9 @@ describe("sentry plugin (enabled)", () => {
     const nest = new SentryNest();
     api.actions.actions.push(nest);
     api.resque.jobs[nest.name] = api.resque.wrapActionAsJob(nest);
+    const recurring = new SentryRecurring();
+    api.actions.actions.push(recurring);
+    api.resque.jobs[recurring.name] = api.resque.wrapActionAsJob(recurring);
   }, HOOK_TIMEOUT);
 
   afterAll(async () => {
@@ -159,10 +174,12 @@ describe("sentry plugin (enabled)", () => {
       (a: Action) =>
         a.name !== "sentry:boom" &&
         a.name !== "sentry:enqueue" &&
-        a.name !== "sentry:nest",
+        a.name !== "sentry:nest" &&
+        a.name !== "sentry:recurring",
     );
     delete api.resque.jobs["sentry:boom"];
     delete api.resque.jobs["sentry:nest"];
+    delete api.resque.jobs["sentry:recurring"];
     await api.stop();
     config.plugins = [];
   }, HOOK_TIMEOUT);
@@ -428,5 +445,17 @@ describe("sentry plugin (enabled)", () => {
     expect(taskSpan).toBeDefined();
     expect(taskSpan!.op).toBe("queue.process");
     expect(events.length).toBeGreaterThan(0);
+  });
+
+  test("recurring re-enqueue does not continue the finished job's trace", async () => {
+    await performJob("sentry:recurring");
+    const delayed = await api.actions.allDelayed();
+    const jobs = Object.values(delayed).flat();
+    const recurring = jobs.filter((j) => j.class === "sentry:recurring");
+    expect(recurring.length).toBeGreaterThan(0);
+    for (const job of recurring) {
+      const payload = (job.args?.[0] ?? {}) as Record<string, unknown>;
+      expect(payload._sentryTrace).toBeUndefined();
+    }
   });
 });
