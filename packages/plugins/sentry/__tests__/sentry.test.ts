@@ -367,6 +367,43 @@ describe("sentry plugin (enabled)", () => {
     expect(plainEvent?.user).toBeUndefined();
   });
 
+  test("nested actions preserve the outer request identity", async () => {
+    events.length = 0;
+    const connection = new Connection(CONNECTION_TYPE.CLI, "cli:nested-test");
+
+    // Outer action establishes the request's identity.
+    const outerCtx = { metadata: {} as Record<string, unknown> };
+    for (const hook of api.hooks.actions.beforeActHooks) {
+      await hook("outer", {}, connection, outerCtx);
+    }
+    api.sentry.setUser({ id: "outer-user" });
+
+    // A nested action runs to completion without touching identity; it must
+    // not reset the outer action's buffer.
+    const innerCtx = { metadata: {} as Record<string, unknown> };
+    for (const hook of api.hooks.actions.beforeActHooks) {
+      await hook("inner", {}, connection, innerCtx);
+    }
+    for (const hook of api.hooks.actions.afterActHooks) {
+      await hook("inner", {}, connection, innerCtx, {
+        success: true,
+        response: null,
+        duration: 1,
+      });
+    }
+
+    // The outer action's capture still sees the outer identity.
+    api.sentry.captureException(new Error("nested identity capture"));
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const event = events.find((e) =>
+      eventMessage(e).includes("nested identity capture"),
+    );
+    expect(event).toBeDefined();
+    expect((event?.user as { id?: string } | undefined)?.id).toBe("outer-user");
+  });
+
   test("background task spans continue the enqueuer's trace", async () => {
     spans.length = 0;
     const traceId = "abcdef12345678901234567890abcdef";
