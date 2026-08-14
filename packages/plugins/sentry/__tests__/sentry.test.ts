@@ -2,6 +2,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   type Action,
   api,
+  CONNECTION_TYPE,
+  Connection,
   config,
   ErrorType,
   HTTP_METHOD,
@@ -52,6 +54,28 @@ class SentryBoom implements Action {
       type: ErrorType.CONNECTION_ACTION_RUN,
     });
   }
+}
+
+class SentryUserBoom implements Action {
+  name = "sentry:user-boom";
+  description = "Sets a user then throws a 500 for isolation tests";
+  inputs = z.object({});
+  web = { route: "/sentry-user-boom", method: HTTP_METHOD.GET };
+  mcp = { tool: false };
+  async run() {
+    api.sentry.setUser({ id: "user-42" });
+    throw new TypedError({
+      message: "user boom failure",
+      type: ErrorType.CONNECTION_ACTION_RUN,
+    });
+  }
+}
+
+function eventMessage(event: Record<string, unknown>): string {
+  const exc = event.exception as
+    | { values?: Array<{ value?: string }> }
+    | undefined;
+  return exc?.values?.[0]?.value ?? String(event.message ?? "");
 }
 
 describe("sentry plugin (disabled)", () => {
@@ -111,11 +135,12 @@ describe("sentry plugin (enabled)", () => {
     };
     await api.start();
     api.actions.actions.push(new SentryBoom());
+    api.actions.actions.push(new SentryUserBoom());
   }, HOOK_TIMEOUT);
 
   afterAll(async () => {
     api.actions.actions = api.actions.actions.filter(
-      (a: Action) => a.name !== "sentry:boom",
+      (a: Action) => a.name !== "sentry:boom" && a.name !== "sentry:user-boom",
     );
     await api.stop();
     config.plugins = [];
@@ -273,5 +298,125 @@ describe("sentry plugin (enabled)", () => {
     await api.sentry.flush(2000);
     await Bun.sleep(50);
     expect(events.length).toBeGreaterThan(0);
+  });
+
+  test("Postgres queries are not double-instrumented", async () => {
+    spans.length = 0;
+    await api.db.pool.query("SELECT 1 AS one");
+    await api.db.pool.query("SELECT 1 AS one");
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const selectSpans = spans.filter(
+      (s) => s.data["db.query.text"] === "SELECT 1 AS one",
+    );
+    // One span per query — no stacked pool.query + client.query duplicate.
+    expect(selectSpans.length).toBe(2);
+    for (const span of selectSpans) {
+      expect(span.name).toBe("pg.SELECT");
+      expect(span.data["db.system"]).toBe("postgresql");
+    }
+  });
+
+  test("MCP message spans do not leak across overlapping messages", async () => {
+    spans.length = 0;
+    const sessionId = "sentry-leak-session";
+    for (const hook of api.hooks.mcp.onConnectHooks) {
+      await hook(sessionId);
+    }
+    // Two messages for the same session without an intervening afterAct: the
+    // first must be ended when the second arrives instead of leaking.
+    for (const hook of api.hooks.mcp.onMessageHooks) {
+      await hook(sessionId);
+    }
+    for (const hook of api.hooks.mcp.onMessageHooks) {
+      await hook(sessionId);
+    }
+    for (const hook of api.hooks.mcp.onDisconnectHooks) {
+      await hook(sessionId);
+    }
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const messageSpans = spans.filter((s) => s.name === "mcp.message");
+    expect(messageSpans.length).toBe(2);
+  });
+
+  test("user identity is isolated per request", async () => {
+    events.length = 0;
+    // First request sets a user and fails; second fails without a user.
+    const withUser = await fetch(`${serverUrl()}/api/sentry-user-boom`);
+    expect(withUser.status).toBe(500);
+    const withoutUser = await fetch(`${serverUrl()}/api/sentry-boom`);
+    expect(withoutUser.status).toBe(500);
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const userEvent = events.find((e) =>
+      eventMessage(e).includes("user boom failure"),
+    );
+    const plainEvent = events.find((e) =>
+      eventMessage(e).includes("intentional sentry test failure"),
+    );
+    expect(userEvent).toBeDefined();
+    expect(plainEvent).toBeDefined();
+    expect((userEvent?.user as { id?: string } | undefined)?.id).toBe(
+      "user-42",
+    );
+    // The identity from the first request must not bleed onto the second.
+    expect(plainEvent?.user).toBeUndefined();
+  });
+
+  test("background task spans continue the enqueuer's trace", async () => {
+    spans.length = 0;
+    const traceId = "abcdef12345678901234567890abcdef";
+    const parentSpanId = "1234567890abcdef";
+    const sentryTrace = `${traceId}-${parentSpanId}-1`;
+    const params: Record<string, unknown> = {
+      _sentryTrace: sentryTrace,
+      _sentryBaggage: "sentry-environment=test",
+      foo: "bar",
+    };
+    const jobCtx = {
+      queue: "default",
+      metadata: {} as Record<string, unknown>,
+    };
+
+    for (const hook of api.hooks.resque.beforeJobHooks) {
+      await hook("sentry:task", params, jobCtx);
+    }
+    // Propagation fields are stripped before the action sees params.
+    expect(params._sentryTrace).toBeUndefined();
+    expect(params._sentryBaggage).toBeUndefined();
+
+    const connection = new Connection(CONNECTION_TYPE.TASK, "task:sentry:1");
+    const actCtx = { metadata: {} as Record<string, unknown> };
+    for (const hook of api.hooks.actions.beforeActHooks) {
+      await hook("sentry:task", params, connection, actCtx);
+    }
+    for (const hook of api.hooks.actions.afterActHooks) {
+      await hook("sentry:task", params, connection, actCtx, {
+        success: true,
+        response: null,
+        duration: 1,
+      });
+    }
+    for (const hook of api.hooks.resque.afterJobHooks) {
+      await hook("sentry:task", params, jobCtx, {
+        success: true,
+        result: null,
+        duration: 1,
+      });
+    }
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const rootSpan = spans.find((s) => s.name === "task:sentry:task");
+    const actionSpan = spans.find((s) => s.name === "action:sentry:task");
+    expect(rootSpan).toBeDefined();
+    expect(actionSpan).toBeDefined();
+    // Both join the enqueuer's trace rather than starting a fresh one.
+    expect(rootSpan!.traceId).toBe(traceId);
+    expect(actionSpan!.traceId).toBe(traceId);
   });
 });
