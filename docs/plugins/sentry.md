@@ -8,7 +8,7 @@ description: Sentry error monitoring and distributed tracing for Keryx — captu
 
 This plugin is independent of [`@keryxjs/tracing`](/plugins/tracing). Pick one: Sentry if you want issues and traces in Sentry, the OpenTelemetry plugin if you want OTLP (Jaeger, Tempo, Honeycomb, Datadog). Running both fights over the process-wide tracing context.
 
-For metrics, see the built-in [Observability](/guide/observability) feature — that ships with the core framework.
+It can optionally send Sentry [logs and metrics](#logs-and-metrics) too — off by default. For Prometheus-style metrics scraped from your own process, see the built-in [Observability](/guide/observability) feature that ships with the core framework.
 
 ## Quick Start
 
@@ -55,10 +55,39 @@ The plugin adds its own `config.sentry.*` namespace. All keys except the `before
 | `sentry.sendDefaultPii`      | `SENTRY_SEND_DEFAULT_PII`      | `false`              | Forward IP / user PII the SDK would otherwise drop                          |
 | `sentry.debug`               | `SENTRY_DEBUG`                 | `false`              | Verbose Sentry SDK logging                                                  |
 | `sentry.captureClientErrors` | `SENTRY_CAPTURE_CLIENT_ERRORS` | `false`              | Also capture 4xx `TypedError` failures (validation, not-found, auth)        |
+| `sentry.enableLogs`          | `SENTRY_ENABLE_LOGS`           | `false`              | Forward the app's real logs to Sentry (`Sentry.logger`)                      |
+| `sentry.enableMetrics`       | `SENTRY_ENABLE_METRICS`        | `false`              | Send metrics to Sentry (`Sentry.metrics`), including a per-action counter    |
 | `sentry.shutdownTimeoutMs`   | `SENTRY_SHUTDOWN_TIMEOUT_MS`   | `2000`               | Timeout for flushing events on shutdown                                     |
 | `observability.serviceName`  | `OTEL_SERVICE_NAME`            | _(app name)_         | Service name set on the Sentry client (shared with core metrics)            |
 
-`beforeSend`, `beforeSendSpan`, and `transport` are config-only (not env vars). Use them to filter PII or to swap the transport in tests.
+`beforeSend`, `beforeSendSpan`, `beforeSendLog`, `beforeSendMetric`, and `transport` are config-only (not env vars). Use them to filter PII, drop noisy logs/metrics, or to swap the transport in tests.
+
+## Logs and Metrics
+
+Sentry [logs](https://docs.sentry.io/product/explore/logs/) and [metrics](https://docs.sentry.io/product/explore/metrics/) are opt-in. Both are off by default so existing installs keep sending only errors and traces.
+
+Turn them on with `sentry.enableLogs=true` / `sentry.enableMetrics=true` (or the matching env vars).
+
+**Metrics** — a counter named `keryx.action.count` is incremented once per action that runs, with `keryx.action`, `keryx.connection.type`, and `keryx.action.success` attributes. Group by `keryx.action` in Sentry to see how often each action runs. This fires for every action across HTTP, WebSocket, CLI, background tasks, and MCP.
+
+**Logs** — the plugin forwards your application's **real logs** to Sentry. It wraps the framework `logger`, so every line your app already writes to stdout (`logger.info(...)`, `logger.error(...)`, and the framework's own logs) is mirrored to `Sentry.logger` at the matching level. The structured `data` you pass is carried through as Sentry log attributes:
+
+```ts
+import { logger } from "keryx";
+
+// Reaches stdout and Sentry, with the object as attributes:
+logger.info("charged customer", { userId: user.id, amount });
+```
+
+The logger's level and `quiet` settings are respected — a log that is filtered from stdout is never sent to Sentry either. No synthetic logs are invented; if your app logs nothing, Sentry gets nothing.
+
+Flipping the toggles also makes the SDK's log and metric APIs live, so you can emit metrics (and additional logs) directly:
+
+```ts
+import * as Sentry from "@sentry/bun";
+
+Sentry.metrics.count("orders.created", 1, { attributes: { plan: user.plan } });
+```
 
 ## What Gets Instrumented
 
@@ -131,11 +160,11 @@ The plugin is fully hook-based — it does **not** modify core Keryx code. It re
 - `api.hooks.web.beforeRequest` / `afterRequest` — create and finalize the HTTP span
 - `api.hooks.ws.onConnect` / `onMessage` / `onDisconnect` — WebSocket connection and message spans
 - `api.hooks.mcp.onConnect` / `onMessage` / `onDisconnect` — MCP session and message spans
-- `api.hooks.actions.beforeAct` / `afterAct` — create and finalize the action span; capture 5xx exceptions
+- `api.hooks.actions.beforeAct` / `afterAct` — create and finalize the action span; capture 5xx exceptions; emit the per-action count metric when metrics are enabled
 - `api.hooks.actions.onEnqueue` — inject Sentry trace headers into task params
 - `api.hooks.resque.beforeJob` / `afterJob` — create and finalize the root `queue.process` transaction (continuing the enqueuer's trace when headers are present)
 
-The plugin also wraps `api.redis.redis.sendCommand` and the node-postgres `Pool` on `api.db.pool` after those initializers run. Only the checked-out client's `query` is wrapped (never `Pool.query`, which internally delegates to it), so each SQL statement is a single `pg.*` span. Drizzle goes through that pool, so `api.db.db.execute(...)` and query builders show up as `pg.*` spans.
+When logs are enabled, the plugin also wraps the framework `logger.log` so the application's real logs are mirrored to `Sentry.logger` (restored on shutdown). The plugin also wraps `api.redis.redis.sendCommand` and the node-postgres `Pool` on `api.db.pool` after those initializers run. Only the checked-out client's `query` is wrapped (never `Pool.query`, which internally delegates to it), so each SQL statement is a single `pg.*` span. Drizzle goes through that pool, so `api.db.db.execute(...)` and query builders show up as `pg.*` spans.
 
 Sentry's built-in `BunServer` integration is filtered out so you don't get a second, nameless HTTP transaction alongside the Keryx one.
 

@@ -44,6 +44,8 @@ export const sentryPlugin: KeryxPlugin = {
         "SENTRY_CAPTURE_CLIENT_ERRORS",
         false,
       ),
+      enableLogs: await loadFromEnvIfSet("SENTRY_ENABLE_LOGS", false),
+      enableMetrics: await loadFromEnvIfSet("SENTRY_ENABLE_METRICS", false),
       shutdownTimeoutMs: await loadFromEnvIfSet(
         "SENTRY_SHUTDOWN_TIMEOUT_MS",
         2000,
@@ -75,6 +77,18 @@ declare module "keryx" {
        * client mistakes are rarely worth a Sentry issue.
        */
       captureClientErrors: boolean;
+      /**
+       * Send structured logs to Sentry (`Sentry.logger`). Off by default. When
+       * on, the plugin emits an `info` log for every action that runs and the
+       * SDK's log API is live for your own `Sentry.logger.*` calls.
+       */
+      enableLogs: boolean;
+      /**
+       * Send metrics to Sentry (`Sentry.metrics`). Off by default. When on, the
+       * plugin counts every action that runs (grouped by name) and the SDK's
+       * metrics API is live for your own `Sentry.metrics.*` calls.
+       */
+      enableMetrics: boolean;
       /** Timeout in ms for flushing events on shutdown. */
       shutdownTimeoutMs: number;
       /**
@@ -84,6 +98,10 @@ declare module "keryx" {
       beforeSend?: SentryInitOptions["beforeSend"];
       /** Forwarded to `Sentry.init`. Useful for asserting spans in tests. */
       beforeSendSpan?: SentryInitOptions["beforeSendSpan"];
+      /** Forwarded to `Sentry.init`. Useful for asserting logs in tests. */
+      beforeSendLog?: SentryInitOptions["beforeSendLog"];
+      /** Forwarded to `Sentry.init`. Useful for asserting metrics in tests. */
+      beforeSendMetric?: SentryInitOptions["beforeSendMetric"];
       /** Forwarded to `Sentry.init`. */
       transport?: SentryInitOptions["transport"];
     };

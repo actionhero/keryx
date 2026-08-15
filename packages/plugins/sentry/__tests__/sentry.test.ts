@@ -7,10 +7,13 @@ import {
   config,
   ErrorType,
   HTTP_METHOD,
+  LogLevel,
+  logger,
   TypedError,
 } from "keryx";
 import { z } from "zod";
 import { sentryPlugin } from "..";
+import { instrumentLogger } from "../telemetry";
 import { HOOK_TIMEOUT, serverUrl } from "./setup";
 
 const DUMMY_DSN = "https://public@127.0.0.1/1";
@@ -159,6 +162,16 @@ describe("sentry plugin (disabled)", () => {
 describe("sentry plugin (enabled)", () => {
   const events: Array<Record<string, unknown>> = [];
   const spans: CapturedSpan[] = [];
+  const logs: Array<{
+    level: string;
+    message: string;
+    attributes: Record<string, unknown>;
+  }> = [];
+  const metrics: Array<{
+    name: string;
+    value: number;
+    attributes: Record<string, unknown>;
+  }> = [];
 
   beforeAll(async () => {
     config.plugins = [sentryPlugin];
@@ -167,6 +180,8 @@ describe("sentry plugin (enabled)", () => {
     config.sentry.dsn = DUMMY_DSN;
     config.sentry.tracesSampleRate = 1;
     config.sentry.captureClientErrors = false;
+    config.sentry.enableLogs = true;
+    config.sentry.enableMetrics = true;
     config.sentry.transport = () => ({
       send: async () => ({ statusCode: 200 }),
       flush: async () => true,
@@ -178,6 +193,22 @@ describe("sentry plugin (enabled)", () => {
     config.sentry.beforeSendSpan = (span) => {
       spans.push(asSpan(span as unknown as Record<string, unknown>));
       return span;
+    };
+    config.sentry.beforeSendLog = (log) => {
+      logs.push({
+        level: String(log.level),
+        message: String(log.message),
+        attributes: (log.attributes ?? {}) as Record<string, unknown>,
+      });
+      return log;
+    };
+    config.sentry.beforeSendMetric = (metric) => {
+      metrics.push({
+        name: metric.name,
+        value: metric.value,
+        attributes: (metric.attributes ?? {}) as Record<string, unknown>,
+      });
+      return metric;
     };
     await api.start();
     const boom = new SentryBoom();
@@ -212,10 +243,117 @@ describe("sentry plugin (enabled)", () => {
   beforeAll(() => {
     events.length = 0;
     spans.length = 0;
+    logs.length = 0;
+    metrics.length = 0;
   });
 
   test("api.sentry is enabled after start", () => {
     expect(api.sentry.enabled).toBe(true);
+  });
+
+  test("actions emit a per-action count metric grouped by name", async () => {
+    metrics.length = 0;
+    const res = await fetch(`${serverUrl()}/api/status`);
+    expect(res.status).toBe(200);
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const actionMetrics = metrics.filter(
+      (m) => m.name === "keryx.action.count",
+    );
+    expect(actionMetrics.length).toBeGreaterThan(0);
+    const statusMetric = actionMetrics.find(
+      (m) => m.attributes["keryx.action"] === "status",
+    );
+    expect(statusMetric).toBeDefined();
+    expect(statusMetric!.value).toBe(1);
+    expect(statusMetric!.attributes["keryx.connection.type"]).toBe("web");
+    expect(statusMetric!.attributes["keryx.action.success"]).toBe(true);
+  });
+
+  test("failed actions still emit a count metric marked unsuccessful", async () => {
+    metrics.length = 0;
+    const res = await fetch(`${serverUrl()}/api/sentry-boom`);
+    expect(res.status).toBe(500);
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const boomMetric = metrics.find(
+      (m) =>
+        m.name === "keryx.action.count" &&
+        m.attributes["keryx.action"] === "sentry:boom",
+    );
+    expect(boomMetric).toBeDefined();
+    expect(boomMetric!.attributes["keryx.action.success"]).toBe(false);
+  });
+
+  test("the application's real logs are forwarded to Sentry", async () => {
+    logs.length = 0;
+    const previousLevel = logger.level;
+    logger.level = LogLevel.info;
+    try {
+      logger.warn("real app log to sentry", { requestId: "req-123", count: 7 });
+      await api.sentry.flush(2000);
+      await Bun.sleep(50);
+
+      const forwarded = logs.find(
+        (l) => l.message === "real app log to sentry",
+      );
+      expect(forwarded).toBeDefined();
+      expect(forwarded!.level).toBe("warn");
+      // The log's structured data is carried through as Sentry attributes.
+      expect(forwarded!.attributes.requestId).toBe("req-123");
+      expect(forwarded!.attributes.count).toBe(7);
+    } finally {
+      logger.level = previousLevel;
+    }
+  });
+
+  test("logs filtered by the logger's level are not forwarded", async () => {
+    logs.length = 0;
+    const previousLevel = logger.level;
+    // Only error and above reach stdout, so an info log must not reach Sentry.
+    logger.level = LogLevel.error;
+    try {
+      logger.info("below the threshold, should be dropped");
+      await api.sentry.flush(2000);
+      await Bun.sleep(50);
+
+      expect(
+        logs.some(
+          (l) => l.message === "below the threshold, should be dropped",
+        ),
+      ).toBe(false);
+    } finally {
+      logger.level = previousLevel;
+    }
+  });
+
+  test("logs and metrics are suppressed when their toggles are off", async () => {
+    logs.length = 0;
+    metrics.length = 0;
+    const previousLevel = logger.level;
+    logger.level = LogLevel.info;
+    config.sentry.enableLogs = false;
+    config.sentry.enableMetrics = false;
+    try {
+      logger.warn("should not reach sentry while logs are off");
+      const res = await fetch(`${serverUrl()}/api/status`);
+      expect(res.status).toBe(200);
+      await api.sentry.flush(2000);
+      await Bun.sleep(50);
+
+      expect(metrics.some((m) => m.name === "keryx.action.count")).toBe(false);
+      expect(
+        logs.some(
+          (l) => l.message === "should not reach sentry while logs are off",
+        ),
+      ).toBe(false);
+    } finally {
+      config.sentry.enableLogs = true;
+      config.sentry.enableMetrics = true;
+      logger.level = previousLevel;
+    }
   });
 
   test("HTTP request creates a transport span and an action span", async () => {
@@ -692,6 +830,36 @@ describe("sentry plugin (enabled)", () => {
     for (const job of recurring) {
       const payload = (job.args?.[0] ?? {}) as Record<string, unknown>;
       expect(payload._sentryTrace).toBeUndefined();
+    }
+  });
+});
+
+describe("sentry logger instrumentation", () => {
+  test("wrapping is idempotent and the restorer unwraps cleanly", () => {
+    const original = logger.log;
+    const isWrapped = () =>
+      (logger.log as { __sentryWrapped?: boolean }).__sentryWrapped === true;
+
+    try {
+      const restore = instrumentLogger();
+      expect(typeof restore).toBe("function");
+      expect(isWrapped()).toBe(true);
+
+      // A second wrap must be a no-op that returns undefined — so a caller that
+      // blindly assigns the result never clobbers the real restorer and loses
+      // the ability to unwrap the singleton logger on stop().
+      expect(instrumentLogger()).toBeUndefined();
+
+      restore?.();
+      expect(isWrapped()).toBe(false);
+
+      // Unwrapped, so a later start() can wrap it again.
+      const restoreAgain = instrumentLogger();
+      expect(typeof restoreAgain).toBe("function");
+      restoreAgain?.();
+      expect(isWrapped()).toBe(false);
+    } finally {
+      logger.log = original;
     }
   });
 });
