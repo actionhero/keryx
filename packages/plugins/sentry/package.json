@@ -26,6 +26,12 @@
   "files": [
     "index.ts",
     "initializer.ts",
+    "namespace.ts",
+    "state.ts",
+    "spanHelpers.ts",
+    "telemetry.ts",
+    "dbInstrumentation.ts",
+    "tracingHooks.ts",
     "tsconfig.json",
     "README.md"
   ],
