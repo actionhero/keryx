@@ -131,7 +131,14 @@ export class SentryPlugin extends Initializer {
     registerTracingHooks(this.state);
     instrumentRedis(this.state.spanALS);
     instrumentPostgres(this.state.spanALS);
-    if (config.sentry.enableLogs) this.restoreLogger = instrumentLogger();
+    if (config.sentry.enableLogs) {
+      // `instrumentLogger` returns `undefined` if the logger is already
+      // wrapped; only overwrite the restorer when we actually wrapped it, so a
+      // prior restore callback is never lost (which would leave `stop()` unable
+      // to unwrap the singleton logger).
+      const restore = instrumentLogger();
+      if (restore) this.restoreLogger = restore;
+    }
 
     logger.info(`Sentry tracing initialized (service: ${serviceName})`);
   }

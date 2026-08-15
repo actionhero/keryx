@@ -13,6 +13,7 @@ import {
 } from "keryx";
 import { z } from "zod";
 import { sentryPlugin } from "..";
+import { instrumentLogger } from "../telemetry";
 import { HOOK_TIMEOUT, serverUrl } from "./setup";
 
 const DUMMY_DSN = "https://public@127.0.0.1/1";
@@ -829,6 +830,36 @@ describe("sentry plugin (enabled)", () => {
     for (const job of recurring) {
       const payload = (job.args?.[0] ?? {}) as Record<string, unknown>;
       expect(payload._sentryTrace).toBeUndefined();
+    }
+  });
+});
+
+describe("sentry logger instrumentation", () => {
+  test("wrapping is idempotent and the restorer unwraps cleanly", () => {
+    const original = logger.log;
+    const isWrapped = () =>
+      (logger.log as { __sentryWrapped?: boolean }).__sentryWrapped === true;
+
+    try {
+      const restore = instrumentLogger();
+      expect(typeof restore).toBe("function");
+      expect(isWrapped()).toBe(true);
+
+      // A second wrap must be a no-op that returns undefined — so a caller that
+      // blindly assigns the result never clobbers the real restorer and loses
+      // the ability to unwrap the singleton logger on stop().
+      expect(instrumentLogger()).toBeUndefined();
+
+      restore?.();
+      expect(isWrapped()).toBe(false);
+
+      // Unwrapped, so a later start() can wrap it again.
+      const restoreAgain = instrumentLogger();
+      expect(typeof restoreAgain).toBe("function");
+      restoreAgain?.();
+      expect(isWrapped()).toBe(false);
+    } finally {
+      logger.log = original;
     }
   });
 });
