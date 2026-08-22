@@ -1,0 +1,22 @@
+{
+  "name": "keryx-demo",
+  "title": "Keryx Demo",
+  "description": "The live Keryx demo application, exposed as an MCP server. Actions such as status, user:view, message:create, messages:list, message:view, user:edit, and channel:members are available as MCP tools over Streamable HTTP.",
+  "version": "0.42.9",
+  "documentation": "https://keryxjs.com/guide/mcp",
+  "server": {
+    "url": "https://api.demo.keryxjs.com/mcp",
+    "transport": "streamable-http",
+    "authentication": {
+      "type": "oauth2",
+      "authorization_server": "https://api.demo.keryxjs.com/.well-known/oauth-authorization-server",
+      "protected_resource": "https://api.demo.keryxjs.com/.well-known/oauth-protected-resource",
+      "scopes": ["mcp"]
+    }
+  },
+  "mcpServers": {
+    "keryx-demo": {
+      "url": "https://api.demo.keryxjs.com/mcp"
+    }
+  }
+}

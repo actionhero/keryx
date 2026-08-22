@@ -1,0 +1,17 @@
+{
+  "issuer": "https://api.demo.keryxjs.com",
+  "authorization_endpoint": "https://api.demo.keryxjs.com/oauth/authorize",
+  "token_endpoint": "https://api.demo.keryxjs.com/oauth/token",
+  "registration_endpoint": "https://api.demo.keryxjs.com/oauth/register",
+  "introspection_endpoint": "https://api.demo.keryxjs.com/oauth/introspect",
+  "revocation_endpoint": "https://api.demo.keryxjs.com/oauth/revoke",
+  "scopes_supported": ["mcp"],
+  "response_types_supported": ["code"],
+  "grant_types_supported": ["authorization_code", "refresh_token"],
+  "code_challenge_methods_supported": ["S256"],
+  "authorization_response_iss_parameter_supported": true,
+  "token_endpoint_auth_methods_supported": ["none"],
+  "introspection_endpoint_auth_methods_supported": ["none"],
+  "revocation_endpoint_auth_methods_supported": ["none"],
+  "service_documentation": "https://keryxjs.com/guide/mcp"
+}
