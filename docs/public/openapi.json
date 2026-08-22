@@ -1,0 +1,754 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Keryx Demo API",
+    "version": "0.42.9",
+    "summary": "A live Keryx API — HTTP, WebSocket, CLI, background tasks, and MCP from one set of actions.",
+    "description": "This is the public OpenAPI specification for the live Keryx demo application served at https://api.demo.keryxjs.com. It is generated from the same Keryx `Action` classes that back the demo's HTTP endpoints, WebSocket handlers, CLI commands, and MCP tools, so every operation here maps 1:1 to a real, callable endpoint.\n\nUse it to discover the API surface programmatically, generate typed clients, or drive LLM function-calling. Every operation has a unique `operationId`, a description, typed parameters, and typed request/response schemas. Errors are returned as structured JSON (see the `Error` schema).\n\nAuthentication is available two ways: a session cookie (`session:create`) for browser/HTTP clients, and OAuth 2.1 with PKCE (the `oauth2` scheme) for AI agents connecting over MCP. See https://keryxjs.com/developers for a quickstart, and https://api.demo.keryxjs.com/.well-known/oauth-authorization-server for the authorization server metadata.",
+    "termsOfService": "https://keryxjs.com/privacy",
+    "contact": {
+      "name": "Keryx",
+      "url": "https://keryxjs.com/contact",
+      "email": "evan@evantahler.com"
+    },
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    }
+  },
+  "externalDocs": {
+    "description": "Keryx documentation",
+    "url": "https://keryxjs.com"
+  },
+  "servers": [
+    {
+      "url": "https://api.demo.keryxjs.com/api",
+      "description": "Live Keryx demo API"
+    }
+  ],
+  "tags": [
+    { "name": "status", "description": "Server health and metadata." },
+    { "name": "user", "description": "User accounts and profiles." },
+    { "name": "session", "description": "Authentication and sign-in." },
+    {
+      "name": "message",
+      "description": "Chat messages, persisted and broadcast over PubSub."
+    },
+    { "name": "channel", "description": "Real-time PubSub channels." },
+    { "name": "file", "description": "File uploads." },
+    { "name": "swagger", "description": "Machine-readable API specification." }
+  ],
+  "security": [{ "sessionCookie": [] }, { "oauth2": ["mcp"] }],
+  "paths": {
+    "/status": {
+      "get": {
+        "operationId": "status",
+        "summary": "Server status",
+        "description": "Returns server health and runtime information including the server name, process ID, package version, uptime in milliseconds, memory consumption in MB, and dependency health checks for the database and Redis. Does not require authentication.",
+        "tags": ["status"],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Server status",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Status" }
+              }
+            }
+          },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/swagger": {
+      "get": {
+        "operationId": "swagger",
+        "summary": "OpenAPI specification",
+        "description": "Returns the full API documentation as an OpenAPI 3.x JSON document, generated from the live server's registered actions. Does not require authentication.",
+        "tags": ["swagger"],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OpenAPI document",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "additionalProperties": true }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/user": {
+      "put": {
+        "operationId": "user:create",
+        "summary": "Register a new user",
+        "description": "Register a new user account with a name, email, and password. The email must be unique across all users (case-insensitive). Password must be at least 8 characters and is stored securely as a hash. Returns the created user's profile. Does not require an existing session.",
+        "tags": ["user"],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UserCreateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The created user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": { "$ref": "#/components/schemas/User" }
+                  },
+                  "required": ["user"]
+                }
+              }
+            }
+          },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      },
+      "post": {
+        "operationId": "user:edit",
+        "summary": "Edit the current user",
+        "description": "Update the currently authenticated user's profile. All fields are optional — only provided fields will be updated. Requires an active session. Returns the updated user profile.",
+        "tags": ["user"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UserEditRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": { "$ref": "#/components/schemas/User" }
+                  },
+                  "required": ["user"]
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/user/{user}": {
+      "get": {
+        "operationId": "user:view",
+        "summary": "View a user's public profile",
+        "description": "Retrieve another user's public profile by their user ID. Returns public information only (ID, name, timestamps) — does not expose email or other private fields. Requires an active session.",
+        "tags": ["user"],
+        "parameters": [
+          {
+            "name": "user",
+            "in": "path",
+            "required": true,
+            "description": "The numeric ID of the user to view.",
+            "schema": { "type": "integer", "minimum": 1 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The requested public user profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": { "$ref": "#/components/schemas/PublicUser" }
+                  },
+                  "required": ["user"]
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/session": {
+      "put": {
+        "operationId": "session:create",
+        "summary": "Sign in",
+        "description": "Sign in by providing an email and password. If credentials are valid, creates an authenticated session and returns the user's profile along with session details. Call this before using any endpoints that require authentication.",
+        "tags": ["session"],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SessionCreateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The authenticated user and session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": { "$ref": "#/components/schemas/User" },
+                    "session": { "$ref": "#/components/schemas/Session" }
+                  },
+                  "required": ["user", "session"]
+                }
+              }
+            }
+          },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      },
+      "delete": {
+        "operationId": "session:destroy",
+        "summary": "Sign out",
+        "description": "Sign out by destroying the current authenticated session. After calling this, the session token is invalidated and subsequent requests will be unauthenticated. Requires an active session.",
+        "tags": ["session"],
+        "responses": {
+          "200": {
+            "description": "Sign-out result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "success": { "type": "boolean" } },
+                  "required": ["success"]
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/message": {
+      "put": {
+        "operationId": "message:create",
+        "summary": "Post a chat message",
+        "description": "Create a new chat message as the currently authenticated user. The message is persisted and broadcast in real-time to all connected users via the 'messages' PubSub channel. Requires an active session.",
+        "tags": ["message"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MessageCreateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The created message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": { "$ref": "#/components/schemas/Message" }
+                  },
+                  "required": ["message"]
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/messages/list": {
+      "get": {
+        "operationId": "messages:list",
+        "summary": "List chat messages",
+        "description": "List chat messages in reverse chronological order (newest first) with pagination. Each message includes the author's name, body, and timestamps. Requires an active session.",
+        "tags": ["message"],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Number of messages to return (1-100).",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 10
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "description": "1-indexed page number.",
+            "schema": { "type": "integer", "minimum": 1, "default": 1 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of messages",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "messages": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/Message" }
+                    },
+                    "pagination": { "$ref": "#/components/schemas/Pagination" }
+                  },
+                  "required": ["messages", "pagination"]
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/message/{message}": {
+      "get": {
+        "operationId": "message:view",
+        "summary": "View a message",
+        "description": "Retrieve a single message by its numeric ID. Returns the message body, author name, and timestamps. Requires an active session.",
+        "tags": ["message"],
+        "parameters": [
+          {
+            "name": "message",
+            "in": "path",
+            "required": true,
+            "description": "The numeric ID of the message to view.",
+            "schema": { "type": "integer", "minimum": 1 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The requested message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": { "$ref": "#/components/schemas/Message" }
+                  },
+                  "required": ["message"]
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/channel/{channel}/members": {
+      "get": {
+        "operationId": "channel:members",
+        "summary": "List channel members",
+        "description": "Get the list of presence keys for members currently subscribed to a PubSub channel. Requires an active session.",
+        "tags": ["channel"],
+        "parameters": [
+          {
+            "name": "channel",
+            "in": "path",
+            "required": true,
+            "description": "The channel name to query.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Channel members",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "members": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    }
+                  },
+                  "required": ["members"]
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/file": {
+      "post": {
+        "operationId": "fileUpload",
+        "summary": "Upload a file",
+        "description": "Upload a file along with a string parameter. Returns metadata about the uploaded file (name, MIME type, size in bytes) and the string parameter. Does not require authentication.",
+        "tags": ["file"],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": { "type": "string", "format": "binary" },
+                  "stringParam": { "type": "string", "minLength": 1 }
+                },
+                "required": ["file", "stringParam"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Uploaded file metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "params": {
+                      "type": "object",
+                      "properties": {
+                        "stringParam": { "type": "string" },
+                        "file": {
+                          "type": "object",
+                          "properties": {
+                            "name": { "type": "string" },
+                            "type": { "type": "string" },
+                            "size": { "type": "integer" }
+                          },
+                          "required": ["name", "type", "size"]
+                        }
+                      },
+                      "required": ["stringParam", "file"]
+                    }
+                  },
+                  "required": ["params"]
+                }
+              }
+            }
+          },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__session",
+        "description": "Session cookie set by the session:create action after a successful sign-in."
+      },
+      "oauth2": {
+        "type": "oauth2",
+        "description": "OAuth 2.1 authorization code flow with PKCE. Used by AI agents connecting over MCP. Dynamic client registration and authorization server metadata are published at https://api.demo.keryxjs.com/.well-known/oauth-authorization-server.",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "https://api.demo.keryxjs.com/oauth/authorize",
+            "tokenUrl": "https://api.demo.keryxjs.com/oauth/token",
+            "refreshUrl": "https://api.demo.keryxjs.com/oauth/token",
+            "scopes": {
+              "mcp": "Call actions exposed as MCP tools on behalf of the authenticated user."
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Authentication is required or the session is invalid.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "The requested resource does not exist.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      },
+      "ValidationError": {
+        "description": "One or more parameters failed validation.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Too many requests. Retry after the interval in the Retry-After header.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      },
+      "ServerError": {
+        "description": "An unexpected server error occurred.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "description": "Structured error envelope returned by every Keryx endpoint. Agents should read `error.type` to distinguish validation failures, authentication failures, and server errors, and surface `error.message` to the user.",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string",
+                "description": "Human-readable description of what went wrong."
+              },
+              "type": {
+                "type": "string",
+                "description": "Machine-readable error code.",
+                "examples": [
+                  "CONNECTION_ACTION_PARAM_VALIDATION",
+                  "CONNECTION_ACTION_RUN",
+                  "ACTION_VALIDATION",
+                  "CONNECTION_SESSION_NOT_FOUND"
+                ]
+              },
+              "timestamp": {
+                "type": "integer",
+                "description": "Unix epoch time (ms) when the error was generated."
+              },
+              "key": {
+                "type": "string",
+                "description": "The input field that caused a validation error, when applicable."
+              },
+              "value": {
+                "description": "The offending value, when applicable."
+              }
+            },
+            "required": ["message", "type", "timestamp"]
+          }
+        },
+        "required": ["error"]
+      },
+      "User": {
+        "type": "object",
+        "description": "A user account, including private fields visible only to the account owner.",
+        "properties": {
+          "id": { "type": "integer" },
+          "name": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "createdAt": {
+            "type": "integer",
+            "description": "Unix epoch time (ms)."
+          },
+          "updatedAt": {
+            "type": "integer",
+            "description": "Unix epoch time (ms)."
+          }
+        },
+        "required": ["id", "name", "email", "createdAt", "updatedAt"]
+      },
+      "PublicUser": {
+        "type": "object",
+        "description": "The publicly visible subset of a user profile.",
+        "properties": {
+          "id": { "type": "integer" },
+          "name": { "type": "string" },
+          "createdAt": {
+            "type": "integer",
+            "description": "Unix epoch time (ms)."
+          },
+          "updatedAt": {
+            "type": "integer",
+            "description": "Unix epoch time (ms)."
+          }
+        },
+        "required": ["id", "name", "createdAt", "updatedAt"]
+      },
+      "Message": {
+        "type": "object",
+        "description": "A chat message.",
+        "properties": {
+          "id": { "type": "integer" },
+          "body": { "type": "string" },
+          "user_id": { "type": "integer" },
+          "user_name": { "type": "string" },
+          "createdAt": {
+            "type": "integer",
+            "description": "Unix epoch time (ms)."
+          },
+          "updatedAt": {
+            "type": "integer",
+            "description": "Unix epoch time (ms)."
+          }
+        },
+        "required": ["id", "body", "user_id", "createdAt", "updatedAt"]
+      },
+      "Session": {
+        "type": "object",
+        "description": "An authenticated session envelope.",
+        "properties": {
+          "id": { "type": "string" },
+          "data": { "type": "object", "additionalProperties": true },
+          "createdAt": {
+            "type": "integer",
+            "description": "Unix epoch time (ms)."
+          }
+        }
+      },
+      "Pagination": {
+        "type": "object",
+        "description": "Standardized pagination metadata.",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "1-indexed page number."
+          },
+          "limit": { "type": "integer", "description": "Items per page." },
+          "total": {
+            "type": "integer",
+            "description": "Total items across all pages."
+          },
+          "pages": {
+            "type": "integer",
+            "description": "Total number of pages."
+          }
+        },
+        "required": ["page", "limit", "total", "pages"]
+      },
+      "Status": {
+        "type": "object",
+        "description": "Server health and runtime information.",
+        "properties": {
+          "name": { "type": "string" },
+          "pid": { "type": "integer" },
+          "version": { "type": "string" },
+          "uptime": {
+            "type": "integer",
+            "description": "Milliseconds since boot."
+          },
+          "consumedMemoryMB": { "type": "number" },
+          "healthy": { "type": "boolean" },
+          "checks": {
+            "type": "object",
+            "properties": {
+              "database": { "type": "boolean" },
+              "redis": { "type": "boolean" }
+            }
+          }
+        },
+        "required": ["name", "version", "uptime", "healthy"]
+      },
+      "UserCreateRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 256,
+            "description": "The user's name."
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "The user's email. Must be unique (case-insensitive)."
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 256,
+            "format": "password",
+            "description": "The user's password. Stored as a hash."
+          }
+        },
+        "required": ["name", "email", "password"]
+      },
+      "UserEditRequest": {
+        "type": "object",
+        "description": "All fields optional; only provided fields are updated.",
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "email": { "type": "string", "format": "email" },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 256,
+            "format": "password"
+          }
+        }
+      },
+      "SessionCreateRequest": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "The user's email."
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "description": "The user's password."
+          }
+        },
+        "required": ["email", "password"]
+      },
+      "MessageCreateRequest": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "description": "The message body."
+          },
+          "csrfToken": {
+            "type": "string",
+            "description": "CSRF token from GET /api/csrf-token."
+          }
+        },
+        "required": ["body"]
+      }
+    }
+  }
+}

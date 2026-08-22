@@ -180,6 +180,16 @@ bun dev
 
 Requires Bun, PostgreSQL, and Redis. See the [Getting Started guide](/guide/) for full setup instructions.
 
+## API & Developer Resources
+
+Keryx is open source, and there's a live demo API you can call right now — no signup, no API keys.
+
+- **[Developer Portal](/developers)** — API reference, authentication, a live sandbox, the CLI, and the MCP server in one place.
+- **[OpenAPI specification](/openapi.json)** — the full, machine-readable API surface (OpenAPI 3.1) for the live demo.
+- **[Live demo API](https://api.demo.keryxjs.com/api/status)** — a running Keryx server: try `GET /api/status`, or the spec at `/api/swagger`.
+- **[MCP server](/guide/mcp)** — connect Claude, Cursor, or any MCP client to `https://api.demo.keryxjs.com/mcp`.
+- **[llms.txt](/llms.txt)** — machine-readable documentation index for LLMs.
+
 ## Built With
 
 [Bun](https://bun.sh) · [Zod](https://zod.dev) · [Drizzle](https://orm.drizzle.team) · [Redis](https://redis.io) · [PostgreSQL](https://www.postgresql.org) · [OpenTelemetry](https://opentelemetry.io)

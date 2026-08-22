@@ -1,0 +1,7 @@
+{
+  "resource": "https://api.demo.keryxjs.com",
+  "authorization_servers": ["https://api.demo.keryxjs.com"],
+  "scopes_supported": ["mcp"],
+  "bearer_methods_supported": ["header"],
+  "resource_documentation": "https://keryxjs.com/developers"
+}

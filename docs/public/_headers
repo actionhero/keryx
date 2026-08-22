@@ -1,0 +1,22 @@
+# HTTP headers for CDN-backed static hosts (Netlify, Cloudflare Pages, etc.).
+# GitHub Pages ignores this file, but it documents the intended headers and is
+# honored automatically if the site is ever fronted by a supporting CDN.
+
+# Cache correctness for Accept-based content negotiation (acceptmarkdown.com):
+# an intermediary must not serve a cached HTML variant to a client that asked
+# for Markdown, or vice-versa.
+/*
+  Vary: Accept, Accept-Encoding
+
+# Serve machine-readable discovery documents as JSON.
+/openapi.json
+  Content-Type: application/json; charset=utf-8
+
+/.well-known/oauth-authorization-server
+  Content-Type: application/json; charset=utf-8
+
+/.well-known/oauth-protected-resource
+  Content-Type: application/json; charset=utf-8
+
+/.well-known/mcp
+  Content-Type: application/json; charset=utf-8

@@ -1,7 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "fs";
 import { dirname, relative, resolve } from "path";
-import { LLM_LANDING_PAGE, toMarkdownUrl } from "../.vitepress/config.mts";
+import {
+  LLM_LANDING_PAGE,
+  NOT_FOUND_LINKS,
+  toMarkdownUrl,
+} from "../.vitepress/config.mts";
 
 const docsDir = resolve(import.meta.dir, "..");
 const publicDir = resolve(docsDir, "public");
@@ -528,5 +532,206 @@ describe("generated reference data", () => {
       }
     }
     expect(missing).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Agent-readiness: machine-readable files, metadata, and trust pages
+// ---------------------------------------------------------------------------
+
+const distDir = resolve(docsDir, ".vitepress", "dist");
+
+describe("openapi.json", () => {
+  const sourcePath = resolve(publicDir, "openapi.json");
+  // biome-ignore lint/suspicious/noExplicitAny: parsed OpenAPI document
+  let spec: any;
+
+  beforeAll(() => {
+    spec = JSON.parse(readFileSync(sourcePath, "utf-8"));
+  });
+
+  test("is published to public/ and copied into the build", () => {
+    expect(existsSync(sourcePath)).toBe(true);
+    expect(existsSync(resolve(distDir, "openapi.json"))).toBe(true);
+  });
+
+  test("is a valid OpenAPI 3.x document with servers", () => {
+    expect(String(spec.openapi)).toMatch(/^3\./);
+    expect(spec.info?.title).toBeTruthy();
+    expect(Array.isArray(spec.servers)).toBe(true);
+    expect(spec.servers.length).toBeGreaterThan(0);
+    expect(Object.keys(spec.paths ?? {}).length).toBeGreaterThan(0);
+  });
+
+  test("declares scoped OAuth permissions in security schemes", () => {
+    const schemes = spec.components?.securitySchemes ?? {};
+    const oauth = schemes.oauth2;
+    expect(oauth?.type).toBe("oauth2");
+    const scopes = oauth?.flows?.authorizationCode?.scopes ?? {};
+    expect(Object.keys(scopes)).toContain("mcp");
+  });
+
+  test("every operation has a unique operationId and a description", () => {
+    const seen = new Set<string>();
+    const dupes: string[] = [];
+    const missing: string[] = [];
+    for (const [path, methods] of Object.entries(spec.paths)) {
+      for (const [method, op] of Object.entries(
+        methods as Record<
+          string,
+          { operationId?: string; description?: string }
+        >,
+      )) {
+        const where = `${method.toUpperCase()} ${path}`;
+        if (!op.operationId) missing.push(`${where}: no operationId`);
+        else if (seen.has(op.operationId)) dupes.push(op.operationId);
+        else seen.add(op.operationId);
+        if (!op.description) missing.push(`${where}: no description`);
+      }
+    }
+    expect(missing).toEqual([]);
+    expect(dupes).toEqual([]);
+  });
+
+  test("defines a structured JSON error schema", () => {
+    const err = spec.components?.schemas?.Error;
+    expect(err).toBeTruthy();
+    const errorProps = err.properties?.error?.properties ?? {};
+    expect(Object.keys(errorProps)).toEqual(
+      expect.arrayContaining(["message", "type", "timestamp"]),
+    );
+  });
+
+  test("error responses are referenced by write operations", () => {
+    const userCreate = spec.paths["/user"]?.put;
+    expect(userCreate?.responses?.["422"]).toBeTruthy();
+    expect(userCreate?.responses?.["500"]).toBeTruthy();
+  });
+});
+
+describe(".well-known discovery documents", () => {
+  const files = [
+    "oauth-authorization-server",
+    "oauth-protected-resource",
+    "mcp",
+  ];
+
+  test("are published and copied into the build", () => {
+    for (const f of files) {
+      expect(existsSync(resolve(publicDir, ".well-known", f))).toBe(true);
+      expect(existsSync(resolve(distDir, ".well-known", f))).toBe(true);
+    }
+  });
+
+  test("a .nojekyll file ships so GitHub Pages serves dotfiles", () => {
+    expect(existsSync(resolve(publicDir, ".nojekyll"))).toBe(true);
+    expect(existsSync(resolve(distDir, ".nojekyll"))).toBe(true);
+  });
+
+  test("oauth-authorization-server has an issuer and endpoints", () => {
+    const meta = JSON.parse(
+      readFileSync(
+        resolve(publicDir, ".well-known", "oauth-authorization-server"),
+        "utf-8",
+      ),
+    );
+    expect(meta.issuer).toBeTruthy();
+    expect(meta.authorization_endpoint).toContain(meta.issuer);
+    expect(meta.token_endpoint).toContain(meta.issuer);
+    expect(meta.scopes_supported).toContain("mcp");
+    expect(meta.code_challenge_methods_supported).toContain("S256");
+  });
+
+  test("oauth-protected-resource advertises scopes_supported (RFC 9728)", () => {
+    const meta = JSON.parse(
+      readFileSync(
+        resolve(publicDir, ".well-known", "oauth-protected-resource"),
+        "utf-8",
+      ),
+    );
+    expect(Array.isArray(meta.authorization_servers)).toBe(true);
+    expect(meta.authorization_servers.length).toBeGreaterThan(0);
+    expect(meta.scopes_supported).toContain("mcp");
+  });
+
+  test("mcp manifest points at a Streamable HTTP server", () => {
+    const meta = JSON.parse(
+      readFileSync(resolve(publicDir, ".well-known", "mcp"), "utf-8"),
+    );
+    expect(meta.server?.url).toMatch(/^https?:\/\//);
+    expect(meta.server?.transport).toBe("streamable-http");
+    expect(meta.server?.authentication?.type).toBe("oauth2");
+  });
+});
+
+describe("homepage metadata & structured data", () => {
+  let html: string;
+
+  beforeAll(() => {
+    html = readFileSync(resolve(distDir, "index.html"), "utf-8");
+  });
+
+  test("declares html lang, canonical, and Open Graph tags", () => {
+    expect(html).toContain('lang="en-US"');
+    expect(html).toMatch(/rel="canonical" href="https:\/\/keryxjs\.com\/"/);
+    expect(html).toContain('property="og:type" content="website"');
+    expect(html).toMatch(/property="og:image" content="https:\/\/keryxjs\.com/);
+  });
+
+  test("embeds JSON-LD with SoftwareApplication and a complete Organization", () => {
+    const match = html.match(
+      /<script type="application\/ld\+json">([\s\S]*?)<\/script>/,
+    );
+    expect(match).not.toBeNull();
+    const data = JSON.parse(match![1]);
+    const graph = data["@graph"] ?? [data];
+    const types = graph.map((n: { "@type": string }) => n["@type"]);
+    expect(types).toContain("SoftwareApplication");
+    expect(types).toContain("Organization");
+    const org = graph.find(
+      (n: { "@type": string }) => n["@type"] === "Organization",
+    );
+    expect(org.contactPoint?.email).toBeTruthy();
+    expect(org.contactPoint?.contactType).toBeTruthy();
+    expect(org.address?.["@type"]).toBe("PostalAddress");
+  });
+
+  test("links developer/API resources from the homepage", () => {
+    expect(html).toContain("/developers");
+    expect(html).toContain("/openapi.json");
+  });
+});
+
+describe("agent-friendly 404", () => {
+  test("static 404.html carries a recovery body for non-JS agents", () => {
+    const html = readFileSync(resolve(distDir, "404.html"), "utf-8");
+    expect(html).toContain("Page not found");
+    for (const link of NOT_FOUND_LINKS) {
+      expect(html).toContain(`href="${link.href}"`);
+    }
+  });
+});
+
+describe("llms.txt agent guidance", () => {
+  test("includes when-to-use guidance and developer resources", () => {
+    const content = readFileSync(resolve(distDir, "llms.txt"), "utf-8");
+    expect(content).toContain("When to use Keryx");
+    expect(content).toContain("/openapi.json");
+    expect(content).toContain("/developers");
+  });
+});
+
+describe("trust anchor pages", () => {
+  const pages = ["about.md", "contact.md", "privacy.md", "developers.md"];
+
+  test("exist with a description and at least 500 characters of prose", () => {
+    for (const page of pages) {
+      const file = resolve(docsDir, page);
+      expect(existsSync(file)).toBe(true);
+      const raw = readFileSync(file, "utf-8");
+      expect(raw).toMatch(/^---\n[\s\S]*?description:/);
+      const body = raw.replace(/^---\n[\s\S]*?\n---\n/, "");
+      expect(body.length).toBeGreaterThanOrEqual(500);
+    }
   });
 });
