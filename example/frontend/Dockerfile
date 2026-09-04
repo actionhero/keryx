@@ -9,6 +9,7 @@ COPY packages/plugins/tracing/package.json packages/plugins/tracing/
 COPY packages/plugins/sentry/package.json packages/plugins/sentry/
 COPY packages/plugins/resque-admin/package.json packages/plugins/resque-admin/
 COPY packages/plugins/csrf/package.json packages/plugins/csrf/
+COPY packages/plugins/admin/package.json packages/plugins/admin/
 COPY example/backend/package.json example/backend/
 COPY example/frontend/package.json example/frontend/
 COPY docs/package.json docs/

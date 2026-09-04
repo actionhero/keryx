@@ -50,6 +50,21 @@ services:
         value: "https://api.demo.keryxjs.com"
       - key: MCP_SERVER_ENABLED
         value: "true"
+      # Admin dashboard at /api/admin. The route is reachable, but access is decided
+      # by config/plugins.ts against these allowlists — with both unset, every request
+      # is denied, which is the correct default for a public demo whose database holds
+      # real signup emails and password hashes. Set them in the Render dashboard to
+      # grant yourself access; prefer READ_ONLY, since FULL can delete any row.
+      - key: ADMIN_ENABLED
+        value: "true"
+      - key: ADMIN_FULL_EMAILS
+        sync: false
+      - key: ADMIN_READ_ONLY_EMAILS
+        sync: false
+      # Leave MCP off for the admin actions: the demo's MCP server is public, and this
+      # would hand any connecting agent generic read/write access to the database.
+      - key: ADMIN_MCP_ENABLED
+        value: "false"
 
   # Frontend static site
   - type: web

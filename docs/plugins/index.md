@@ -14,6 +14,7 @@ The Keryx team maintains a set of first-party plugins under the `@keryxjs` npm s
 | [Sentry](/plugins/sentry) | `@keryxjs/sentry` | Sentry error monitoring and tracing for HTTP, WebSocket, MCP, actions, tasks, Redis, and Postgres |
 | [Resque Admin](/plugins/resque-admin) | `@keryxjs/resque-admin` | Web dashboard and API for monitoring Redis, queues, workers, failed jobs, and locks |
 | [CSRF](/plugins/csrf) | `@keryxjs/csrf` | Per-session CSRF tokens and middleware to protect state-changing endpoints |
+| [Admin](/plugins/admin) | `@keryxjs/admin` | Dashboard and API to browse, filter, and edit any table in your database, with read-only and full roles |
 
 ## Using a Plugin
 

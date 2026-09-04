@@ -12,6 +12,7 @@ packages/plugins/tracing/.env
 packages/plugins/sentry/.env
 packages/plugins/resque-admin/.env
 packages/plugins/csrf/.env
+packages/plugins/admin/.env
 example/backend/.env
 example/frontend/.env
 types
