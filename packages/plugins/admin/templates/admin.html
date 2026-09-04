@@ -615,10 +615,17 @@ function fieldFor(column, value, isNew) {
   if (column.hasDefault) notes.push("has default");
   if (column.references) notes.push(`→ ${column.references.table}.${column.references.column}`);
   if (!column.writable) notes.push("read-only");
+  // An empty text input can't distinguish NULL from an empty string, so say which.
+  if (!isNew && column.nullable && (value === null || value === undefined)) {
+    notes.push("currently null");
+  }
 
-  const isNull = raw === "";
+  // Always starts unchecked: the box means "write NULL", not "is currently NULL".
+  // Reflecting current state made it checked for every field on a create form, so
+  // blank fields sent an explicit null and overrode the column's default — and on an
+  // edit it silently discarded whatever the user typed into a null field.
   const nullToggle = column.nullable && editable
-    ? `<label class="field-null"><input type="checkbox" id="${id}-null" data-initial-null="${isNull}" ${isNull ? "checked" : ""}> set null</label>`
+    ? `<label class="field-null"><input type="checkbox" id="${id}-null"> set null</label>`
     : "";
 
   return `<div class="field" data-field="${escapeHtml(column.name)}">
@@ -645,6 +652,22 @@ function openEditor(row) {
     .map((column) => fieldFor(column, row ? row[column.name] : null, isNew))
     .join("");
 
+  // Keep the two controls from contradicting each other: asking for NULL clears the
+  // value, and entering a value withdraws the request for NULL. Without this, a user
+  // could submit a filled-in field with "set null" still ticked and lose their input.
+  for (const column of state.meta.columns) {
+    const input = el(`f-${column.name}`);
+    const nullBox = el(`f-${column.name}-null`);
+    if (!input || !nullBox) continue;
+
+    nullBox.addEventListener("change", () => {
+      if (nullBox.checked) input.value = "";
+    });
+    input.addEventListener("input", () => {
+      if (input.value !== "") nullBox.checked = false;
+    });
+  }
+
   el("editor").showModal();
 }
 
@@ -659,19 +682,18 @@ function collectValues(isNew) {
     const input = el(`f-${column.name}`);
     if (!input || input.disabled) continue;
 
-    const nullBox = el(`f-${column.name}-null`);
-    const nullNow = nullBox?.checked ?? false;
-    const nullBefore = nullBox?.dataset.initialNull === "true";
+    // The box starts unchecked on every field, so ticking it is itself a change.
+    const wantsNull = el(`f-${column.name}-null`)?.checked ?? false;
     const raw = input.value;
 
     // An update sends only what changed. Resending an untouched value would rewrite
     // it — harmless for text, but it round-trips timestamps through the input's
     // second-level precision and stomps on any edit made since this form loaded.
-    if (!isNew && raw === (input.dataset.initial ?? "") && nullNow === nullBefore) {
+    if (!isNew && !wantsNull && raw === (input.dataset.initial ?? "")) {
       continue;
     }
 
-    if (nullNow) {
+    if (wantsNull) {
       values[column.name] = null;
       continue;
     }

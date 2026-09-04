@@ -26,6 +26,8 @@ export const adminWidgets = pgTable(
     label: varchar("label", { length: 8 }),
     quantity: integer("quantity").notNull().default(0),
     status: text("status", { enum: ["draft", "live", "retired"] }),
+    // Nullable *and* defaulted, so "omitted" and "explicitly null" are distinguishable.
+    tag: text("tag").default("untagged"),
     active: boolean("active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     // Writable, unlike created_at, so timestamp round-tripping is testable.
@@ -92,6 +94,7 @@ export async function createFixtureTables() {
       "label" varchar(8),
       "quantity" integer NOT NULL DEFAULT 0,
       "status" text,
+      "tag" text DEFAULT 'untagged',
       "active" boolean NOT NULL DEFAULT true,
       "created_at" timestamp NOT NULL DEFAULT now(),
       "scheduled_at" timestamp,

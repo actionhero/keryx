@@ -724,6 +724,23 @@ describe("admin plugin", () => {
       expect(record.active).toBe(false);
     });
 
+    test("omitting a nullable column uses its database default", async () => {
+      // The distinction the edit form depends on: a blank field must be omitted, not
+      // sent as null, or every defaulted column gets clobbered on create.
+      const { record } = await createWidget({ name: "defaulted" });
+
+      expect(record.tag).toBe("untagged");
+    });
+
+    test("explicit null overrides a database default", async () => {
+      const { record } = await createWidget({
+        name: "explicit-null",
+        tag: null,
+      });
+
+      expect(record.tag).toBeNull();
+    });
+
     test("writes null when a nullable column is set to null", async () => {
       const { record } = await createWidget({ name: "nulled", label: "abc" });
 

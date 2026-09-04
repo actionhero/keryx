@@ -28,6 +28,9 @@ export const customers = pgTable(
       .notNull()
       .default("free"),
     active: boolean("active").notNull().default(true),
+    // Nullable *and* defaulted: leaving the field blank must fall back to the
+    // default, while explicitly asking for null must store null.
+    plan: text("plan").default("starter"),
     notes: text("notes"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
@@ -61,6 +64,7 @@ export async function setupDemoTables() {
       "email" text NOT NULL,
       "tier" text NOT NULL DEFAULT 'free',
       "active" boolean NOT NULL DEFAULT true,
+      "plan" text DEFAULT 'starter',
       "notes" text,
       "created_at" timestamp NOT NULL DEFAULT now()
     );
