@@ -323,7 +323,12 @@ describe("admin plugin", () => {
     test("omits hidden columns entirely", async () => {
       const gadgets = await ok<AdminTableMeta>("/tables/admin_gadgets/schema");
 
-      expect(gadgets.columns.map((c) => c.name)).toEqual(["id", "widget_id"]);
+      expect(gadgets.columns.map((c) => c.name)).toEqual([
+        "id",
+        "widget_id",
+        "hidden_key_id",
+      ]);
+      expect(gadgets.columns.map((c) => c.name)).not.toContain("note");
     });
 
     test("reports foreign key targets", async () => {
@@ -331,6 +336,28 @@ describe("admin plugin", () => {
       const fk = gadgets.columns.find((c) => c.name === "widget_id");
 
       expect(fk?.references).toEqual({ table: "admin_widgets", column: "id" });
+    });
+
+    test("omits a reference whose target column is hidden", async () => {
+      const gadgets = await ok<AdminTableMeta>("/tables/admin_gadgets/schema");
+      const fk = gadgets.columns.find((c) => c.name === "hidden_key_id");
+
+      // Points at admin_hidden_key.id, which config hides — naming it would disclose
+      // a column that's meant to be indistinguishable from one that doesn't exist.
+      expect(fk).toBeDefined();
+      expect(fk?.references).toBeNull();
+    });
+
+    test("reports a multi-column unique constraint over visible columns", async () => {
+      expect(meta.uniqueConstraints).toEqual([["label", "quantity"]]);
+    });
+
+    test("omits a unique constraint that spans a hidden column", async () => {
+      const gadgets = await ok<AdminTableMeta>("/tables/admin_gadgets/schema");
+
+      // The table has a UNIQUE (widget_id, note) constraint, but `note` is hidden.
+      // Trimming it to (widget_id) would claim widget_id is unique on its own.
+      expect(gadgets.uniqueConstraints).toEqual([]);
     });
 
     describe("a table whose primary key is hidden", () => {
@@ -712,7 +739,11 @@ describe("admin plugin", () => {
       );
 
       // `note` exists in the table but is hidden by config, so it never reaches a client.
-      expect(Object.keys(gadgets.data[0]).sort()).toEqual(["id", "widget_id"]);
+      expect(Object.keys(gadgets.data[0]).sort()).toEqual([
+        "hidden_key_id",
+        "id",
+        "widget_id",
+      ]);
     });
   });
 

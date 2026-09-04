@@ -3,6 +3,7 @@ import { getTableConfig, type PgColumn } from "drizzle-orm/pg-core";
 import {
   addressableKeyColumns,
   type ExposedTable,
+  exposedTables,
   readableColumns,
   writableColumns,
 } from "./registry";
@@ -100,6 +101,7 @@ export function describeTable(exposed: ExposedTable): AdminTableMeta {
   const { foreignKeys, uniqueConstraints, indexes } = getTableConfig(
     exposed.table,
   );
+  const hidden = new Set(exposed.rules.hidden ?? []);
 
   // The addressable key, not the declared one: a key a caller can't see is a key it
   // can't send back, so reporting it would advertise write actions that must fail.
@@ -122,14 +124,27 @@ export function describeTable(exposed: ExposedTable): AdminTableMeta {
     }
   }
 
+  // A reference is only reported when the caller could actually follow it. Naming a
+  // column hidden on the target table — or a table that `tables.exclude` removed —
+  // would disclose schema the configuration deliberately withheld, and would point the
+  // UI at somewhere it can't navigate.
+  const visibleTargets = new Map(
+    exposedTables().map((t) => [t.name, new Set(t.rules.hidden ?? [])]),
+  );
+
   const references = new Map<string, { table: string; column: string }>();
   for (const foreignKey of foreignKeys) {
     const ref = foreignKey.reference();
     ref.columns.forEach((column, i) => {
       const target = ref.foreignColumns[i];
       if (!target) return;
+
+      const targetTable = getTableName(ref.foreignTable);
+      const targetHidden = visibleTargets.get(targetTable);
+      if (!targetHidden || targetHidden.has(target.name)) return;
+
       references.set(column.name, {
-        table: getTableName(ref.foreignTable),
+        table: targetTable,
         column: target.name,
       });
     });
@@ -153,9 +168,14 @@ export function describeTable(exposed: ExposedTable): AdminTableMeta {
     exportName: exposed.exportName,
     columns,
     primaryKey,
+    // Constraints spanning a hidden column are dropped whole rather than trimmed:
+    // reporting `(a)` for a constraint that is really `(a, hidden_b)` would tell a
+    // client `a` is unique on its own, which it isn't.
     uniqueConstraints: uniqueConstraints
       .map((c) => c.columns.map((col) => col.name))
-      .filter((cols) => cols.length > 1),
+      .filter(
+        (cols) => cols.length > 1 && !cols.some((name) => hidden.has(name)),
+      ),
     writable: primaryKey.length > 0,
   };
 }

@@ -4,7 +4,11 @@ import { z } from "zod";
 import { resolvedRole } from "../middleware/auth";
 import { toActionError } from "../util/dbErrors";
 import { describeTable } from "../util/introspect";
-import { exposedTables, requireTable } from "../util/registry";
+import {
+  addressableKeyColumns,
+  exposedTables,
+  requireTable,
+} from "../util/registry";
 import {
   type AdminActionOptions,
   adminMcpEnabled,
@@ -46,7 +50,9 @@ export function createAdminTablesAction(options: AdminActionOptions) {
             name: exposed.name,
             exportName: exposed.exportName,
             rows,
-            writable: describeTable(exposed).writable,
+            // Just the one fact, rather than a full describeTable() per table — that
+            // now walks the whole registry to resolve foreign key targets.
+            writable: addressableKeyColumns(exposed).length > 0,
           };
         }),
       );

@@ -8,6 +8,7 @@ import {
   serial,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   varchar,
 } from "drizzle-orm/pg-core";
@@ -40,17 +41,34 @@ export const adminWidgets = pgTable(
   },
   (table) => ({
     nameIndex: uniqueIndex("admin_widgets_name_idx").on(table.name),
+    // Multi-column and entirely visible, so it belongs in schema output.
+    labelQuantity: unique("admin_widgets_label_quantity_uq").on(
+      table.label,
+      table.quantity,
+    ),
   }),
 );
 
 /** Carries a foreign key, so FK metadata and FK violations are both reachable. */
-export const adminGadgets = pgTable("admin_gadgets", {
-  id: serial("id").primaryKey(),
-  widgetId: integer("widget_id")
-    .references(() => adminWidgets.id)
-    .notNull(),
-  note: text("note"),
-});
+export const adminGadgets = pgTable(
+  "admin_gadgets",
+  {
+    id: serial("id").primaryKey(),
+    widgetId: integer("widget_id")
+      .references(() => adminWidgets.id)
+      .notNull(),
+    note: text("note"),
+    // References a column that config hides on the target table.
+    hiddenKeyId: integer("hidden_key_id").references(() => adminHiddenKey.id),
+  },
+  (table) => ({
+    // Spans a hidden column, so reporting it would disclose that column's name.
+    widgetNote: unique("admin_gadgets_widget_note_uq").on(
+      table.widgetId,
+      table.note,
+    ),
+  }),
+);
 
 /** Composite primary key, to prove rows can be addressed by more than one column. */
 export const adminMemberships = pgTable(
@@ -110,14 +128,22 @@ export async function createFixtureTables() {
       "created_at" timestamp NOT NULL DEFAULT now(),
       "scheduled_at" timestamp,
       "due_on" date,
-      "start_on" date
+      "start_on" date,
+      CONSTRAINT "admin_widgets_label_quantity_uq" UNIQUE ("label", "quantity")
     );
     CREATE UNIQUE INDEX IF NOT EXISTS "admin_widgets_name_idx" ON "admin_widgets" ("name");
+
+    CREATE TABLE IF NOT EXISTS "admin_hidden_key" (
+      "id" serial PRIMARY KEY,
+      "label" text NOT NULL
+    );
 
     CREATE TABLE IF NOT EXISTS "admin_gadgets" (
       "id" serial PRIMARY KEY,
       "widget_id" integer NOT NULL REFERENCES "admin_widgets"("id"),
-      "note" text
+      "note" text,
+      "hidden_key_id" integer REFERENCES "admin_hidden_key"("id"),
+      CONSTRAINT "admin_gadgets_widget_note_uq" UNIQUE ("widget_id", "note")
     );
 
     CREATE TABLE IF NOT EXISTS "admin_memberships" (
@@ -129,10 +155,6 @@ export async function createFixtureTables() {
 
     CREATE TABLE IF NOT EXISTS "admin_keyless" ("value" text NOT NULL);
 
-    CREATE TABLE IF NOT EXISTS "admin_hidden_key" (
-      "id" serial PRIMARY KEY,
-      "label" text NOT NULL
-    );
   `),
   );
 

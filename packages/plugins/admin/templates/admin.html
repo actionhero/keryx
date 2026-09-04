@@ -176,7 +176,9 @@
 </div>
 
 <dialog id="editor">
-  <form id="editor-form" method="dialog">
+  <!-- A real form with a submit button, so Enter in any field saves. `method="dialog"`
+       would instead close the dialog on implicit submission and discard the edit. -->
+  <form id="editor-form">
     <div class="dlg-head">
       <strong id="editor-title"></strong>
       <span class="hint" id="editor-sub"></span>
@@ -188,7 +190,7 @@
     <div class="dlg-body" id="editor-body"></div>
     <div class="dlg-foot">
       <button type="button" id="editor-cancel">Cancel</button>
-      <button type="button" id="editor-save" class="btn-primary">Save</button>
+      <button type="submit" id="editor-save" class="btn-primary">Save</button>
     </div>
   </form>
 </dialog>
@@ -804,7 +806,11 @@ el("limit").addEventListener("change", (event) => {
   loadRows();
 });
 el("editor-cancel").addEventListener("click", () => el("editor").close());
-el("editor-save").addEventListener("click", () => saveEditor());
+// Submit rather than the Save button's click, so pressing Enter in a field saves too.
+el("editor-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  saveEditor();
+});
 el("limit").value = String(state.limit);
 
 boot();
