@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin</title>
+<style>
+  :root {
+    --bg: #f8f9fa; --bg2: #ffffff; --fg: #212529; --fg2: #6c757d;
+    --border: #dee2e6; --accent: #0d6efd; --accent-hover: #0b5ed7;
+    --danger: #dc3545; --success: #198754; --warn: #ffc107;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --mono: "SF Mono", SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a1a2e; --bg2: #16213e; --fg: #e0e0e0; --fg2: #a0a0a0;
+      --border: #334155; --accent: #4ea8de; --accent-hover: #3a8cc2;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font); background: var(--bg); color: var(--fg); line-height: 1.5; }
+  a { color: var(--accent); }
+  h1 { font-size: 1.35rem; }
+  h2 { font-size: 1.1rem; }
+  .layout { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+  @media (max-width: 800px) { .layout { grid-template-columns: 1fr; } }
+
+  .sidebar { background: var(--bg2); border-right: 1px solid var(--border); padding: 1rem; }
+  .sidebar h1 { margin-bottom: 0.25rem; }
+  .role { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg2); margin-bottom: 1rem; }
+  .role .pill { background: var(--accent); color: #fff; border-radius: 999px; padding: 0.1rem 0.5rem; }
+  .role .pill.ro { background: var(--warn); color: #000; }
+  .table-list { list-style: none; }
+  .table-list li { margin-bottom: 0.15rem; }
+  .table-list button { width: 100%; text-align: left; display: flex; justify-content: space-between;
+    gap: 0.5rem; border: none; background: none; padding: 0.4rem 0.5rem; border-radius: 4px;
+    cursor: pointer; color: var(--fg); font-size: 0.85rem; min-width: 0; }
+  .table-list button:hover { background: var(--bg); }
+  .table-list button.active { background: var(--accent); color: #fff; }
+  .table-list .count { color: var(--fg2); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+  .table-list button.active .count { color: #fff; }
+
+  .main { padding: 1rem 1.25rem; min-width: 0; }
+  .main-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+    flex-wrap: wrap; margin-bottom: 0.75rem; }
+  .toolbar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+
+  button, .btn { padding: 0.35rem 0.75rem; border: 1px solid var(--border); border-radius: 4px;
+    background: var(--bg2); color: var(--fg); cursor: pointer; font-size: 0.8rem; }
+  button:hover { background: var(--border); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+  .btn-danger:hover { opacity: 0.9; }
+  .btn-sm { padding: 0.15rem 0.4rem; font-size: 0.75rem; }
+
+  input, select, textarea { padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 4px;
+    background: var(--bg2); color: var(--fg); font-family: var(--font); font-size: 0.85rem; max-width: 100%; }
+  textarea { font-family: var(--mono); width: 100%; min-height: 5rem; }
+
+  .filters { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 0.75rem; margin-bottom: 0.75rem; }
+  .filters-head { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+  .filters-head .label { font-size: 0.7rem; text-transform: uppercase; color: var(--fg2); }
+  .cond { display: flex; gap: 0.4rem; margin-bottom: 0.4rem; align-items: center; flex-wrap: wrap; }
+  .cond .grow { flex: 1; min-width: 8rem; }
+  .hint { font-size: 0.75rem; color: var(--fg2); }
+
+  .grid-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg2); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  th, td { padding: 0.4rem 0.6rem; text-align: left; border-bottom: 1px solid var(--border);
+    white-space: nowrap; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; }
+  th { font-weight: 600; color: var(--fg2); font-size: 0.72rem; text-transform: uppercase;
+    position: sticky; top: 0; background: var(--bg2); }
+  th.sortable { cursor: pointer; user-select: none; }
+  th.sortable:hover { color: var(--fg); }
+  th .dir { color: var(--accent); }
+  th .pk { color: var(--accent); }
+  tbody tr:hover td { background: var(--bg); }
+  td.null { color: var(--fg2); font-style: italic; }
+  td.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  td.actions { white-space: nowrap; }
+
+  .pager { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.75rem; flex-wrap: wrap; }
+  .pager .info { font-size: 0.8rem; color: var(--fg2); }
+
+  .msg { padding: 0.5rem 0.75rem; border-radius: 4px; margin-bottom: 0.75rem; font-size: 0.85rem; }
+  .msg-error { background: #f8d7da; color: #842029; }
+  .msg-success { background: #d1e7dd; color: #0f5132; }
+  @media (prefers-color-scheme: dark) {
+    .msg-error { background: #842029; color: #f8d7da; }
+    .msg-success { background: #0f5132; color: #d1e7dd; }
+  }
+  .empty { padding: 2rem; text-align: center; color: var(--fg2); font-size: 0.9rem; }
+
+  dialog { border: 1px solid var(--border); border-radius: 8px; background: var(--bg2); color: var(--fg);
+    padding: 0; max-width: 640px; width: calc(100% - 2rem); }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
+  .dlg-head { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); display: flex;
+    justify-content: space-between; align-items: center; gap: 1rem; }
+  .dlg-body { padding: 1rem; max-height: 60vh; overflow-y: auto; }
+  .dlg-foot { padding: 0.75rem 1rem; border-top: 1px solid var(--border); display: flex;
+    justify-content: flex-end; gap: 0.5rem; }
+  .field { margin-bottom: 0.75rem; }
+  .field label { display: block; font-size: 0.75rem; color: var(--fg2); margin-bottom: 0.2rem; }
+  .field label .req { color: var(--danger); }
+  .field label .tag { font-family: var(--mono); font-size: 0.7rem; }
+  .field input, .field select { width: 100%; }
+  .field .note { font-size: 0.72rem; color: var(--fg2); margin-top: 0.15rem; }
+  .field-null { font-size: 0.75rem; color: var(--fg2); display: flex; align-items: center; gap: 0.3rem; margin-top: 0.25rem; }
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <h1>Admin</h1>
+    <div class="role" id="role"></div>
+    <ul class="table-list" id="tables"></ul>
+  </aside>
+
+  <main class="main">
+    <div id="banner"></div>
+
+    <div id="content" hidden>
+      <div class="main-head">
+        <h2 id="table-title"></h2>
+        <div class="toolbar">
+          <button id="btn-reload">Reload</button>
+          <button id="btn-new" class="btn-primary" hidden>New row</button>
+        </div>
+      </div>
+
+      <div class="filters">
+        <div class="filters-head">
+          <span class="label">Filters</span>
+          <select id="combinator">
+            <option value="and">match all</option>
+            <option value="or">match any</option>
+          </select>
+          <button id="btn-add-cond" class="btn-sm">Add condition</button>
+          <button id="btn-clear-cond" class="btn-sm">Clear</button>
+          <button id="btn-apply" class="btn-sm btn-primary">Apply</button>
+        </div>
+        <div id="conds"></div>
+        <div class="hint" id="filter-hint"></div>
+      </div>
+
+      <div class="grid-wrap">
+        <table>
+          <thead><tr id="head-row"></tr></thead>
+          <tbody id="body-rows"></tbody>
+        </table>
+        <div class="empty" id="empty" hidden>No rows match.</div>
+      </div>
+
+      <div class="pager">
+        <button id="btn-prev">Previous</button>
+        <button id="btn-next">Next</button>
+        <span class="info" id="page-info"></span>
+        <select id="limit">
+          <option>10</option><option>25</option><option>50</option><option>100</option>
+        </select>
+        <span class="info">per page</span>
+      </div>
+    </div>
+  </main>
+</div>
+
+<dialog id="editor">
+  <form id="editor-form" method="dialog">
+    <div class="dlg-head">
+      <strong id="editor-title"></strong>
+      <span class="hint" id="editor-sub"></span>
+    </div>
+    <div class="dlg-body" id="editor-body"></div>
+    <div class="dlg-foot">
+      <button type="button" id="editor-cancel">Cancel</button>
+      <button type="button" id="editor-save" class="btn-primary">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+const API = "{{API_ROUTE}}{{ADMIN_ROUTE}}";
+
+const state = {
+  role: null,
+  tables: [],
+  table: null,
+  meta: null,
+  rows: [],
+  page: 1,
+  limit: 25,
+  pages: 1,
+  total: 0,
+  sort: [],
+  combinator: "and",
+  conds: [],
+};
+
+const el = (id) => document.getElementById(id);
+
+/** Operators, and whether each one needs a value (and what shape). */
+const OPS = [
+  { op: "eq", label: "=", arity: 1 },
+  { op: "neq", label: "≠", arity: 1 },
+  { op: "gt", label: ">", arity: 1 },
+  { op: "gte", label: "≥", arity: 1 },
+  { op: "lt", label: "<", arity: 1 },
+  { op: "lte", label: "≤", arity: 1 },
+  { op: "contains", label: "contains", arity: 1 },
+  { op: "startsWith", label: "starts with", arity: 1 },
+  { op: "endsWith", label: "ends with", arity: 1 },
+  { op: "like", label: "LIKE (pattern)", arity: 1 },
+  { op: "ilike", label: "ILIKE (pattern)", arity: 1 },
+  { op: "in", label: "in (comma list)", arity: "list" },
+  { op: "notIn", label: "not in (comma list)", arity: "list" },
+  { op: "between", label: "between", arity: 2 },
+  { op: "isNull", label: "is null", arity: 0 },
+  { op: "isNotNull", label: "is not null", arity: 0 },
+];
+
+const opInfo = (op) => OPS.find((o) => o.op === op) ?? OPS[0];
+
+function banner(message, kind) {
+  el("banner").innerHTML = message
+    ? `<div class="msg msg-${kind}">${escapeHtml(message)}</div>`
+    : "";
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+/**
+ * Every request funnels through here so the framework's `{ error: { message } }`
+ * envelope is unwrapped in exactly one place.
+ */
+async function call(path, { method = "GET", body } = {}) {
+  const res = await fetch(`${API}${path}`, {
+    method,
+    credentials: "same-origin",
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  const text = await res.text();
+  let payload = null;
+  try { payload = text ? JSON.parse(text) : null; } catch { /* non-JSON error page */ }
+
+  if (!res.ok) {
+    const message = payload?.error?.message || `Request failed (${res.status})`;
+    const error = new Error(message);
+    error.status = res.status;
+    throw error;
+  }
+  return payload;
+}
+
+async function boot() {
+  try {
+    const { role, tables } = await call("/tables");
+    state.role = role;
+    state.tables = tables;
+    renderRole();
+    renderTableList();
+
+    if (tables.length === 0) {
+      banner("No tables are exposed. Check the plugin's `tables` include/exclude rules, or add a table to your schema/ directory.", "error");
+      return;
+    }
+    await selectTable(tables[0].name);
+  } catch (error) {
+    const hint = error.status === 401 || error.status === 403
+      ? " Sign in to the application with an admin account, then reload this page."
+      : "";
+    banner(error.message + hint, "error");
+  }
+}
+
+function renderRole() {
+  const readOnly = state.role === "read-only";
+  el("role").innerHTML = state.role
+    ? `<span class="pill ${readOnly ? "ro" : ""}">${escapeHtml(state.role)}</span>`
+    : "";
+}
+
+function renderTableList() {
+  el("tables").innerHTML = state.tables
+    .map((t) => `<li><button data-table="${escapeHtml(t.name)}" class="${t.name === state.table ? "active" : ""}">
+        <span>${escapeHtml(t.name)}</span><span class="count">${t.rows}</span>
+      </button></li>`)
+    .join("");
+
+  for (const button of el("tables").querySelectorAll("button")) {
+    button.addEventListener("click", () => selectTable(button.dataset.table));
+  }
+}
+
+const canWrite = () => state.role === "full" && state.meta?.writable;
+
+async function selectTable(name) {
+  state.table = name;
+  state.page = 1;
+  state.sort = [];
+  state.conds = [];
+  renderTableList();
+
+  try {
+    state.meta = await call(`/tables/${encodeURIComponent(name)}/schema`);
+  } catch (error) {
+    banner(error.message, "error");
+    return;
+  }
+
+  el("content").hidden = false;
+  el("table-title").textContent = name;
+  el("btn-new").hidden = !canWrite();
+  el("filter-hint").textContent = state.meta.writable
+    ? ""
+    : "This table has no primary key, so rows can be read but not edited.";
+
+  renderConds();
+  await loadRows();
+}
+
+function currentFilter() {
+  const leaves = state.conds
+    .map((cond) => {
+      const info = opInfo(cond.op);
+      if (info.arity === 0) return { column: cond.column, op: cond.op };
+      if (info.arity === "list") {
+        const values = cond.value.split(",").map((v) => v.trim()).filter(Boolean);
+        return values.length ? { column: cond.column, op: cond.op, value: values } : null;
+      }
+      if (info.arity === 2) {
+        if (cond.value === "" || cond.value2 === "") return null;
+        return { column: cond.column, op: cond.op, value: [cond.value, cond.value2] };
+      }
+      return cond.value === "" ? null : { column: cond.column, op: cond.op, value: cond.value };
+    })
+    .filter(Boolean);
+
+  if (leaves.length === 0) return undefined;
+  if (leaves.length === 1) return leaves[0];
+  return state.combinator === "or" ? { or: leaves } : { and: leaves };
+}
+
+async function loadRows() {
+  banner("", "error");
+  try {
+    const body = { page: state.page, limit: state.limit };
+    const filter = currentFilter();
+    if (filter) body.filter = filter;
+    if (state.sort.length) body.sort = state.sort;
+
+    const result = await call(`/tables/${encodeURIComponent(state.table)}/list`, {
+      method: "POST",
+      body,
+    });
+
+    state.rows = result.data;
+    state.page = result.pagination.page;
+    state.pages = result.pagination.pages;
+    state.total = result.pagination.total;
+    renderGrid();
+  } catch (error) {
+    banner(error.message, "error");
+  }
+}
+
+function renderGrid() {
+  const columns = state.meta.columns;
+
+  el("head-row").innerHTML =
+    columns
+      .map((column) => {
+        const active = state.sort.find((s) => s.column === column.name);
+        const arrow = active ? `<span class="dir">${active.direction === "asc" ? "▲" : "▼"}</span>` : "";
+        const key = column.primaryKey ? '<span class="pk">*</span>' : "";
+        return `<th class="sortable" data-column="${escapeHtml(column.name)}" title="${escapeHtml(column.sqlType)}">
+            ${escapeHtml(column.name)}${key} ${arrow}</th>`;
+      })
+      .join("") + (canWrite() ? "<th></th>" : "");
+
+  for (const th of el("head-row").querySelectorAll("th.sortable")) {
+    th.addEventListener("click", () => toggleSort(th.dataset.column));
+  }
+
+  el("body-rows").innerHTML = state.rows
+    .map((row, index) => {
+      const cells = columns
+        .map((column) => {
+          const value = row[column.name];
+          if (value === null || value === undefined) return '<td class="null">null</td>';
+          const numeric = column.kind === "number" || column.kind === "bigint";
+          const text = typeof value === "object" ? JSON.stringify(value) : String(value);
+          return `<td class="${numeric ? "mono" : ""}" title="${escapeHtml(text)}">${escapeHtml(text)}</td>`;
+        })
+        .join("");
+
+      const actions = canWrite()
+        ? `<td class="actions">
+             <button class="btn-sm" data-edit="${index}">Edit</button>
+             <button class="btn-sm btn-danger" data-delete="${index}">Delete</button>
+           </td>`
+        : "";
+
+      return `<tr>${cells}${actions}</tr>`;
+    })
+    .join("");
+
+  for (const button of el("body-rows").querySelectorAll("[data-edit]")) {
+    button.addEventListener("click", () => openEditor(state.rows[Number(button.dataset.edit)]));
+  }
+  for (const button of el("body-rows").querySelectorAll("[data-delete]")) {
+    button.addEventListener("click", () => destroyRow(state.rows[Number(button.dataset.delete)]));
+  }
+
+  el("empty").hidden = state.rows.length > 0;
+  el("page-info").textContent = `Page ${state.page} of ${Math.max(state.pages, 1)} — ${state.total} row${state.total === 1 ? "" : "s"}`;
+  el("btn-prev").disabled = state.page <= 1;
+  el("btn-next").disabled = state.page >= state.pages;
+}
+
+function toggleSort(column) {
+  const existing = state.sort.find((s) => s.column === column);
+  if (!existing) state.sort = [{ column, direction: "asc" }];
+  else if (existing.direction === "asc") state.sort = [{ column, direction: "desc" }];
+  else state.sort = [];
+  loadRows();
+}
+
+function renderConds() {
+  const columns = state.meta?.columns ?? [];
+
+  el("conds").innerHTML = state.conds
+    .map((cond, index) => {
+      const info = opInfo(cond.op);
+      const columnOptions = columns
+        .map((c) => `<option value="${escapeHtml(c.name)}" ${c.name === cond.column ? "selected" : ""}>${escapeHtml(c.name)}</option>`)
+        .join("");
+      const opOptions = OPS
+        .map((o) => `<option value="${o.op}" ${o.op === cond.op ? "selected" : ""}>${escapeHtml(o.label)}</option>`)
+        .join("");
+
+      let inputs = "";
+      if (info.arity === 2) {
+        inputs = `<input class="grow" data-value="${index}" value="${escapeHtml(cond.value)}" placeholder="min">
+                  <input class="grow" data-value2="${index}" value="${escapeHtml(cond.value2 ?? "")}" placeholder="max">`;
+      } else if (info.arity !== 0) {
+        const placeholder = info.arity === "list" ? "a, b, c" : "value";
+        inputs = `<input class="grow" data-value="${index}" value="${escapeHtml(cond.value)}" placeholder="${placeholder}">`;
+      }
+
+      return `<div class="cond">
+          <select data-column="${index}">${columnOptions}</select>
+          <select data-op="${index}">${opOptions}</select>
+          ${inputs}
+          <button class="btn-sm" data-remove="${index}">Remove</button>
+        </div>`;
+    })
+    .join("");
+
+  const conds = el("conds");
+  const update = (selector, key, rerender) => {
+    for (const input of conds.querySelectorAll(selector)) {
+      const index = Number(input.dataset[key === "value2" ? "value2" : key]);
+      const handler = () => {
+        state.conds[index][key] = input.value;
+        if (rerender) renderConds();
+      };
+      input.addEventListener(rerender ? "change" : "input", handler);
+    }
+  };
+
+  update("[data-column]", "column", false);
+  update("[data-op]", "op", true);
+  update("[data-value]", "value", false);
+  update("[data-value2]", "value2", false);
+
+  for (const button of conds.querySelectorAll("[data-remove]")) {
+    button.addEventListener("click", () => {
+      state.conds.splice(Number(button.dataset.remove), 1);
+      renderConds();
+    });
+  }
+}
+
+function pkOf(row) {
+  const pk = {};
+  for (const name of state.meta.primaryKey) pk[name] = row[name];
+  return pk;
+}
+
+/** Build one form field from a column's metadata. */
+function fieldFor(column, value, isNew) {
+  const editable = column.writable && (isNew || !column.primaryKey);
+  const disabled = editable ? "" : "disabled";
+  const id = `f-${column.name}`;
+  const raw = value === null || value === undefined ? "" : value;
+
+  let control;
+  if (column.enumValues) {
+    const options = ["", ...column.enumValues]
+      .map((v) => `<option value="${escapeHtml(v)}" ${String(raw) === v ? "selected" : ""}>${escapeHtml(v || "—")}</option>`)
+      .join("");
+    control = `<select id="${id}" ${disabled}>${options}</select>`;
+  } else if (column.kind === "boolean") {
+    const options = [["", "—"], ["true", "true"], ["false", "false"]]
+      .map(([v, label]) => `<option value="${v}" ${String(raw) === v ? "selected" : ""}>${label}</option>`)
+      .join("");
+    control = `<select id="${id}" ${disabled}>${options}</select>`;
+  } else if (column.kind === "json") {
+    const text = typeof raw === "object" ? JSON.stringify(raw, null, 2) : String(raw);
+    control = `<textarea id="${id}" ${disabled}>${escapeHtml(text)}</textarea>`;
+  } else if (column.kind === "date") {
+    // datetime-local wants `YYYY-MM-DDTHH:mm`, which is what an ISO string yields
+    // once the seconds and zone are trimmed.
+    const local = raw ? String(new Date(raw).toISOString()).slice(0, 16) : "";
+    control = `<input id="${id}" type="datetime-local" value="${escapeHtml(local)}" ${disabled}>`;
+  } else {
+    const type = column.kind === "number" || column.kind === "bigint" ? "number" : "text";
+    const step = column.kind === "number" ? ' step="any"' : "";
+    control = `<input id="${id}" type="${type}"${step} value="${escapeHtml(raw)}" ${disabled}>`;
+  }
+
+  const notes = [column.sqlType];
+  if (column.primaryKey) notes.push("primary key");
+  if (column.unique) notes.push("unique");
+  if (column.hasDefault) notes.push("has default");
+  if (column.references) notes.push(`→ ${column.references.table}.${column.references.column}`);
+  if (!column.writable) notes.push("read-only");
+
+  const nullToggle = column.nullable && editable
+    ? `<label class="field-null"><input type="checkbox" id="${id}-null" ${raw === "" ? "checked" : ""}> set null</label>`
+    : "";
+
+  return `<div class="field" data-field="${escapeHtml(column.name)}">
+      <label for="${id}">${escapeHtml(column.name)}${column.nullable ? "" : ' <span class="req">*</span>'}
+        <span class="tag">${escapeHtml(notes.join(" · "))}</span></label>
+      ${control}
+      ${nullToggle}
+    </div>`;
+}
+
+let editorTarget = null;
+
+function openEditor(row) {
+  const isNew = !row;
+  editorTarget = isNew ? null : pkOf(row);
+
+  el("editor-title").textContent = isNew ? `New row in ${state.table}` : `Edit row in ${state.table}`;
+  el("editor-sub").textContent = isNew
+    ? "Blank fields fall back to database defaults."
+    : Object.entries(editorTarget).map(([k, v]) => `${k}=${v}`).join(", ");
+
+  el("editor-body").innerHTML = state.meta.columns
+    .map((column) => fieldFor(column, row ? row[column.name] : null, isNew))
+    .join("");
+
+  el("editor").showModal();
+}
+
+/** Read the form back into a `values` payload, skipping fields the user left alone. */
+function collectValues(isNew) {
+  const values = {};
+
+  for (const column of state.meta.columns) {
+    if (!column.writable) continue;
+    if (!isNew && column.primaryKey) continue;
+
+    const input = el(`f-${column.name}`);
+    if (!input || input.disabled) continue;
+
+    const nullBox = el(`f-${column.name}-null`);
+    if (nullBox?.checked) {
+      values[column.name] = null;
+      continue;
+    }
+
+    const raw = input.value;
+    // On create, an empty field means "let the database decide"; sending "" would
+    // override a default with an empty string.
+    if (raw === "" && isNew) continue;
+    if (raw === "" && column.nullable) { values[column.name] = null; continue; }
+
+    values[column.name] = raw;
+  }
+
+  return values;
+}
+
+async function saveEditor() {
+  const isNew = editorTarget === null;
+  const values = collectValues(isNew);
+  const path = `/tables/${encodeURIComponent(state.table)}/record`;
+
+  try {
+    if (isNew) {
+      await call(path, { method: "PUT", body: { values } });
+    } else {
+      await call(path, { method: "POST", body: { pk: editorTarget, values } });
+    }
+    el("editor").close();
+    banner(isNew ? "Row created." : "Row updated.", "success");
+    await refreshCounts();
+    await loadRows();
+  } catch (error) {
+    banner(error.message, "error");
+  }
+}
+
+async function destroyRow(row) {
+  const pk = pkOf(row);
+  const label = Object.entries(pk).map(([k, v]) => `${k}=${v}`).join(", ");
+  if (!confirm(`Delete row ${label} from ${state.table}? This cannot be undone.`)) return;
+
+  try {
+    await call(`/tables/${encodeURIComponent(state.table)}/record`, {
+      method: "DELETE",
+      body: { pk },
+    });
+    banner("Row deleted.", "success");
+    await refreshCounts();
+    await loadRows();
+  } catch (error) {
+    banner(error.message, "error");
+  }
+}
+
+async function refreshCounts() {
+  try {
+    const { tables } = await call("/tables");
+    state.tables = tables;
+    renderTableList();
+  } catch { /* counts are cosmetic; a failure here shouldn't mask the real result */ }
+}
+
+el("btn-reload").addEventListener("click", () => loadRows());
+el("btn-new").addEventListener("click", () => openEditor(null));
+el("btn-apply").addEventListener("click", () => { state.page = 1; loadRows(); });
+el("btn-add-cond").addEventListener("click", () => {
+  const first = state.meta?.columns[0];
+  if (!first) return;
+  state.conds.push({ column: first.name, op: "eq", value: "", value2: "" });
+  renderConds();
+});
+el("btn-clear-cond").addEventListener("click", () => {
+  state.conds = [];
+  renderConds();
+  state.page = 1;
+  loadRows();
+});
+el("combinator").addEventListener("change", (event) => { state.combinator = event.target.value; });
+el("btn-prev").addEventListener("click", () => { state.page = Math.max(1, state.page - 1); loadRows(); });
+el("btn-next").addEventListener("click", () => { state.page = Math.min(state.pages, state.page + 1); loadRows(); });
+el("limit").addEventListener("change", (event) => {
+  state.limit = Number(event.target.value);
+  state.page = 1;
+  loadRows();
+});
+el("editor-cancel").addEventListener("click", () => el("editor").close());
+el("editor-save").addEventListener("click", () => saveEditor());
+el("limit").value = String(state.limit);
+
+boot();
+</script>
+</body>
+</html>
