@@ -109,6 +109,7 @@ export const PLUGINS_SIDEBAR: SidebarGroup[] = [
       { text: "Sentry", link: "/plugins/sentry" },
       { text: "Resque Admin", link: "/plugins/resque-admin" },
       { text: "CSRF", link: "/plugins/csrf" },
+      { text: "Admin", link: "/plugins/admin" },
     ],
   },
 ];
