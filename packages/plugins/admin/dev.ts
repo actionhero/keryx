@@ -2,8 +2,8 @@
 
 // Dev-mode overrides — the .env file is tuned for tests (port 0, silent logs).
 // These must be set before keryx/config is imported, so we use dynamic import().
-process.env.WEB_SERVER_PORT = "8080";
-process.env.LOG_LEVEL = "info";
+process.env.WEB_SERVER_PORT ??= "8080";
+process.env.LOG_LEVEL ??= "info";
 process.env.PROCESS_NAME = "admin-dev";
 process.env.TASK_PROCESSORS = "0";
 

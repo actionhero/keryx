@@ -1,9 +1,25 @@
+import { fileURLToPath } from "node:url";
 import { type Action, config, ErrorType, HTTP_METHOD, TypedError } from "keryx";
 import { z } from "zod";
 import type { AdminActionOptions } from "./options";
 
-const dashboardPath = new URL("../templates/admin.html", import.meta.url)
-  .pathname;
+/**
+ * Resolve the dashboard template's location on disk.
+ *
+ * Goes through `fileURLToPath` rather than reading `URL.pathname`, which stays
+ * percent-encoded: installed under a directory containing a space, `pathname` yields
+ * `.../my%20apps/...` and `Bun.file` looks for a directory literally named `my%20apps`.
+ * The dashboard would 500 on a path that is perfectly legal on every OS — and on macOS
+ * and Windows, spaces in paths are ordinary.
+ *
+ * @param base - Module URL to resolve against. Only overridden by tests.
+ * @returns Absolute, decoded filesystem path to `templates/admin.html`.
+ */
+export function templatePath(base: string = import.meta.url) {
+  return fileURLToPath(new URL("../templates/admin.html", base));
+}
+
+const dashboardPath = templatePath();
 
 /**
  * Build the `admin:ui` action, which serves the dashboard itself.

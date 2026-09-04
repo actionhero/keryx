@@ -218,9 +218,18 @@ const state = {
   sort: [],
   combinator: "and",
   conds: [],
+  /**
+   * Bumped by every navigation that fetches. Responses check it before touching state,
+   * so a slow one can't overwrite what a later click already loaded — `fetch` resolves
+   * in whatever order the network decides, not the order the user clicked.
+   */
+  generation: 0,
 };
 
 const el = (id) => document.getElementById(id);
+
+/** True when a newer navigation has started since this request was issued. */
+const isStale = (generation) => generation !== state.generation;
 
 /** Operators, and whether each one needs a value (and what shape). */
 const OPS = [
@@ -357,18 +366,29 @@ function renderTableList() {
 const canWrite = () => state.role === "full" && state.meta?.writable;
 
 async function selectTable(name) {
+  const generation = ++state.generation;
+
   state.table = name;
   state.page = 1;
   state.sort = [];
   state.conds = [];
   renderTableList();
 
+  let meta;
   try {
-    state.meta = await call(`/tables/${encodeURIComponent(name)}/schema`);
+    meta = await call(`/tables/${encodeURIComponent(name)}/schema`);
   } catch (error) {
+    if (isStale(generation)) return;
     banner(error.message, "error");
     return;
   }
+
+  // Clicking a second table before this schema arrived means this response is for a
+  // table nobody is looking at. Applying it would pair one table's columns with
+  // another's rows — and any edit made from that grid would submit against the wrong
+  // column metadata.
+  if (isStale(generation)) return;
+  state.meta = meta;
 
   el("content").hidden = false;
   el("table-title").textContent = name;
@@ -404,7 +424,9 @@ function currentFilter() {
 }
 
 async function loadRows() {
+  const generation = ++state.generation;
   banner("", "error");
+
   try {
     const body = { page: state.page, limit: state.limit };
     const filter = currentFilter();
@@ -416,12 +438,16 @@ async function loadRows() {
       body,
     });
 
+    // Sorting or paging again before this landed makes it the wrong page to show.
+    if (isStale(generation)) return;
+
     state.rows = result.data;
     state.page = result.pagination.page;
     state.pages = result.pagination.pages;
     state.total = result.pagination.total;
     renderGrid();
   } catch (error) {
+    if (isStale(generation)) return;
     banner(error.message, "error");
   }
 }

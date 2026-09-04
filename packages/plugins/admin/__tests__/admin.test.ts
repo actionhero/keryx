@@ -6,6 +6,10 @@ import {
   expect,
   test,
 } from "bun:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { sql } from "drizzle-orm";
 import { type ActionMiddleware, api, config } from "keryx";
 import { createAdminListAction } from "../actions/list";
@@ -19,7 +23,7 @@ import {
   createAdminTableSchemaAction,
   createAdminTablesAction,
 } from "../actions/tables";
-import { createAdminUIAction } from "../actions/ui";
+import { createAdminUIAction, templatePath } from "../actions/ui";
 import { adminPlugin } from "../index";
 import type { AdminColumnMeta, AdminTableMeta } from "../util/introspect";
 import { requireTable } from "../util/registry";
@@ -1096,6 +1100,34 @@ describe("admin plugin", () => {
       currentRole = null;
 
       expect((await fetch(`${serverUrl()}/api/admin`)).status).toBe(200);
+    });
+
+    test("resolves its template even when the install path contains a space", async () => {
+      // `new URL(...).pathname` leaves the space percent-encoded, so `Bun.file` would
+      // look for a directory literally named `keryx admin%20`. Spaces in install paths
+      // are ordinary on macOS and Windows, so this has to work.
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "keryx admin "));
+      fs.mkdirSync(path.join(root, "templates"));
+      fs.writeFileSync(
+        path.join(root, "templates", "admin.html"),
+        "<html>stand-in</html>",
+      );
+
+      try {
+        expect(root).toContain(" ");
+        const resolved = templatePath(
+          `${pathToFileURL(path.join(root, "actions")).href}/ui.ts`,
+        );
+
+        expect(resolved).not.toContain("%20");
+        expect(await Bun.file(resolved).exists()).toBe(true);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    test("resolves the real template that ships with the package", async () => {
+      expect(await Bun.file(templatePath()).exists()).toBe(true);
     });
 
     test("the inline script parses", async () => {
