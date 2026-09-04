@@ -3,8 +3,8 @@ import type { PgColumn } from "drizzle-orm/pg-core";
 import { ErrorType, TypedError } from "keryx";
 import { coerceValue } from "./coerce";
 import {
+  addressableKeyColumns,
   type ExposedTable,
-  primaryKeyColumns,
   readableColumns,
   requireColumn,
   writableColumns,
@@ -29,7 +29,7 @@ export function primaryKeyWhere(
   exposed: ExposedTable,
   pk: Record<string, unknown>,
 ): SQL {
-  const keyColumns = primaryKeyColumns(exposed);
+  const keyColumns = addressableKeyColumns(exposed);
 
   if (keyColumns.length === 0) {
     throw new TypedError({

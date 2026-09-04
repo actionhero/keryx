@@ -1,8 +1,8 @@
 import { getTableName } from "drizzle-orm";
 import { getTableConfig, type PgColumn } from "drizzle-orm/pg-core";
 import {
+  addressableKeyColumns,
   type ExposedTable,
-  primaryKeyColumns,
   readableColumns,
   writableColumns,
 } from "./registry";
@@ -101,7 +101,9 @@ export function describeTable(exposed: ExposedTable): AdminTableMeta {
     exposed.table,
   );
 
-  const primaryKey = primaryKeyColumns(exposed).map((c) => c.name);
+  // The addressable key, not the declared one: a key a caller can't see is a key it
+  // can't send back, so reporting it would advertise write actions that must fail.
+  const primaryKey = addressableKeyColumns(exposed).map((c) => c.name);
   const writableNames = new Set(writableColumns(exposed).map((c) => c.name));
 
   const singleColumnUnique = new Set<string>();

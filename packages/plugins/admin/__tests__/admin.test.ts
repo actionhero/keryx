@@ -98,6 +98,7 @@ describe("admin plugin", () => {
         columns: {
           admin_widgets: { readOnly: ["created_at"] },
           admin_gadgets: { hidden: ["note"] },
+          admin_hidden_key: { hidden: ["id"] },
         },
         tables: { exclude: ["admin_excluded"] },
       }),
@@ -253,6 +254,7 @@ describe("admin plugin", () => {
       const byName = new Map(tables.map((t) => [t.name, t]));
       expect([...byName.keys()]).toEqual([
         "admin_gadgets",
+        "admin_hidden_key",
         "admin_keyless",
         "admin_memberships",
         "admin_widgets",
@@ -329,6 +331,77 @@ describe("admin plugin", () => {
       const fk = gadgets.columns.find((c) => c.name === "widget_id");
 
       expect(fk?.references).toEqual({ table: "admin_widgets", column: "id" });
+    });
+
+    describe("a table whose primary key is hidden", () => {
+      test("reports no primary key and no write capability", async () => {
+        const meta = await ok<AdminTableMeta>(
+          "/tables/admin_hidden_key/schema",
+        );
+
+        // A key the caller can't see is a key it can't send back, so advertising
+        // either the key or write support would only promise failures.
+        expect(meta.primaryKey).toEqual([]);
+        expect(meta.writable).toBe(false);
+        expect(meta.columns.map((c) => c.name)).toEqual(["label"]);
+      });
+
+      test("is reported unwritable in the table list too", async () => {
+        const { tables } = await ok<{
+          tables: { name: string; writable: boolean }[];
+        }>("/tables");
+
+        expect(
+          tables.find((t) => t.name === "admin_hidden_key")?.writable,
+        ).toBe(false);
+      });
+
+      test("refuses row-addressed reads and writes with an accurate reason", async () => {
+        for (const attempt of [
+          await request("/tables/admin_hidden_key/show", {
+            method: "POST",
+            body: { pk: { id: 1 } },
+          }),
+          await request("/tables/admin_hidden_key/record", {
+            method: "POST",
+            body: { pk: { id: 1 }, values: { label: "x" } },
+          }),
+          await request("/tables/admin_hidden_key/record", {
+            method: "DELETE",
+            body: { pk: { id: 1 } },
+          }),
+        ]) {
+          expect(errorOf(attempt.body).message).toContain("no primary key");
+        }
+      });
+
+      test("can still be browsed", async () => {
+        await api.db.db.execute(
+          sql.raw(
+            `INSERT INTO "admin_hidden_key" ("label") VALUES ('visible')`,
+          ),
+        );
+
+        const result = await ok<{ data: Record<string, unknown>[] }>(
+          "/tables/admin_hidden_key/list",
+          { method: "POST", body: {} },
+        );
+
+        expect(result.data).toEqual([{ label: "visible" }]);
+      });
+
+      test("still sorts by the hidden key for stable pagination", () => {
+        // Ordering by a hidden column discloses nothing — ORDER BY doesn't return the
+        // values it sorts on — so the key is still the best available tiebreaker.
+        const exposed = requireTable("admin_hidden_key");
+        const sql = api.db.db
+          .select()
+          .from(exposed.table)
+          .orderBy(...buildOrderBy(exposed))
+          .toSQL().sql;
+
+        expect(sql).toContain(`order by "admin_hidden_key"."id" asc`);
+      });
     });
 
     test("reports composite primary keys", async () => {

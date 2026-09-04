@@ -146,8 +146,14 @@ export function writableColumns(exposed: ExposedTable) {
 }
 
 /**
- * The columns that identify a single row: an explicit composite primary key when the
- * table declares one, otherwise whichever columns are marked `primary`.
+ * The primary key as the schema declares it: an explicit composite key when the table
+ * has one, otherwise whichever columns are marked `primary`.
+ *
+ * Ignores the `hidden` rules on purpose, because this is a statement about the table
+ * rather than about what a caller may see. Use it where the key is a means and never
+ * surfaces — a deterministic `ORDER BY`, say, which reveals nothing about the values it
+ * sorts on. Anything that discloses the key or addresses a row wants
+ * {@link addressableKeyColumns} instead.
  *
  * @param exposed - Table resolved by {@link requireTable}.
  * @returns Primary key columns, empty when the table has none.
@@ -158,4 +164,26 @@ export function primaryKeyColumns(exposed: ExposedTable) {
   if (primaryKeys.length > 0) return primaryKeys[0].columns;
 
   return columns.filter((c) => c.primary);
+}
+
+/**
+ * The primary key columns a caller may actually use to address a row.
+ *
+ * Empty when any part of the key is hidden. Hiding a primary key is unusual, but the
+ * alternative is incoherent: the key wouldn't appear in returned rows, so a caller
+ * couldn't supply it, yet the table would still advertise itself as writable and every
+ * row action would fail on a key value nobody could have known. Reporting no
+ * addressable key makes such a table browse-only, and keeps the hidden column
+ * indistinguishable from one that doesn't exist.
+ *
+ * @param exposed - Table resolved by {@link requireTable}.
+ * @returns Addressable primary key columns, empty when there is no usable key.
+ */
+export function addressableKeyColumns(exposed: ExposedTable) {
+  const hidden = exposed.rules.hidden ?? [];
+  const keyColumns = primaryKeyColumns(exposed);
+
+  if (keyColumns.some((c) => hidden.includes(c.name))) return [];
+
+  return keyColumns;
 }

@@ -147,6 +147,8 @@ Add a constraint in a migration and the dashboard enforces it immediately, with 
 
 ::: tip
 Hiding a column that is `NOT NULL` with no default makes the table un-insertable through the dashboard — there's no way to supply the required value. That's usually what you want for something like `password_hash`: browse and edit users here, create them through your signup action.
+
+Hiding a **primary key** goes further and makes the whole table read-only. A key the caller can't see is a key it can't send back, so the table reports no primary key at all rather than offering edit and delete actions that could only fail.
 :::
 
 ## Actions

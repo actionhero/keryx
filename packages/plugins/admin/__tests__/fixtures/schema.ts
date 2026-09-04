@@ -70,11 +70,22 @@ export const adminKeyless = pgTable("admin_keyless", {
   value: text("value").notNull(),
 });
 
+/**
+ * Has a primary key, but config hides it. An odd thing to do, yet it has to behave
+ * coherently: the key can't be disclosed and rows can't be addressed, so the table is
+ * browse-only.
+ */
+export const adminHiddenKey = pgTable("admin_hidden_key", {
+  id: serial("id").primaryKey(),
+  label: text("label").notNull(),
+});
+
 export const fixtureSchema = {
   adminWidgets,
   adminGadgets,
   adminMemberships,
   adminKeyless,
+  adminHiddenKey,
 };
 
 /**
@@ -117,6 +128,11 @@ export async function createFixtureTables() {
     );
 
     CREATE TABLE IF NOT EXISTS "admin_keyless" ("value" text NOT NULL);
+
+    CREATE TABLE IF NOT EXISTS "admin_hidden_key" (
+      "id" serial PRIMARY KEY,
+      "label" text NOT NULL
+    );
   `),
   );
 
@@ -130,6 +146,7 @@ export async function dropFixtureTables() {
     DROP TABLE IF EXISTS "admin_gadgets";
     DROP TABLE IF EXISTS "admin_memberships";
     DROP TABLE IF EXISTS "admin_keyless";
+    DROP TABLE IF EXISTS "admin_hidden_key";
     DROP TABLE IF EXISTS "admin_widgets";
   `),
   );
@@ -141,7 +158,7 @@ export async function dropFixtureTables() {
 export async function truncateFixtures() {
   await api.db.db.execute(
     sql.raw(
-      `TRUNCATE TABLE "admin_gadgets", "admin_memberships", "admin_keyless", "admin_widgets" RESTART IDENTITY CASCADE`,
+      `TRUNCATE TABLE "admin_gadgets", "admin_memberships", "admin_keyless", "admin_hidden_key", "admin_widgets" RESTART IDENTITY CASCADE`,
     ),
   );
 }
