@@ -2,9 +2,10 @@ import fs from "node:fs";
 import { unlink } from "node:fs/promises";
 import { $, Glob } from "bun";
 import { type Config as DrizzleMigrateConfig } from "drizzle-kit";
-import { DefaultLogger, type LogWriter, sql } from "drizzle-orm";
+import { DefaultLogger, is, type LogWriter, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { PgTable } from "drizzle-orm/pg-core";
 import path from "path";
 import { Pool } from "pg";
 import { api, logger } from "../api";
@@ -15,6 +16,7 @@ import {
   formatConnectionStringForLogging,
   throwConnectionError,
 } from "../util/connectionString";
+import { globModuleExports } from "../util/glob";
 
 const namespace = "db";
 
@@ -41,6 +43,29 @@ async function hasSchemaFiles(schemaDir: string) {
   return false;
 }
 
+/**
+ * Build a registry of the project's Drizzle tables so the framework and plugins can
+ * enumerate the database at runtime. Drizzle itself only ever sees the tables an action
+ * imports directly, which leaves generic tooling — an admin dashboard, a schema
+ * explorer — with nothing to introspect.
+ *
+ * Every `.ts` file under the directory is imported and its exports filtered down to
+ * Drizzle tables. Keys are the *export* names (`users`), which may differ from the SQL
+ * table names (`"users"`); use `getTableName()` when the SQL name is what you need.
+ *
+ * @param schemaDir - Absolute path to the project's `schema/` directory. A missing
+ * directory yields an empty registry, so `schema/` remains an optional convention and
+ * schema-less projects are unaffected.
+ * @returns Map of export name to Drizzle table, ready to hand to `db.select().from()`
+ * or `getTableConfig()`.
+ * @throws {TypedError} With `ErrorType.SERVER_INITIALIZATION` if a schema file fails to import.
+ */
+export async function loadSchema(schemaDir: string) {
+  return globModuleExports<PgTable>(schemaDir, (value): value is PgTable =>
+    is(value, PgTable),
+  );
+}
+
 declare module "keryx" {
   export interface API {
     [namespace]: Awaited<ReturnType<DB["initialize"]>>;
@@ -53,6 +78,10 @@ export class DB extends Initializer {
   }
 
   async initialize() {
+    const schema = await loadSchema(path.join(api.rootDir, SCHEMA_DIR));
+    const tableCount = Object.keys(schema).length;
+    logger.debug(`loaded ${tableCount} table(s) from ${SCHEMA_DIR}/`);
+
     const dbContainer = {} as {
       db: ReturnType<typeof drizzle>;
       pool: InstanceType<typeof Pool>;
@@ -61,6 +90,7 @@ export class DB extends Initializer {
       {
         generateMigrations: this.generateMigrations,
         clearDatabase: this.clearDatabase,
+        schema,
       },
       dbContainer,
     );
@@ -79,6 +109,7 @@ export class DB extends Initializer {
     }
 
     api.db.db = drizzle(api.db.pool, {
+      schema: api.db.schema,
       logger: new DefaultLogger({ writer: new DrizzleLogger() }),
     });
 

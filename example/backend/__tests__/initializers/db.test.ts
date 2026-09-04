@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { sql } from "drizzle-orm";
+import { getTableName, sql } from "drizzle-orm";
+import { getTableConfig } from "drizzle-orm/pg-core";
 import { api } from "keryx";
 import { users } from "../../schema/users";
 import { HOOK_TIMEOUT } from "./../setup";
@@ -35,6 +36,30 @@ describe("db initializer", () => {
   test("can query tables", async () => {
     const result = await api.db.db.select().from(users);
     expect(Array.isArray(result)).toBe(true);
+  });
+
+  describe("schema registry", () => {
+    test("discovers every table in schema/", () => {
+      expect(Object.keys(api.db.schema).sort()).toEqual(["messages", "users"]);
+    });
+
+    test("registers the same table objects the app imports directly", () => {
+      expect(api.db.schema.users).toBe(users);
+    });
+
+    test("registered tables carry introspectable column metadata", () => {
+      const { columns } = getTableConfig(api.db.schema.users);
+      const email = columns.find((c) => c.name === "email");
+
+      expect(getTableName(api.db.schema.users)).toBe("users");
+      expect(email?.getSQLType()).toBe("text");
+      expect(email?.notNull).toBe(true);
+    });
+
+    test("registered tables are queryable without importing the schema file", async () => {
+      const result = await api.db.db.select().from(api.db.schema.messages);
+      expect(Array.isArray(result)).toBe(true);
+    });
   });
 
   test("clearDatabase truncates all tables", async () => {
