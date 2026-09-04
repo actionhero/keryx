@@ -107,12 +107,13 @@ Add a constraint in a migration and the dashboard enforces it immediately, with 
 | Config | Env | Default | Purpose |
 | --- | --- | --- | --- |
 | `admin.enabled` | `ADMIN_ENABLED` | `true` | When false, every admin action responds 404 |
+| `admin.serveUi` | `ADMIN_SERVE_UI` | `true` | When false, the built-in HTML dashboard is not served. JSON actions stay available |
 | `admin.mcp` | `ADMIN_MCP_ENABLED` | `false` | Exposes all data actions as MCP tools, as one group |
 | `admin.route` | `ADMIN_ROUTE` | `/admin` | Route prefix for the dashboard and its API |
 | `admin.defaultLimit` | `ADMIN_DEFAULT_LIMIT` | `25` | Rows per page when unspecified |
 | `admin.maxLimit` | `ADMIN_MAX_LIMIT` | `500` | Ceiling on rows per page |
 
-Plus the registration options: `tables` (include/exclude lists), `columns` (per-table `hidden` and `readOnly`), `extraMiddleware` (appended to every data action, after the role gate), and `writeMiddleware` (appended to create, update, and delete only).
+Plus the registration options: `tables` (include/exclude lists), `columns` (per-table `hidden` and `readOnly`), `extraMiddleware` (appended to every data action, after the role gate), `writeMiddleware` (appended to create, update, and delete only), and `serveUi` (omit the built-in HTML when you ship your own UI).
 
 ### MCP
 
@@ -138,6 +139,8 @@ Plus the registration options: `tables` (include/exclude lists), `columns` (per-
 One self-contained HTML file with inline CSS and JavaScript, served by `admin:ui`. No bundler, no build step, no `dist/`, and no CDN at runtime — the package ships raw TypeScript plus one `.html` file, so it behaves identically installed from npm or linked from a workspace. Every byte of data arrives through the same JSON actions an MCP client or `curl` would use.
 
 The `/admin` route itself is unauthenticated because it returns no data; an anonymous visitor gets a "not authorized" prompt, not a database.
+
+Set `serveUi: false` on `adminPlugin()` (or `ADMIN_SERVE_UI=false`) to skip that HTML action and keep the JSON APIs — the route is then free for a UI you build yourself.
 
 If your app uses [`@keryxjs/csrf`](https://keryxjs.com/plugins/csrf), pass `CsrfMiddleware` via `writeMiddleware` to protect the writes. Not `extraMiddleware` — guarding reads would force the token into a GET query string, and reads change no state. The write actions declare an optional `csrfToken` input so the token survives Zod's unknown-key stripping, and the UI fetches and sends it automatically.
 

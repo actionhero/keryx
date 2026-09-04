@@ -59,12 +59,14 @@ The dashboard is now at `/api/admin`.
 | `columns` | Per-table `{ hidden, readOnly }` column rules, keyed by SQL table name |
 | `extraMiddleware` | Middleware appended to every data action, after the role gate |
 | `writeMiddleware` | Middleware appended to the create, update, and delete actions only |
+| `serveUi` | Serve the built-in HTML dashboard. Set `false` to keep the JSON APIs and skip the HTML action, so you can ship your own UI on that route |
 
 ### Config and environment
 
 | Config | Env | Default | Purpose |
 |--------|-----|---------|---------|
 | `admin.enabled` | `ADMIN_ENABLED` | `true` | When false, every admin action responds 404 |
+| `admin.serveUi` | `ADMIN_SERVE_UI` | `true` | When false, the built-in HTML dashboard is not served. JSON actions stay available |
 | `admin.mcp` | `ADMIN_MCP_ENABLED` | `false` | Exposes all data actions as MCP tools, as one group |
 | `admin.route` | `ADMIN_ROUTE` | `/admin` | Route prefix for the dashboard and its API |
 | `admin.defaultLimit` | `ADMIN_DEFAULT_LIMIT` | `25` | Rows per page when the caller doesn't ask |
@@ -197,6 +199,19 @@ The client is deliberately thin: it fetches table metadata from `admin:table:sch
 
 The `/admin` route is unauthenticated because it returns no data. Every byte of content arrives through the JSON actions, which are gated. An anonymous visitor gets a "not authorized" prompt, not a database.
 
+### Bring your own UI
+
+The JSON actions are the product; the HTML file is one client of them. If you'd rather build that client yourself — a page in your Vite app, a different layout, extra screens — turn the built-in shell off. Prefer the factory option so the HTML action is never registered and `GET /admin` stays free for your own action:
+
+```ts
+adminPlugin({
+  resolveRole,
+  serveUi: false,
+});
+```
+
+`ADMIN_SERVE_UI=false` does the same at registration. Setting `config.admin.serveUi = false` after boot 404s the shell if it was already registered, but doesn't unbind the route — use the factory option when you want to occupy it yourself.
+
 ### Composing with CSRF
 
 The dashboard can delete any row, so its writes are worth protecting. If your app uses [`@keryxjs/csrf`](/plugins/csrf), pass `CsrfMiddleware` through `writeMiddleware`:
@@ -234,5 +249,5 @@ This grants every visitor an admin role with no authentication whatsoever. It's 
 - **`resolveRole` is the whole perimeter.** It's required for a reason. Every data action calls it on every request.
 - **Hide your secrets.** Columns holding password hashes, API keys, or tokens belong in `hidden`. Hidden columns are absent from listings, records, schema output, filters, and writes — a caller can't read them or tell them apart from columns that don't exist.
 - **Narrow the surface.** `tables.include` is the tightest setting: an allowlist of exactly the tables the dashboard may touch. Anything not in your `schema/` directory is already invisible, which keeps migration bookkeeping tables out of reach.
-- **Turn it off where it doesn't belong.** `ADMIN_ENABLED=false` makes every admin action respond 404, which is a better answer than 403 for an endpoint you'd rather nobody knew about.
+- **Turn it off where it doesn't belong.** `ADMIN_ENABLED=false` makes every admin action respond 404, which is a better answer than 403 for an endpoint you'd rather nobody knew about. `serveUi: false` is the narrower switch: JSON stays, HTML goes.
 - **Think twice before enabling MCP.** `ADMIN_MCP_ENABLED=true` hands an agent generic read and write access to every exposed table. Combine it with `tables.include` and `read-only` roles.

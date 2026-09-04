@@ -94,6 +94,9 @@ async function listWidgets(body: Record<string, unknown> = {}) {
 
 const names = (rows: Record<string, unknown>[]) => rows.map((r) => r.name);
 
+const pluginActionNames = (plugin: ReturnType<typeof adminPlugin>): string[] =>
+  (plugin.actions ?? []).map((ActionClass) => new ActionClass().name);
+
 describe("admin plugin", () => {
   beforeAll(async () => {
     config.plugins.push(
@@ -176,6 +179,23 @@ describe("admin plugin", () => {
       // The refusal is real, not cosmetic.
       currentRole = "full";
       expect(names((await listWidgets()).data)).toEqual(["locked"]);
+    });
+
+    test("omits the HTML action when serveUi is false, keeping the JSON APIs", () => {
+      const resolveRole = () => "full" as const;
+      expect(pluginActionNames(adminPlugin({ resolveRole }))).toContain(
+        "admin:ui",
+      );
+
+      const withoutUi = adminPlugin({ resolveRole, serveUi: false });
+      const registered = pluginActionNames(withoutUi);
+      expect(registered).not.toContain("admin:ui");
+      expect(registered).toContain("admin:tables");
+      expect(registered).toContain("admin:record:create");
+      expect(
+        (withoutUi.configDefaults as { admin: { serveUi: boolean } }).admin
+          .serveUi,
+      ).toBe(false);
     });
 
     test("responds 404 for every action when the dashboard is disabled", async () => {
@@ -1100,6 +1120,16 @@ describe("admin plugin", () => {
       currentRole = null;
 
       expect((await fetch(`${serverUrl()}/api/admin`)).status).toBe(200);
+    });
+
+    test("responds 404 for the UI when serveUi is false, leaving JSON APIs up", async () => {
+      config.admin.serveUi = false;
+      try {
+        expect((await fetch(`${serverUrl()}/api/admin`)).status).toBe(404);
+        expect((await request("/tables")).status).toBe(200);
+      } finally {
+        config.admin.serveUi = true;
+      }
     });
 
     test("resolves its template even when the install path contains a space", async () => {

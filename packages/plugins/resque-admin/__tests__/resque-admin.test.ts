@@ -1,8 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { api } from "keryx";
-import { config } from "keryx/config";
+import { api, config } from "keryx";
 import { parseRedisInfo } from "../actions/redisInfo";
-import { resqueAdminPlugin } from "../index";
+import { createResqueAdminPlugin, resqueAdminPlugin } from "../index";
 import { safeCompare } from "../middleware/password";
 import { HOOK_TIMEOUT, serverUrl } from "./setup";
 
@@ -11,7 +10,8 @@ const TEST_PASSWORD = "test-resque-admin-pw";
 describe("resque-admin plugin", () => {
   beforeAll(async () => {
     config.plugins.push(resqueAdminPlugin);
-    (config as unknown as { resqueAdmin: { password: string } }).resqueAdmin = {
+    config.resqueAdmin = {
+      ...config.resqueAdmin,
       password: TEST_PASSWORD,
     };
     await api.start();
@@ -49,6 +49,36 @@ describe("resque-admin plugin", () => {
       expect(res.headers.get("content-type")).toContain("text/html");
       const html = await res.text();
       expect(html).toContain("Resque Admin");
+    });
+
+    test("omits the HTML action when serveUi is false, keeping the JSON APIs", () => {
+      const names = (plugin: typeof resqueAdminPlugin) =>
+        (plugin.actions ?? []).map((ActionClass) => new ActionClass().name);
+
+      expect(names(resqueAdminPlugin)).toContain("resque-admin:ui");
+
+      const withoutUi = createResqueAdminPlugin({ serveUi: false });
+      expect(names(withoutUi)).not.toContain("resque-admin:ui");
+      expect(names(withoutUi)).toContain("resque-admin:overview");
+      expect(
+        (withoutUi.configDefaults as { resqueAdmin: { serveUi: boolean } })
+          .resqueAdmin.serveUi,
+      ).toBe(false);
+    });
+
+    test("responds 404 for the UI when serveUi is false, leaving JSON APIs up", async () => {
+      config.resqueAdmin.serveUi = false;
+      try {
+        expect((await fetch(`${serverUrl()}/api/resque-admin`)).status).toBe(
+          404,
+        );
+        const res = await fetch(
+          `${serverUrl()}/api/resque-admin/overview?password=${TEST_PASSWORD}`,
+        );
+        expect(res.status).toBe(200);
+      } finally {
+        config.resqueAdmin.serveUi = true;
+      }
     });
   });
 
