@@ -68,7 +68,7 @@ export type {
 export { buildProgram } from "./util/cli";
 export { deepMerge, deepMergeDefaults, loadFromEnvIfSet } from "./util/config";
 export { getValidTypes } from "./util/generate";
-export { globLoader } from "./util/glob";
+export { globLoader, globModuleExports } from "./util/glob";
 export { type PaginatedResult, paginate } from "./util/pagination";
 export { safeCompare } from "./util/safeCompare";
 export type { JSONSchema } from "./util/swaggerSchemaGenerator";

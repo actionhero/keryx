@@ -1,5 +1,5 @@
 ---
-description: Production patterns for database transactions, RBAC, audit logging, and middleware composition in Keryx apps.
+description: Production patterns for database transactions, schema introspection, RBAC, audit logging, and middleware composition in Keryx apps.
 ---
 
 # Advanced Patterns
@@ -305,6 +305,58 @@ export class CreateUserWithWelcome extends Action {
 ```
 
 `connection.metadata` is preserved across nested `act()` calls (it resets only on the outermost call), so the child action sees the parent's `transaction`, `_txClient`, and any other metadata set by earlier middleware.
+
+## Schema Introspection
+
+Most of the time you import the table you need and get on with it:
+
+```ts
+import { users } from "../schema/users";
+
+const rows = await api.db.db.select().from(users);
+```
+
+That breaks down the moment you write code that doesn't know its tables ahead of time — an admin dashboard, a CSV exporter, a data-retention sweeper. For those, Keryx loads every Drizzle table exported from your `schema/` directory into `api.db.schema`, keyed by export name:
+
+```ts
+Object.keys(api.db.schema); // ["messages", "users"]
+
+api.db.schema.users === users; // the very same table object
+```
+
+Entries are ordinary Drizzle tables, so they go straight into the query builder:
+
+```ts
+const rows = await api.db.db.select().from(api.db.schema.users).limit(10);
+```
+
+Pair the registry with Drizzle's `getTableConfig()` to read a table's real shape — column types, nullability, defaults, unique indexes, and foreign keys:
+
+```ts
+import { getTableName } from "drizzle-orm";
+import { getTableConfig } from "drizzle-orm/pg-core";
+
+for (const [exportName, table] of Object.entries(api.db.schema)) {
+  const { columns, indexes, foreignKeys } = getTableConfig(table);
+
+  console.log(`${exportName} -> ${getTableName(table)}`);
+  for (const column of columns) {
+    console.log(`  ${column.name}: ${column.getSQLType()}`, {
+      nullable: !column.notNull,
+      primaryKey: column.primary,
+      hasDefault: column.hasDefault,
+    });
+  }
+  console.log(`  ${indexes.length} indexes, ${foreignKeys.length} foreign keys`);
+}
+```
+
+Two things worth knowing:
+
+- **Keys are export names, not SQL names.** `export const gadgets = pgTable("gadgets_table", ...)` registers under `gadgets`. Reach for `getTableName(table)` when you need the name PostgreSQL knows.
+- **Non-table exports are ignored.** Schema files can export types, constants, and helpers freely; only Drizzle tables land in the registry.
+
+Projects without a `schema/` directory get an empty registry rather than an error, so this stays out of your way until you need it.
 
 ## Audit Logging with Base Action Classes
 

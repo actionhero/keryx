@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { sql } from "drizzle-orm";
+import { getTableName, is, sql } from "drizzle-orm";
+import { PgTable } from "drizzle-orm/pg-core";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -7,7 +8,7 @@ import { Pool } from "pg";
 import { api } from "../../api";
 import { ErrorType, TypedError } from "../../classes/TypedError";
 import { config } from "../../config";
-import { DB } from "../../initializers/db";
+import { DB, loadSchema } from "../../initializers/db";
 import { HOOK_TIMEOUT } from "../setup";
 
 beforeAll(async () => {
@@ -33,6 +34,52 @@ describe("DB initializer", () => {
   test("exposes clearDatabase and generateMigrations methods", () => {
     expect(typeof api.db.clearDatabase).toBe("function");
     expect(typeof api.db.generateMigrations).toBe("function");
+  });
+
+  test("exposes a schema registry on api.db", () => {
+    // api.rootDir is the framework package itself, which has no schema/ directory,
+    // so the registry is empty rather than absent.
+    expect(api.db.schema).toEqual({});
+  });
+
+  describe("loadSchema", () => {
+    const fixtureSchemaDir = path.join(
+      import.meta.dir,
+      "..",
+      "fixtures",
+      "schema",
+    );
+
+    test("registers every Drizzle table it finds, keyed by export name", async () => {
+      const schema = await loadSchema(fixtureSchemaDir);
+
+      expect(Object.keys(schema).sort()).toEqual(["gadgets", "widgets"]);
+      expect(is(schema.widgets, PgTable)).toBe(true);
+      expect(getTableName(schema.widgets)).toBe("widgets");
+      expect(getTableName(schema.gadgets)).toBe("gadgets_table");
+    });
+
+    test("ignores schema exports that are not tables", async () => {
+      const schema = await loadSchema(fixtureSchemaDir);
+
+      expect(schema.WIDGET_KINDS).toBeUndefined();
+      expect(schema.widgetLabel).toBeUndefined();
+    });
+
+    test("returns an empty registry when schema/ does not exist", async () => {
+      const schema = await loadSchema(
+        path.join(api.rootDir, "no-such-schema-dir"),
+      );
+
+      expect(schema).toEqual({});
+    });
+
+    test("registered tables can be handed straight to the query builder", async () => {
+      const schema = await loadSchema(fixtureSchemaDir);
+      const { sql: query } = api.db.db.select().from(schema.widgets).toSQL();
+
+      expect(query).toContain('"widgets"');
+    });
   });
 
   test("round-trips SELECT NOW() through the raw pool", async () => {
