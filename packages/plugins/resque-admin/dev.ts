@@ -17,6 +17,7 @@ const pkg = (await import("./package.json")).default;
 config.plugins.push(resqueAdminPlugin);
 config.plugins.push(demoPlugin);
 config.resqueAdmin = {
+  ...config.resqueAdmin,
   password: process.env.RESQUE_ADMIN_PASSWORD || "admin",
 };
 

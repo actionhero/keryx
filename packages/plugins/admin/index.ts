@@ -23,6 +23,7 @@ import type { AdminResolveRole } from "./util/roles";
  */
 const envDefaults = {
   enabled: await loadFromEnvIfSet("ADMIN_ENABLED", true),
+  serveUi: await loadFromEnvIfSet("ADMIN_SERVE_UI", true),
   mcp: await loadFromEnvIfSet("ADMIN_MCP_ENABLED", false),
   route: await loadFromEnvIfSet("ADMIN_ROUTE", "/admin"),
   defaultLimit: await loadFromEnvIfSet("ADMIN_DEFAULT_LIMIT", 25),
@@ -92,6 +93,13 @@ export type AdminPluginOptions = {
    * unknown-key stripping and reaches the middleware.
    */
   writeMiddleware?: ActionMiddleware[];
+
+  /**
+   * Serve the built-in HTML dashboard at `GET {admin.route}`. Set to `false` when you
+   * ship your own UI against the JSON actions — the HTML action is then not registered,
+   * so that route is free. Defaults to `true`, or `ADMIN_SERVE_UI` when set.
+   */
+  serveUi?: boolean;
 };
 
 /**
@@ -129,10 +137,11 @@ export type AdminPluginOptions = {
  * The dashboard then lives at `/api/admin`. Every JSON action is gated by the resolver;
  * `read-only` callers get 403 on writes.
  *
- * @param options - Role resolution plus optional table, column, and middleware rules.
+ * @param options - Role resolution plus optional table, column, middleware, and UI rules.
  * @returns The plugin manifest, for `config.plugins`.
  */
 export function adminPlugin(options: AdminPluginOptions): KeryxPlugin {
+  const serveUi = options.serveUi ?? envDefaults.serveUi;
   const actionOptions: AdminActionOptions = {
     resolveRole: options.resolveRole,
     extraMiddleware: options.extraMiddleware ?? [],
@@ -143,7 +152,7 @@ export function adminPlugin(options: AdminPluginOptions): KeryxPlugin {
     name: pkg.name,
     version: pkg.version,
     actions: [
-      createAdminUIAction(actionOptions),
+      ...(serveUi ? [createAdminUIAction(actionOptions)] : []),
       createAdminTablesAction(actionOptions),
       createAdminTableSchemaAction(actionOptions),
       createAdminListAction(actionOptions),
@@ -155,6 +164,7 @@ export function adminPlugin(options: AdminPluginOptions): KeryxPlugin {
     configDefaults: {
       admin: {
         ...envDefaults,
+        serveUi,
         tables: {
           include: options.tables?.include ?? [],
           exclude: options.tables?.exclude ?? [],
@@ -170,6 +180,12 @@ declare module "keryx" {
     admin: {
       /** When false, every admin action responds 404. Set via `ADMIN_ENABLED`. */
       enabled: boolean;
+      /**
+       * When false, the built-in HTML dashboard is not served. JSON actions stay
+       * available. Prefer `adminPlugin({ serveUi: false })` so the UI action is never
+       * registered and the route stays free for your own page. Set via `ADMIN_SERVE_UI`.
+       */
+      serveUi: boolean;
       /**
        * Exposes every admin data action as an MCP tool. One switch for the whole group:
        * granting an agent generic read/write access to your database is a single

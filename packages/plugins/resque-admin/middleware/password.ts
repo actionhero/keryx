@@ -1,6 +1,5 @@
 import { createHash, timingSafeEqual } from "crypto";
-import { type ActionMiddleware, ErrorType, TypedError } from "keryx";
-import { config } from "keryx/config";
+import { type ActionMiddleware, config, ErrorType, TypedError } from "keryx";
 
 /**
  * Compare two strings in constant time by hashing both values first.
@@ -19,9 +18,7 @@ export function safeCompare(a: string, b: string): boolean {
  */
 export const ResqueAdminPasswordMiddleware: ActionMiddleware = {
   runBefore: async (params: { password?: string }) => {
-    const configuredPassword = (
-      config as unknown as { resqueAdmin?: { password?: string } }
-    ).resqueAdmin?.password;
+    const configuredPassword = config.resqueAdmin?.password;
 
     if (!configuredPassword) {
       throw new TypedError({

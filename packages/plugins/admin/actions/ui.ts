@@ -46,11 +46,15 @@ export function createAdminUIAction(_options: AdminActionOptions) {
 
     async run() {
       // The role middleware isn't attached here, so this action has to check
-      // `enabled` itself — otherwise turning the dashboard off would still leave the
-      // route serving HTML and advertising that it exists.
-      if (!config.admin.enabled) {
+      // `enabled` / `serveUi` itself — otherwise turning the dashboard or its HTML
+      // shell off would still leave the route serving HTML and advertising that it
+      // exists. Prefer omitting the action via `adminPlugin({ serveUi: false })`; this
+      // is the safety net for a config-file override after registration.
+      if (!config.admin.enabled || !config.admin.serveUi) {
         throw new TypedError({
-          message: "Admin dashboard is not enabled",
+          message: config.admin.enabled
+            ? "Admin UI is not served"
+            : "Admin dashboard is not enabled",
           type: ErrorType.CONNECTION_ACTION_NOT_FOUND,
         });
       }

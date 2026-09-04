@@ -38,6 +38,11 @@ export default {
 
 The password is required. If no password is set, all admin endpoints return a 500 error until one is configured.
 
+| Config | Env | Default | Purpose |
+|--------|-----|---------|---------|
+| `resqueAdmin.password` | | `""` | Shared password for every JSON endpoint |
+| `resqueAdmin.serveUi` | `RESQUE_ADMIN_SERVE_UI` | `true` | When false, the built-in HTML dashboard is not served. JSON endpoints stay available |
+
 ## Web Dashboard
 
 Visit `/api/resque-admin` in your browser to access the dashboard. You'll be prompted for the admin password, which is stored in `sessionStorage` for the duration of your browser session.
@@ -51,6 +56,20 @@ The dashboard includes:
 - **Locks** — list and delete resque locks
 - **Redis Info** — parsed output of the Redis `INFO` command organized by section
 - **Enqueue** — manually enqueue any action as a background task
+
+### Bring your own UI
+
+The JSON endpoints are usable on their own. If you want to build the dashboard yourself, skip the built-in HTML so `GET /resque-admin` stays free:
+
+```ts
+import { createResqueAdminPlugin } from "@keryxjs/resque-admin";
+
+export default {
+  plugins: [createResqueAdminPlugin({ serveUi: false })],
+};
+```
+
+`RESQUE_ADMIN_SERVE_UI=false` does the same for the default `resqueAdminPlugin` export. Setting `config.resqueAdmin.serveUi = false` after boot 404s the shell if it was already registered, but doesn't unbind the route — use the factory when you want to occupy it yourself.
 
 ## API Endpoints
 
