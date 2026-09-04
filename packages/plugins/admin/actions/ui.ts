@@ -1,4 +1,4 @@
-import { type Action, config, HTTP_METHOD } from "keryx";
+import { type Action, config, ErrorType, HTTP_METHOD, TypedError } from "keryx";
 import { z } from "zod";
 import type { AdminActionOptions } from "./options";
 
@@ -29,6 +29,16 @@ export function createAdminUIAction(_options: AdminActionOptions) {
     mcp = { tool: false };
 
     async run() {
+      // The role middleware isn't attached here, so this action has to check
+      // `enabled` itself — otherwise turning the dashboard off would still leave the
+      // route serving HTML and advertising that it exists.
+      if (!config.admin.enabled) {
+        throw new TypedError({
+          message: "Admin dashboard is not enabled",
+          type: ErrorType.CONNECTION_ACTION_NOT_FOUND,
+        });
+      }
+
       const template = await Bun.file(dashboardPath).text();
 
       // The client needs to know where the API lives; both are server-side config it

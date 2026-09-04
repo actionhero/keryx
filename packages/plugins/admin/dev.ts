@@ -25,8 +25,9 @@ config.plugins.push(
   adminPlugin({
     resolveRole: () => devRole,
     columns: {
+      // `placed_at` is left writable on purpose, so the demo exercises editing a
+      // timestamp through the form.
       demo_customers: { readOnly: ["created_at"] },
-      demo_orders: { readOnly: ["placed_at"] },
     },
   }),
 );

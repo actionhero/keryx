@@ -2,6 +2,7 @@ import { count } from "drizzle-orm";
 import { type Action, api, type Connection, config, HTTP_METHOD } from "keryx";
 import { z } from "zod";
 import { resolvedRole } from "../middleware/auth";
+import { toActionError } from "../util/dbErrors";
 import { describeTable } from "../util/introspect";
 import { exposedTables, requireTable } from "../util/registry";
 import {
@@ -31,14 +32,20 @@ export function createAdminTablesAction(options: AdminActionOptions) {
     async run(_params: Record<string, never>, connection: Connection) {
       const tables = await Promise.all(
         exposedTables().map(async (exposed) => {
-          const [row] = await api.db.db
-            .select({ value: count() })
-            .from(exposed.table);
+          let rows: number;
+          try {
+            const [row] = await api.db.db
+              .select({ value: count() })
+              .from(exposed.table);
+            rows = row?.value ?? 0;
+          } catch (error) {
+            throw toActionError(error, `count rows in "${exposed.name}"`);
+          }
 
           return {
             name: exposed.name,
             exportName: exposed.exportName,
-            rows: row?.value ?? 0,
+            rows,
             writable: describeTable(exposed).writable,
           };
         }),

@@ -100,6 +100,16 @@ export function toActionError(error: unknown, context: string): unknown {
     case "42703":
       return message("no such column");
     default:
-      return error;
+      // Never fall through to the raw driver error. `DrizzleQueryError.message`
+      // embeds the full SQL text and every bound parameter, and Keryx sends
+      // `error.message` to the client — so a deadlock, statement timeout, or
+      // privilege error would hand the caller the query and its values. The
+      // SQLSTATE code is enough to diagnose from, and the original stays on
+      // `cause` (which is never serialized) for server-side logs.
+      return new TypedError({
+        message: `${context}: database error ${pgError.code}${target}.`,
+        type: ErrorType.CONNECTION_ACTION_RUN,
+        cause: error,
+      });
   }
 }

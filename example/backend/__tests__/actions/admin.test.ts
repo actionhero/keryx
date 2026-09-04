@@ -7,12 +7,32 @@ import {
   useTestServer,
 } from "./../setup";
 
-const getUrl = useTestServer({ clearDatabase: true });
+const getUrl = useTestServer({ clearDatabase: true, clearRedis: true });
 
-/** Session cookie for a logged-in user. */
-async function login(): Promise<string> {
-  await createTestUser(getUrl());
-  const res = await createTestSession(getUrl());
+/** The admin user's session cookie, established once in `beforeAll`. */
+let adminCookie = "";
+/** A second user, used as the edit target so the admin's own row stays untouched. */
+let subjectId = 0;
+
+const SUBJECT = {
+  name: "Luigi Mario",
+  email: "luigi@example.com",
+  password: "mushroom2",
+};
+
+/**
+ * Log in and return the session cookie.
+ *
+ * Asserts the login actually succeeded. Keryx sets a session cookie on every response,
+ * including failures, so a login that quietly didn't authenticate still yields a
+ * cookie — which then surfaces much later as a baffling 401 on an unrelated assertion.
+ */
+async function login(
+  credentials?: Partial<{ email: string; password: string }>,
+): Promise<string> {
+  const res = await createTestSession(getUrl(), credentials);
+  expect(res.status).toBe(200);
+
   const cookie = (res.headers.get("set-cookie") ?? "").match(
     new RegExp(`${config.session.cookieName}=([^;]+)`),
   );
@@ -37,10 +57,24 @@ async function adminFetch(
 }
 
 describe("admin plugin wiring", () => {
-  beforeAll(() => {
+  beforeAll(async () => {
     // The example app's resolver keys off an env allowlist, read per request.
     process.env.ADMIN_FULL_EMAILS = DEFAULT_TEST_USER.email;
-  });
+
+    expect((await createTestUser(getUrl())).status).toBe(200);
+    const subject = await createTestUser(getUrl(), SUBJECT);
+    expect(subject.status).toBe(200);
+    subjectId = ((await subject.json()) as { user: { id: number } }).user.id;
+
+    adminCookie = await login();
+
+    // Prove the session really is the admin before any test depends on it.
+    const { status, body } = await adminFetch("/tables", {
+      cookie: adminCookie,
+    });
+    expect(status).toBe(200);
+    expect(body.role).toBe("full");
+  }, 30_000);
 
   test("registers the dashboard and its actions", () => {
     const names = api.actions.actions
@@ -74,16 +108,20 @@ describe("admin plugin wiring", () => {
   test("denies a logged-in user who is not on the admin list", async () => {
     process.env.ADMIN_FULL_EMAILS = "someone-else@example.com";
     try {
-      const cookie = await login();
-      expect((await adminFetch("/tables", { cookie })).status).toBe(401);
+      // Same valid session; only the allowlist changed. The resolver runs per
+      // request, so access is revoked without the user logging out.
+      expect(
+        (await adminFetch("/tables", { cookie: adminCookie })).status,
+      ).toBe(401);
     } finally {
       process.env.ADMIN_FULL_EMAILS = DEFAULT_TEST_USER.email;
     }
   });
 
   test("discovers the app's real tables through api.db.schema", async () => {
-    const cookie = await login();
-    const { status, body } = await adminFetch("/tables", { cookie });
+    const { status, body } = await adminFetch("/tables", {
+      cookie: adminCookie,
+    });
 
     expect(status).toBe(200);
     expect(
@@ -93,8 +131,9 @@ describe("admin plugin wiring", () => {
   });
 
   test("hides password_hash from the users table", async () => {
-    const cookie = await login();
-    const { body } = await adminFetch("/tables/users/schema", { cookie });
+    const { body } = await adminFetch("/tables/users/schema", {
+      cookie: adminCookie,
+    });
 
     const columns = (body.columns as { name: string; writable: boolean }[]).map(
       (c) => c.name,
@@ -104,8 +143,9 @@ describe("admin plugin wiring", () => {
   });
 
   test("marks the timestamp columns read-only", async () => {
-    const cookie = await login();
-    const { body } = await adminFetch("/tables/users/schema", { cookie });
+    const { body } = await adminFetch("/tables/users/schema", {
+      cookie: adminCookie,
+    });
 
     const columns = body.columns as { name: string; writable: boolean }[];
     const writable = new Map(columns.map((c) => [c.name, c.writable]));
@@ -115,60 +155,36 @@ describe("admin plugin wiring", () => {
   });
 
   test("browses and filters the real users table", async () => {
-    const cookie = await login();
-
     const { body } = await adminFetch("/tables/users/list", {
       method: "POST",
-      cookie,
-      body: { filter: { column: "email", op: "contains", value: "mario" } },
+      cookie: adminCookie,
+      body: { filter: { column: "email", op: "eq", value: SUBJECT.email } },
     });
 
     const rows = body.data as Record<string, unknown>[];
     expect(rows).toHaveLength(1);
-    expect(rows[0].email).toBe(DEFAULT_TEST_USER.email);
+    expect(rows[0].email).toBe(SUBJECT.email);
     expect(rows[0].password_hash).toBeUndefined();
   });
 
   test("edits a real user row", async () => {
-    const cookie = await login();
-    const [user] = (
-      await adminFetch("/tables/users/list", {
-        method: "POST",
-        cookie,
-        body: {},
-      })
-    ).body.data as { id: number }[];
-
     const updated = await adminFetch("/tables/users/record", {
       method: "POST",
-      cookie,
-      body: { pk: { id: user.id }, values: { name: "Renamed By Admin" } },
+      cookie: adminCookie,
+      body: { pk: { id: subjectId }, values: { name: "Renamed By Admin" } },
     });
 
     expect(updated.status).toBe(200);
     expect(updated.body.record.name).toBe("Renamed By Admin");
+    expect(updated.body.record.email).toBe(SUBJECT.email);
   });
 
   test("reports the database's unique constraint on a colliding edit", async () => {
-    const cookie = await login();
-    await createTestUser(getUrl(), {
-      name: "Luigi",
-      email: "luigi@example.com",
-    });
-
-    const rows = (
-      await adminFetch("/tables/users/list", {
-        method: "POST",
-        cookie,
-        body: { sort: [{ column: "id", direction: "asc" }] },
-      })
-    ).body.data as { id: number; name: string }[];
-
-    // `name` carries a unique index, so Luigi can't take Mario's name.
+    // `name` carries a unique index, so the subject can't take the admin's name.
     const clash = await adminFetch("/tables/users/record", {
       method: "POST",
-      cookie,
-      body: { pk: { id: rows[1].id }, values: { name: rows[0].name } },
+      cookie: adminCookie,
+      body: { pk: { id: subjectId }, values: { name: DEFAULT_TEST_USER.name } },
     });
 
     expect(clash.body.error.message).toContain("already exists");
@@ -176,14 +192,12 @@ describe("admin plugin wiring", () => {
   });
 
   test("cannot insert into a table whose required column is hidden", async () => {
-    const cookie = await login();
-
     // `password_hash` is NOT NULL with no default, and config hides it — so the
     // dashboard can browse and edit users but not create them. That's the intended
     // consequence of hiding a required column, not a bug to route around.
     const { body } = await adminFetch("/tables/users/record", {
       method: "PUT",
-      cookie,
+      cookie: adminCookie,
       body: { values: { name: "Peach", email: "peach@example.com" } },
     });
 

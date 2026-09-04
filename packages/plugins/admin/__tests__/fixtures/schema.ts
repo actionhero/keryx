@@ -27,6 +27,8 @@ export const adminWidgets = pgTable(
     status: text("status", { enum: ["draft", "live", "retired"] }),
     active: boolean("active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
+    // Writable, unlike created_at, so timestamp round-tripping is testable.
+    scheduledAt: timestamp("scheduled_at"),
   },
   (table) => ({
     nameIndex: uniqueIndex("admin_widgets_name_idx").on(table.name),
@@ -85,7 +87,8 @@ export async function createFixtureTables() {
       "quantity" integer NOT NULL DEFAULT 0,
       "status" text,
       "active" boolean NOT NULL DEFAULT true,
-      "created_at" timestamp NOT NULL DEFAULT now()
+      "created_at" timestamp NOT NULL DEFAULT now(),
+      "scheduled_at" timestamp
     );
     CREATE UNIQUE INDEX IF NOT EXISTS "admin_widgets_name_idx" ON "admin_widgets" ("name");
 

@@ -6,6 +6,7 @@ import {
   expect,
   test,
 } from "bun:test";
+import { sql } from "drizzle-orm";
 import { api, config } from "keryx";
 import { createAdminListAction } from "../actions/list";
 import {
@@ -174,6 +175,19 @@ describe("admin plugin", () => {
       config.admin.enabled = false;
       try {
         expect((await request("/tables")).status).toBe(404);
+        expect(
+          (
+            await request("/tables/admin_widgets/list", {
+              method: "POST",
+              body: {},
+            })
+          ).status,
+        ).toBe(404);
+
+        // The UI has no role middleware, so it has to check `enabled` itself —
+        // otherwise turning the dashboard off leaves the route advertising itself.
+        const ui = await fetch(`${serverUrl()}/api/admin`);
+        expect(ui.status).toBe(404);
       } finally {
         config.admin.enabled = true;
       }
@@ -616,6 +630,41 @@ describe("admin plugin", () => {
       expect(updated.record.label).toBeNull();
     });
 
+    test("round-trips a timestamp without shifting it", async () => {
+      const instant = "2026-03-04T05:06:07.000Z";
+      const { record } = await createWidget({
+        name: "scheduled",
+        scheduled_at: instant,
+      });
+
+      expect(new Date(record.scheduled_at as string).toISOString()).toBe(
+        instant,
+      );
+    });
+
+    test("leaves untouched columns alone when updating one field", async () => {
+      const instant = "2026-03-04T05:06:07.000Z";
+      const { record } = await createWidget({
+        name: "keeps-timestamp",
+        scheduled_at: instant,
+      });
+
+      const updated = await ok<{ record: Record<string, unknown> }>(
+        "/tables/admin_widgets/record",
+        {
+          method: "POST",
+          body: { pk: { id: record.id }, values: { quantity: 7 } },
+        },
+      );
+
+      expect(updated.record.quantity).toBe(7);
+      // A partial update must not rewrite the timestamp; the dashboard's edit form
+      // sends only changed fields for exactly this reason.
+      expect(
+        new Date(updated.record.scheduled_at as string).toISOString(),
+      ).toBe(instant);
+    });
+
     test("addresses rows by composite primary key", async () => {
       const { record } = await createWidget({ name: "host" });
       const pk = { widget_id: record.id, tag: "blue" };
@@ -735,6 +784,36 @@ describe("admin plugin", () => {
       });
 
       expect(errorOf(body).message).toContain("expects a number");
+    });
+
+    test("never leaks SQL or bound parameters for an unmapped error", async () => {
+      // 42P01 (undefined_table) has no mapping. Drizzle wraps driver failures in an
+      // error whose message is the full SQL plus every parameter, and Keryx sends
+      // `message` to the client — so the fallback must not pass it through.
+      const secret = "s3cret-parameter-value";
+      const { record } = await createWidget({ name: secret });
+      await api.db.db.execute(
+        sql.raw(`ALTER TABLE "admin_widgets" RENAME TO "admin_widgets_moved"`),
+      );
+
+      try {
+        const { body } = await request("/tables/admin_widgets/show", {
+          method: "POST",
+          body: { pk: { id: record.id } },
+        });
+
+        const { message } = errorOf(body);
+        expect(message).toContain("42P01");
+        expect(message).not.toContain("select");
+        expect(message).not.toContain("admin_widgets_moved");
+        expect(message).not.toContain(secret);
+      } finally {
+        await api.db.db.execute(
+          sql.raw(
+            `ALTER TABLE "admin_widgets_moved" RENAME TO "admin_widgets"`,
+          ),
+        );
+      }
     });
   });
 

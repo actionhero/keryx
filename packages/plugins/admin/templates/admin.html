@@ -501,6 +501,18 @@ function pkOf(row) {
   return pk;
 }
 
+/**
+ * Render a timestamp for a `datetime-local` input, which expects local wall-clock time
+ * with no zone. Shifting the instant by the browser's offset makes the displayed time
+ * match the user's clock; `submittedValue()` reverses it.
+ */
+function toLocalInputValue(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const shifted = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return shifted.toISOString().slice(0, 19);
+}
+
 /** Build one form field from a column's metadata. */
 function fieldFor(column, value, isNew) {
   const editable = column.writable && (isNew || !column.primaryKey);
@@ -508,29 +520,36 @@ function fieldFor(column, value, isNew) {
   const id = `f-${column.name}`;
   const raw = value === null || value === undefined ? "" : value;
 
+  // Every control records the value it was rendered with, so saving an edit can send
+  // only what the user actually touched. Submitting untouched fields would rewrite
+  // them — which silently corrupts timestamps and clobbers concurrent edits.
+  let initial;
   let control;
+
   if (column.enumValues) {
+    initial = String(raw);
     const options = ["", ...column.enumValues]
-      .map((v) => `<option value="${escapeHtml(v)}" ${String(raw) === v ? "selected" : ""}>${escapeHtml(v || "—")}</option>`)
+      .map((v) => `<option value="${escapeHtml(v)}" ${initial === v ? "selected" : ""}>${escapeHtml(v || "—")}</option>`)
       .join("");
-    control = `<select id="${id}" ${disabled}>${options}</select>`;
+    control = `<select id="${id}" data-initial="${escapeHtml(initial)}" ${disabled}>${options}</select>`;
   } else if (column.kind === "boolean") {
+    initial = String(raw);
     const options = [["", "—"], ["true", "true"], ["false", "false"]]
-      .map(([v, label]) => `<option value="${v}" ${String(raw) === v ? "selected" : ""}>${label}</option>`)
+      .map(([v, label]) => `<option value="${v}" ${initial === v ? "selected" : ""}>${label}</option>`)
       .join("");
-    control = `<select id="${id}" ${disabled}>${options}</select>`;
+    control = `<select id="${id}" data-initial="${escapeHtml(initial)}" ${disabled}>${options}</select>`;
   } else if (column.kind === "json") {
-    const text = typeof raw === "object" ? JSON.stringify(raw, null, 2) : String(raw);
-    control = `<textarea id="${id}" ${disabled}>${escapeHtml(text)}</textarea>`;
+    initial = typeof raw === "object" ? JSON.stringify(raw, null, 2) : String(raw);
+    control = `<textarea id="${id}" data-initial="${escapeHtml(initial)}" ${disabled}>${escapeHtml(initial)}</textarea>`;
   } else if (column.kind === "date") {
-    // datetime-local wants `YYYY-MM-DDTHH:mm`, which is what an ISO string yields
-    // once the seconds and zone are trimmed.
-    const local = raw ? String(new Date(raw).toISOString()).slice(0, 16) : "";
-    control = `<input id="${id}" type="datetime-local" value="${escapeHtml(local)}" ${disabled}>`;
+    initial = raw === "" ? "" : toLocalInputValue(raw);
+    // step="1" keeps seconds; without it the browser truncates to minutes.
+    control = `<input id="${id}" type="datetime-local" step="1" data-initial="${escapeHtml(initial)}" value="${escapeHtml(initial)}" ${disabled}>`;
   } else {
+    initial = String(raw);
     const type = column.kind === "number" || column.kind === "bigint" ? "number" : "text";
     const step = column.kind === "number" ? ' step="any"' : "";
-    control = `<input id="${id}" type="${type}"${step} value="${escapeHtml(raw)}" ${disabled}>`;
+    control = `<input id="${id}" type="${type}"${step} data-initial="${escapeHtml(initial)}" value="${escapeHtml(initial)}" ${disabled}>`;
   }
 
   const notes = [column.sqlType];
@@ -540,8 +559,9 @@ function fieldFor(column, value, isNew) {
   if (column.references) notes.push(`→ ${column.references.table}.${column.references.column}`);
   if (!column.writable) notes.push("read-only");
 
+  const isNull = raw === "";
   const nullToggle = column.nullable && editable
-    ? `<label class="field-null"><input type="checkbox" id="${id}-null" ${raw === "" ? "checked" : ""}> set null</label>`
+    ? `<label class="field-null"><input type="checkbox" id="${id}-null" data-initial-null="${isNull}" ${isNull ? "checked" : ""}> set null</label>`
     : "";
 
   return `<div class="field" data-field="${escapeHtml(column.name)}">
@@ -582,16 +602,36 @@ function collectValues(isNew) {
     if (!input || input.disabled) continue;
 
     const nullBox = el(`f-${column.name}-null`);
-    if (nullBox?.checked) {
+    const nullNow = nullBox?.checked ?? false;
+    const nullBefore = nullBox?.dataset.initialNull === "true";
+    const raw = input.value;
+
+    // An update sends only what changed. Resending an untouched value would rewrite
+    // it — harmless for text, but it round-trips timestamps through the input's
+    // second-level precision and stomps on any edit made since this form loaded.
+    if (!isNew && raw === (input.dataset.initial ?? "") && nullNow === nullBefore) {
+      continue;
+    }
+
+    if (nullNow) {
       values[column.name] = null;
       continue;
     }
 
-    const raw = input.value;
     // On create, an empty field means "let the database decide"; sending "" would
     // override a default with an empty string.
     if (raw === "" && isNew) continue;
     if (raw === "" && column.nullable) { values[column.name] = null; continue; }
+
+    // `datetime-local` yields local wall-clock time with no zone. Send an explicit
+    // UTC instant so the value doesn't shift by the browser's offset on the way in.
+    if (column.kind === "date" && raw !== "") {
+      const parsed = new Date(raw);
+      values[column.name] = Number.isNaN(parsed.getTime())
+        ? raw
+        : parsed.toISOString();
+      continue;
+    }
 
     values[column.name] = raw;
   }

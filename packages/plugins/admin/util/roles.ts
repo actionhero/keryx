@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 import { api, type Connection } from "keryx";
+import { toActionError } from "./dbErrors";
 
 /**
  * What a caller may do. `read-only` can browse and filter; `full` can also create,
@@ -72,14 +73,22 @@ export function roleFromUserColumn<TSession>(
       (options.table as unknown as Record<string, PgColumn>).id;
     if (!idColumn) return null;
 
-    const [user] = await api.db.db
-      .select()
-      .from(options.table)
-      .where(eq(idColumn, id as Operand))
-      .limit(1);
+    let user: Record<string, unknown> | undefined;
+    try {
+      [user] = await api.db.db
+        .select()
+        .from(options.table)
+        .where(eq(idColumn, id as Operand))
+        .limit(1);
+    } catch (error) {
+      // This runs in middleware, before any action-level error handling. Without
+      // wrapping, a driver failure would send Drizzle's message — the full SQL plus
+      // the caller's session id — straight to the client.
+      throw toActionError(error, "resolve admin role");
+    }
 
     if (!user) return null;
 
-    return options.role(user as Record<string, unknown>);
+    return options.role(user);
   };
 }
