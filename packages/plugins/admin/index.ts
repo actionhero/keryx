@@ -77,10 +77,21 @@ export type AdminPluginOptions = {
 
   /**
    * Middleware appended to every admin data action, after the role gate. The hook for
-   * composing with the rest of your stack — `CsrfMiddleware` from `@keryxjs/csrf`,
-   * `RateLimitMiddleware`, your own audit logger.
+   * composing with the rest of your stack — `RateLimitMiddleware`, your own audit
+   * logger. For CSRF, prefer `writeMiddleware`.
    */
   extraMiddleware?: ActionMiddleware[];
+
+  /**
+   * Middleware appended to the create, update, and delete actions only.
+   *
+   * Where `CsrfMiddleware` belongs. Guarding reads too would force the token into a
+   * query string on GET requests, where it ends up in access logs and referrer headers,
+   * and reads aren't state-changing so there's nothing for CSRF to protect. The write
+   * actions declare an optional `csrfToken` input for you, so the token survives Zod's
+   * unknown-key stripping and reaches the middleware.
+   */
+  writeMiddleware?: ActionMiddleware[];
 };
 
 /**
@@ -125,6 +136,7 @@ export function adminPlugin(options: AdminPluginOptions): KeryxPlugin {
   const actionOptions: AdminActionOptions = {
     resolveRole: options.resolveRole,
     extraMiddleware: options.extraMiddleware ?? [],
+    writeMiddleware: options.writeMiddleware ?? [],
   };
 
   return {

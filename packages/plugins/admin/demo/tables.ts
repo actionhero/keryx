@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  date,
   integer,
   numeric,
   pgTable,
@@ -45,6 +46,9 @@ export const orders = pgTable("demo_orders", {
     .notNull()
     .default("pending"),
   placedAt: timestamp("placed_at").notNull().defaultNow(),
+  // A calendar day with no time, so the form should offer a date picker and never
+  // shift it through the browser's timezone.
+  deliverOn: date("deliver_on"),
 });
 
 /** Create and register the demo tables, seeding a few rows on first run. */
@@ -67,7 +71,8 @@ export async function setupDemoTables() {
       "customer_id" integer NOT NULL REFERENCES "demo_customers"("id"),
       "total" numeric(10,2) NOT NULL,
       "status" text NOT NULL DEFAULT 'pending',
-      "placed_at" timestamp NOT NULL DEFAULT now()
+      "placed_at" timestamp NOT NULL DEFAULT now(),
+      "deliver_on" date
     );
   `),
   );
@@ -93,7 +98,11 @@ export async function setupDemoTables() {
 
   await api.db.db.insert(orders).values(
     seeded.flatMap((customer, index) => [
-      { customerId: customer.id, total: `${(index + 1) * 25}.00` },
+      {
+        customerId: customer.id,
+        total: `${(index + 1) * 25}.00`,
+        deliverOn: `2026-03-0${index + 1}`,
+      },
       {
         customerId: customer.id,
         total: `${(index + 1) * 12}.50`,

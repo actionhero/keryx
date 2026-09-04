@@ -1,5 +1,5 @@
 import { adminPlugin, roleFromUserColumn } from "@keryxjs/admin";
-import { csrfPlugin } from "@keryxjs/csrf";
+import { CsrfMiddleware, csrfPlugin } from "@keryxjs/csrf";
 import { resqueAdminPlugin } from "@keryxjs/resque-admin";
 import { sentryPlugin } from "@keryxjs/sentry";
 import { tracingPlugin } from "@keryxjs/tracing";
@@ -61,6 +61,9 @@ export default {
         },
         messages: { readOnly: ["created_at", "updated_at"] },
       },
+      // The dashboard can delete any row, so its writes are worth protecting. Only
+      // writes: a CSRF guard on a read would push the token into a GET query string.
+      writeMiddleware: [CsrfMiddleware],
     }),
   ] as KeryxPlugin[],
 };

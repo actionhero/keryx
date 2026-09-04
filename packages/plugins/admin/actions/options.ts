@@ -9,12 +9,18 @@ import type { AdminResolveRole } from "../util/roles";
 export type AdminActionOptions = {
   resolveRole: AdminResolveRole;
   extraMiddleware: ActionMiddleware[];
+  writeMiddleware: ActionMiddleware[];
 };
 
 /**
  * Assemble an admin action's middleware: the role gate first, then whatever the app
- * added at registration (CSRF, rate limiting). Order matters — an unauthorized caller
- * should be turned away before the app's middleware does any work on their behalf.
+ * added at registration. Order matters — an unauthorized caller should be turned away
+ * before the app's middleware does any work on their behalf.
+ *
+ * Write actions additionally get `writeMiddleware`. That split exists because CSRF is
+ * the main thing apps want to add here, and a CSRF guard on a read would force the
+ * token into a query string on GET requests — where it lands in access logs and
+ * referrers.
  *
  * @param options - Plugin registration options.
  * @param access - Whether the action reads or writes.
@@ -27,6 +33,7 @@ export function adminMiddleware(
   return [
     createAdminAuthMiddleware(options.resolveRole, access),
     ...options.extraMiddleware,
+    ...(access === "write" ? options.writeMiddleware : []),
   ];
 }
 

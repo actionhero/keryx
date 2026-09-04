@@ -7,7 +7,7 @@ import {
   test,
 } from "bun:test";
 import { sql } from "drizzle-orm";
-import { api, config } from "keryx";
+import { type ActionMiddleware, api, config } from "keryx";
 import { createAdminListAction } from "../actions/list";
 import {
   createAdminCreateAction,
@@ -290,6 +290,15 @@ describe("admin plugin", () => {
     test("reports the primary key and its column flag", () => {
       expect(meta.primaryKey).toEqual(["id"]);
       expect(column("id").primaryKey).toBe(true);
+    });
+
+    test("distinguishes calendar days from points in time", () => {
+      // Both spellings of a date column report `date-only`, so a client picks a
+      // date widget rather than a timezone-sensitive datetime one.
+      expect(column("due_on").kind).toBe("date-only");
+      expect(column("start_on").kind).toBe("date-only");
+      expect(column("scheduled_at").kind).toBe("date");
+      expect(column("created_at").kind).toBe("date");
     });
 
     test("reports uniqueness declared as a unique index", () => {
@@ -741,6 +750,40 @@ describe("admin plugin", () => {
       );
     });
 
+    test("round-trips a date-only column without shifting the day", async () => {
+      // `due_on` is date() (a string) and `start_on` is date({ mode: "date" }) (a Date).
+      // Both are calendar days, so neither may be dragged through a timezone: parsing
+      // "2026-03-04" as UTC midnight and then formatting it locally lands on March 3rd
+      // anywhere west of UTC.
+      const day = "2026-03-04";
+      const { record } = await createWidget({
+        name: "dated",
+        due_on: day,
+        start_on: day,
+      });
+
+      expect(record.due_on).toBe(day);
+      expect(String(record.start_on).slice(0, 10)).toBe(day);
+    });
+
+    test("accepts a full instant for a date-only column, keeping its UTC day", async () => {
+      const { record } = await createWidget({
+        name: "instant-for-date",
+        due_on: "2026-03-04T23:30:00.000Z",
+      });
+
+      expect(record.due_on).toBe("2026-03-04");
+    });
+
+    test("rejects a value that is not a date for a date-only column", async () => {
+      const { body } = await request("/tables/admin_widgets/record", {
+        method: "PUT",
+        body: { values: { name: "bad-date", due_on: "not-a-date" } },
+      });
+
+      expect(errorOf(body).message).toContain("YYYY-MM-DD");
+    });
+
     test("leaves untouched columns alone when updating one field", async () => {
       const instant = "2026-03-04T05:06:07.000Z";
       const { record } = await createWidget({
@@ -933,6 +976,89 @@ describe("admin plugin", () => {
 
       expect((await fetch(`${serverUrl()}/api/admin`)).status).toBe(200);
     });
+
+    test("the inline script parses", async () => {
+      // The dashboard is one file of inline JavaScript, so a syntax error anywhere in
+      // it silently blanks the entire page — no console the server can see, and every
+      // server-side test still green. `new Function` parses without executing, which
+      // is enough to catch it.
+      const html = await (await fetch(`${serverUrl()}/api/admin`)).text();
+      const script = html.slice(
+        html.indexOf("<script>") + "<script>".length,
+        html.lastIndexOf("</script>"),
+      );
+
+      expect(script.length).toBeGreaterThan(1000);
+      expect(() => new Function(script)).not.toThrow();
+    });
+  });
+
+  describe("composing extra middleware", () => {
+    const readGuard: ActionMiddleware = { runBefore: async () => {} };
+    const writeGuard: ActionMiddleware = { runBefore: async () => {} };
+    const opts = {
+      resolveRole: () => "full" as const,
+      extraMiddleware: [readGuard],
+      writeMiddleware: [writeGuard],
+    };
+
+    test("write actions accept a csrfToken input", () => {
+      // The regression this guards: Zod objects strip unknown keys, so a token the
+      // schema doesn't declare is gone before middleware runs — which would make a
+      // CSRF guard reject every write instead of protecting it.
+      const create = new (createAdminCreateAction(opts))();
+      const parsed = create.inputs.parse({
+        table: "admin_widgets",
+        values: { name: "x" },
+        csrfToken: "a-token",
+      });
+
+      expect(parsed.csrfToken).toBe("a-token");
+    });
+
+    test("every write action declares the token", () => {
+      for (const factory of [
+        createAdminCreateAction,
+        createAdminUpdateAction,
+        createAdminDestroyAction,
+      ]) {
+        const action = new (factory(opts))();
+        const parsed = action.inputs.parse({
+          table: "admin_widgets",
+          pk: { id: 1 },
+          values: { name: "x" },
+          csrfToken: "a-token",
+        });
+        expect(parsed.csrfToken).toBe("a-token");
+      }
+    });
+
+    test("writeMiddleware runs on writes only", () => {
+      const create = new (createAdminCreateAction(opts))();
+      const list = new (createAdminListAction(opts))();
+
+      expect(create.middleware).toContain(writeGuard);
+      // Reads don't get it: a CSRF guard on a GET would force the token into a query
+      // string, and reads have no state change to protect.
+      expect(list.middleware).not.toContain(writeGuard);
+    });
+
+    test("extraMiddleware runs on both reads and writes", () => {
+      const create = new (createAdminCreateAction(opts))();
+      const list = new (createAdminListAction(opts))();
+
+      expect(create.middleware).toContain(readGuard);
+      expect(list.middleware).toContain(readGuard);
+    });
+
+    test("the role gate runs before any app middleware", () => {
+      const create = new (createAdminCreateAction(opts))();
+
+      expect(create.middleware.indexOf(readGuard)).toBeGreaterThan(0);
+      expect(create.middleware.indexOf(writeGuard)).toBeGreaterThan(
+        create.middleware.indexOf(readGuard),
+      );
+    });
   });
 
   describe("MCP exposure", () => {
@@ -948,7 +1074,11 @@ describe("admin plugin", () => {
     ];
 
     const build = (factory: (typeof dataFactories)[number]) =>
-      new (factory({ resolveRole: () => "full", extraMiddleware: [] }))();
+      new (factory({
+        resolveRole: () => "full",
+        extraMiddleware: [],
+        writeMiddleware: [],
+      }))();
 
     test("keeps data actions off the MCP surface by default", () => {
       const dataAction = api.actions.actions.find(
@@ -983,6 +1113,7 @@ describe("admin plugin", () => {
         const rebuilt = new (createAdminUIAction({
           resolveRole: () => "full",
           extraMiddleware: [],
+          writeMiddleware: [],
         }))();
         expect(rebuilt.mcp.tool).toBe(false);
       } finally {

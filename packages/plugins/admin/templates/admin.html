@@ -115,6 +115,8 @@
   .field-null { font-size: 0.75rem; color: var(--fg2); display: inline-flex; align-items: center;
     gap: 0.3rem; margin-top: 0.3rem; cursor: pointer; }
   .field-null input { margin: 0; }
+  #editor-error:not(:empty) { padding: 0.6rem 1rem; border-bottom: 1px solid var(--border); }
+  #editor-error .msg { margin-bottom: 0; }
 </style>
 </head>
 <body>
@@ -179,6 +181,10 @@
       <strong id="editor-title"></strong>
       <span class="hint" id="editor-sub"></span>
     </div>
+    <!-- Save failures render here, not in the page banner: a modal dialog sits in the
+         top layer above its own backdrop, so a message behind it is dimmed and easy to
+         miss entirely. Constraint errors are the whole point of the form. -->
+    <div id="editor-error"></div>
     <div class="dlg-body" id="editor-body"></div>
     <div class="dlg-foot">
       <button type="button" id="editor-cancel">Cancel</button>
@@ -189,6 +195,13 @@
 
 <script>
 const API = "{{API_ROUTE}}{{ADMIN_ROUTE}}";
+const API_ROOT = "{{API_ROUTE}}";
+
+/**
+ * CSRF token, when the app has @keryxjs/csrf installed and passed CsrfMiddleware via
+ * `adminPlugin({ writeMiddleware })`. Null when it isn't, which is the common case.
+ */
+let csrfToken = null;
 
 const state = {
   role: null,
@@ -235,6 +248,13 @@ function banner(message, kind) {
     : "";
 }
 
+/** Show a message inside the editor dialog, where it's visible above the backdrop. */
+function editorError(message) {
+  el("editor-error").innerHTML = message
+    ? `<div class="msg msg-error">${escapeHtml(message)}</div>`
+    : "";
+}
+
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -245,11 +265,16 @@ function escapeHtml(value) {
  * envelope is unwrapped in exactly one place.
  */
 async function call(path, { method = "GET", body } = {}) {
+  // Only writes carry the token: reads aren't state-changing, and a token in a GET
+  // query string would leak into access logs.
+  const requestBody =
+    body && csrfToken && method !== "GET" ? { ...body, csrfToken } : body;
+
   const res = await fetch(`${API}${path}`, {
     method,
     credentials: "same-origin",
-    headers: body ? { "Content-Type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
+    headers: requestBody ? { "Content-Type": "application/json" } : undefined,
+    body: requestBody ? JSON.stringify(requestBody) : undefined,
   });
 
   const text = await res.text();
@@ -265,7 +290,29 @@ async function call(path, { method = "GET", body } = {}) {
   return payload;
 }
 
+/**
+ * Pick up a CSRF token if the app issues them.
+ *
+ * A 404 here is the expected outcome for any app without @keryxjs/csrf installed, so
+ * every failure is swallowed — the dashboard works fine without a token, and writes will
+ * only fail if a CSRF guard is actually attached, in which case the error says so.
+ */
+async function loadCsrfToken() {
+  try {
+    const res = await fetch(`${API_ROOT}/csrf-token`, {
+      credentials: "same-origin",
+    });
+    if (!res.ok) return;
+    const body = await res.json();
+    if (typeof body?.token === "string") csrfToken = body.token;
+  } catch {
+    /* no CSRF plugin, or it's unreachable; writes proceed without a token */
+  }
+}
+
 async function boot() {
+  await loadCsrfToken();
+
   try {
     const { role, tables } = await call("/tables");
     state.role = role;
@@ -402,7 +449,11 @@ function renderGrid() {
           const value = row[column.name];
           if (value === null || value === undefined) return '<td class="null">null</td>';
           const numeric = column.kind === "number" || column.kind === "bigint";
-          const text = typeof value === "object" ? JSON.stringify(value) : String(value);
+          // Date-only columns can arrive as a full instant when the schema declares
+          // `mode: "date"`; showing the time would imply precision the column lacks.
+          const text = column.kind === "date-only"
+            ? String(value).slice(0, 10)
+            : typeof value === "object" ? JSON.stringify(value) : String(value);
           return `<td class="${numeric ? "mono" : ""}" title="${escapeHtml(text)}">${escapeHtml(text)}</td>`;
         })
         .join("");
@@ -541,6 +592,12 @@ function fieldFor(column, value, isNew) {
   } else if (column.kind === "json") {
     initial = typeof raw === "object" ? JSON.stringify(raw, null, 2) : String(raw);
     control = `<textarea id="${id}" data-initial="${escapeHtml(initial)}" ${disabled}>${escapeHtml(initial)}</textarea>`;
+  } else if (column.kind === "date-only") {
+    // A calendar day has no time component, so it gets a plain date input and no
+    // timezone conversion at all. Shifting it would land the value on the previous
+    // day for anyone west of UTC.
+    initial = String(raw).slice(0, 10);
+    control = `<input id="${id}" type="date" data-initial="${escapeHtml(initial)}" value="${escapeHtml(initial)}" ${disabled}>`;
   } else if (column.kind === "date") {
     initial = raw === "" ? "" : toLocalInputValue(raw);
     // step="1" keeps seconds; without it the browser truncates to minutes.
@@ -577,6 +634,7 @@ let editorTarget = null;
 function openEditor(row) {
   const isNew = !row;
   editorTarget = isNew ? null : pkOf(row);
+  editorError("");
 
   el("editor-title").textContent = isNew ? `New row in ${state.table}` : `Edit row in ${state.table}`;
   el("editor-sub").textContent = isNew
@@ -625,6 +683,8 @@ function collectValues(isNew) {
 
     // `datetime-local` yields local wall-clock time with no zone. Send an explicit
     // UTC instant so the value doesn't shift by the browser's offset on the way in.
+    // Deliberately not `date-only`: those carry no time to convert, and their raw
+    // `YYYY-MM-DD` passes through below untouched.
     if (column.kind === "date" && raw !== "") {
       const parsed = new Date(raw);
       values[column.name] = Number.isNaN(parsed.getTime())
@@ -666,7 +726,9 @@ async function saveEditor() {
     await loadRows();
     banner(isNew ? "Row created." : "Row updated.", "success");
   } catch (error) {
-    banner(error.message, "error");
+    // Keep the dialog open so the user can correct the offending field, and put the
+    // message where they'll actually see it.
+    editorError(error.message);
   }
 }
 

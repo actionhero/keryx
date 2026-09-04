@@ -58,6 +58,7 @@ The dashboard is now at `/api/admin`.
 | `tables` | `{ include, exclude }` lists of SQL table names. Default: every table in `schema/` |
 | `columns` | Per-table `{ hidden, readOnly }` column rules, keyed by SQL table name |
 | `extraMiddleware` | Middleware appended to every data action, after the role gate |
+| `writeMiddleware` | Middleware appended to the create, update, and delete actions only |
 
 ### Config and environment
 
@@ -196,16 +197,22 @@ The `/admin` route is unauthenticated because it returns no data. Every byte of 
 
 ### Composing with CSRF
 
-If your app uses [`@keryxjs/csrf`](/plugins/csrf), pass `CsrfMiddleware` through `extraMiddleware` to protect the write actions:
+The dashboard can delete any row, so its writes are worth protecting. If your app uses [`@keryxjs/csrf`](/plugins/csrf), pass `CsrfMiddleware` through `writeMiddleware`:
 
 ```ts
 import { CsrfMiddleware } from "@keryxjs/csrf";
 
 adminPlugin({
   resolveRole,
-  extraMiddleware: [CsrfMiddleware],
+  writeMiddleware: [CsrfMiddleware],
 });
 ```
+
+Use `writeMiddleware` rather than `extraMiddleware` here. Guarding reads too would push the token into a query string on GET requests, where it lands in access logs and referrer headers — and reads change no state, so there's nothing for CSRF to protect.
+
+The dashboard's UI handles its side automatically: it fetches a token from `/csrf-token` on boot and includes it in every write. A 404 there is expected when the CSRF plugin isn't installed, and is ignored.
+
+The write actions declare an optional `csrfToken` input for you. That matters more than it looks: Zod objects strip keys the schema doesn't mention, so without it the token would be gone before the middleware ran, and `CsrfMiddleware` would reject every write rather than protecting it. If you write your own middleware that reads a param, make sure the action declares it.
 
 Middleware runs after the role gate, so unauthorized callers are turned away before your middleware does any work on their behalf.
 

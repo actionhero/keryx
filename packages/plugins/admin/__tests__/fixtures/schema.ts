@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  date,
   integer,
   pgTable,
   primaryKey,
@@ -29,6 +30,11 @@ export const adminWidgets = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     // Writable, unlike created_at, so timestamp round-tripping is testable.
     scheduledAt: timestamp("scheduled_at"),
+    // Both Drizzle spellings of a date-only column. They differ in the TS type handed
+    // back (string vs Date) but share `sqlType: "date"`, and neither has a time
+    // component — so both must avoid the timezone shifting a timestamp needs.
+    dueOn: date("due_on"),
+    startOn: date("start_on", { mode: "date" }),
   },
   (table) => ({
     nameIndex: uniqueIndex("admin_widgets_name_idx").on(table.name),
@@ -88,7 +94,9 @@ export async function createFixtureTables() {
       "status" text,
       "active" boolean NOT NULL DEFAULT true,
       "created_at" timestamp NOT NULL DEFAULT now(),
-      "scheduled_at" timestamp
+      "scheduled_at" timestamp,
+      "due_on" date,
+      "start_on" date
     );
     CREATE UNIQUE INDEX IF NOT EXISTS "admin_widgets_name_idx" ON "admin_widgets" ("name");
 

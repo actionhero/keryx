@@ -26,6 +26,19 @@ export function coerceValue(column: PgColumn, value: unknown): unknown {
   // them as SQL NULL and let a NOT NULL constraint object if that's wrong.
   if (value === "" && column.dataType !== "string") return null;
 
+  // A `date` column stores a calendar day with no time component, so it must never be
+  // routed through the timestamp branch below: formatting an instant with local
+  // components lands on the previous day anywhere west of UTC, and that applies to the
+  // server's timezone as much as the browser's. Normalizing to the bare day first makes
+  // the result independent of both.
+  if (column.getSQLType() === "date") {
+    const day = calendarDay(value);
+    if (!day) throw invalid(column, value, "a date (YYYY-MM-DD)");
+    // `date()` maps to a string; `date({ mode: "date" })` maps to a Date, which Drizzle
+    // formats back out in UTC — so anchor it at UTC midnight.
+    return column.dataType === "date" ? new Date(`${day}T00:00:00.000Z`) : day;
+  }
+
   switch (column.dataType) {
     case "number": {
       if (typeof value === "number") return value;
@@ -98,6 +111,25 @@ export function coerceValue(column: PgColumn, value: unknown): unknown {
     default:
       return value;
   }
+}
+
+/**
+ * Reduce a value to a bare `YYYY-MM-DD` calendar day, accepting either that form or a
+ * full ISO instant (whose UTC day is taken).
+ *
+ * @param value - Raw value from request params.
+ * @returns The calendar day, or `null` when the value isn't a date at all.
+ */
+function calendarDay(value: unknown): string | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime())
+      ? null
+      : value.toISOString().slice(0, 10);
+  }
+  if (typeof value !== "string") return null;
+
+  const match = value.trim().match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : null;
 }
 
 function invalid(column: PgColumn, value: unknown, expected: string) {

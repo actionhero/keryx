@@ -40,17 +40,34 @@ async function login(
   return `${config.session.cookieName}=${cookie[1]}`;
 }
 
+/** CSRF token bound to `adminCookie`; the app guards admin writes with it. */
+let csrfToken = "";
+
 async function adminFetch(
   path: string,
-  init: { method?: string; body?: unknown; cookie?: string } = {},
+  init: {
+    method?: string;
+    body?: unknown;
+    cookie?: string;
+    /** Omit the CSRF token, to prove the guard is actually load-bearing. */
+    withoutCsrf?: boolean;
+  } = {},
 ) {
+  const isWrite = ["PUT", "POST", "DELETE"].includes(init.method ?? "GET");
+  // Reads deliberately don't carry the token — `writeMiddleware` only guards writes.
+  const needsToken =
+    isWrite && !init.withoutCsrf && path.endsWith("/record") && csrfToken;
+  const body = needsToken
+    ? { ...(init.body as Record<string, unknown>), csrfToken }
+    : init.body;
+
   const res = await fetch(`${getUrl()}/api/admin${path}`, {
     method: init.method ?? "GET",
     headers: {
-      ...(init.body ? { "Content-Type": "application/json" } : {}),
+      ...(body ? { "Content-Type": "application/json" } : {}),
       ...(init.cookie ? { Cookie: init.cookie } : {}),
     },
-    body: init.body ? JSON.stringify(init.body) : undefined,
+    body: body ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
   return { status: res.status, body: text ? JSON.parse(text) : null };
@@ -67,6 +84,14 @@ describe("admin plugin wiring", () => {
     subjectId = ((await subject.json()) as { user: { id: number } }).user.id;
 
     adminCookie = await login();
+
+    // The dashboard's UI does this same fetch on boot.
+    const tokenRes = await fetch(`${getUrl()}/api/csrf-token`, {
+      headers: { Cookie: adminCookie },
+    });
+    expect(tokenRes.status).toBe(200);
+    csrfToken = ((await tokenRes.json()) as { token: string }).token;
+    expect(csrfToken.length).toBeGreaterThan(20);
 
     // Prove the session really is the admin before any test depends on it.
     const { status, body } = await adminFetch("/tables", {
@@ -202,6 +227,58 @@ describe("admin plugin wiring", () => {
     });
 
     expect(body.error.message).toContain("required value is missing");
+  });
+
+  describe("CSRF protection on writes", () => {
+    test("rejects a write with no token", async () => {
+      const { status, body } = await adminFetch("/tables/users/record", {
+        method: "POST",
+        cookie: adminCookie,
+        withoutCsrf: true,
+        body: { pk: { id: subjectId }, values: { name: "No Token" } },
+      });
+
+      expect(status).toBe(403);
+      expect(body.error.message).toContain("CSRF token");
+    });
+
+    test("rejects a write with a wrong token", async () => {
+      const { status } = await adminFetch("/tables/users/record", {
+        method: "POST",
+        cookie: adminCookie,
+        withoutCsrf: true,
+        body: {
+          pk: { id: subjectId },
+          values: { name: "Bad Token" },
+          csrfToken: "not-the-real-token",
+        },
+      });
+
+      expect(status).toBe(403);
+    });
+
+    test("accepts a write with the session's token", async () => {
+      // The token has to survive the action's Zod schema to reach the middleware at
+      // all, which is the part that silently doesn't work if the schema omits it.
+      const { status } = await adminFetch("/tables/users/record", {
+        method: "POST",
+        cookie: adminCookie,
+        body: { pk: { id: subjectId }, values: { name: "Token Accepted" } },
+      });
+
+      expect(status).toBe(200);
+    });
+
+    test("does not require a token on reads", async () => {
+      const { status } = await adminFetch("/tables/users/list", {
+        method: "POST",
+        cookie: adminCookie,
+        withoutCsrf: true,
+        body: {},
+      });
+
+      expect(status).toBe(200);
+    });
   });
 
   test("keeps admin actions off the MCP surface by default", () => {

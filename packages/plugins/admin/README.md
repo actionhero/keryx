@@ -112,7 +112,7 @@ Add a constraint in a migration and the dashboard enforces it immediately, with 
 | `admin.defaultLimit` | `ADMIN_DEFAULT_LIMIT` | `25` | Rows per page when unspecified |
 | `admin.maxLimit` | `ADMIN_MAX_LIMIT` | `500` | Ceiling on rows per page |
 
-Plus the registration options: `tables` (include/exclude lists), `columns` (per-table `hidden` and `readOnly`), and `extraMiddleware` (appended to every data action, after the role gate).
+Plus the registration options: `tables` (include/exclude lists), `columns` (per-table `hidden` and `readOnly`), `extraMiddleware` (appended to every data action, after the role gate), and `writeMiddleware` (appended to create, update, and delete only).
 
 ### MCP
 
@@ -139,7 +139,7 @@ One self-contained HTML file with inline CSS and JavaScript, served by `admin:ui
 
 The `/admin` route itself is unauthenticated because it returns no data; an anonymous visitor gets a "not authorized" prompt, not a database.
 
-If your app uses [`@keryxjs/csrf`](https://keryxjs.com/plugins/csrf), pass `CsrfMiddleware` via `extraMiddleware` to protect the write actions.
+If your app uses [`@keryxjs/csrf`](https://keryxjs.com/plugins/csrf), pass `CsrfMiddleware` via `writeMiddleware` to protect the writes. Not `extraMiddleware` — guarding reads would force the token into a GET query string, and reads change no state. The write actions declare an optional `csrfToken` input so the token survives Zod's unknown-key stripping, and the UI fetches and sends it automatically.
 
 ## Local development
 

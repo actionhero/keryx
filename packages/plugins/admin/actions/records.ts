@@ -4,6 +4,7 @@ import {
   config,
   ErrorType,
   HTTP_METHOD,
+  secret,
   TypedError,
 } from "keryx";
 import { z } from "zod";
@@ -26,6 +27,14 @@ const pkSchema = z.record(
 );
 
 const valuesSchema = z.record(z.string(), z.unknown());
+
+/**
+ * Declared on every write action so a CSRF guard passed via
+ * `adminPlugin({ writeMiddleware })` can actually see the token. Zod objects strip
+ * unknown keys, so a field the schema doesn't mention is gone before middleware runs —
+ * which would make `CsrfMiddleware` reject every write instead of protecting it.
+ */
+const csrfTokenSchema = secret(z.string()).optional();
 
 /**
  * Build the `admin:record:show` action. `POST` so the primary key can travel as a
@@ -72,7 +81,11 @@ export function createAdminCreateAction(options: AdminActionOptions) {
     name = "admin:record:create";
     description =
       "Insert a row. Pass `values` keyed by column name; omitted columns take their database defaults. Requires the 'full' admin role.";
-    inputs = z.object({ table: z.string().min(1), values: valuesSchema });
+    inputs = z.object({
+      table: z.string().min(1),
+      values: valuesSchema,
+      csrfToken: csrfTokenSchema,
+    });
     web = {
       route: `${config.admin.route}/tables/:table/record`,
       method: HTTP_METHOD.PUT,
@@ -108,6 +121,7 @@ export function createAdminUpdateAction(options: AdminActionOptions) {
       table: z.string().min(1),
       pk: pkSchema,
       values: valuesSchema,
+      csrfToken: csrfTokenSchema,
     });
     web = {
       route: `${config.admin.route}/tables/:table/record`,
@@ -149,7 +163,11 @@ export function createAdminDestroyAction(options: AdminActionOptions) {
     name = "admin:record:destroy";
     description =
       "Delete a row addressed by primary key. Pass `pk` keyed by primary key column name. Requires the 'full' admin role.";
-    inputs = z.object({ table: z.string().min(1), pk: pkSchema });
+    inputs = z.object({
+      table: z.string().min(1),
+      pk: pkSchema,
+      csrfToken: csrfTokenSchema,
+    });
     web = {
       route: `${config.admin.route}/tables/:table/record`,
       method: HTTP_METHOD.DELETE,

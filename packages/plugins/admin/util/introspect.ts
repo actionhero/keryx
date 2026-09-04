@@ -1,5 +1,5 @@
 import { getTableName } from "drizzle-orm";
-import { getTableConfig } from "drizzle-orm/pg-core";
+import { getTableConfig, type PgColumn } from "drizzle-orm/pg-core";
 import {
   type ExposedTable,
   primaryKeyColumns,
@@ -13,7 +13,10 @@ export type AdminColumnKind =
   | "number"
   | "bigint"
   | "boolean"
+  /** A point in time. Carries a timezone-sensitive time component. */
   | "date"
+  /** A calendar day with no time component, and so no timezone. */
+  | "date-only"
   | "json"
   | "array"
   | "buffer"
@@ -50,12 +53,20 @@ export type AdminTableMeta = {
 };
 
 /**
- * Map Drizzle's `dataType` onto the coarser kinds the dashboard cares about. Drizzle
- * already normalizes across column constructors, so this is a rename rather than a
- * type inspection.
+ * Map a column onto the coarser kinds the dashboard cares about.
+ *
+ * Mostly a rename of Drizzle's `dataType`, with one deliberate exception: a `date`
+ * column is reported as `date-only` regardless of the TS type Drizzle hands back for it.
+ * `date()` yields a string and `date({ mode: "date" })` yields a `Date`, so `dataType`
+ * alone would send the second down the timestamp path — and rendering a calendar day in
+ * a timezone-aware widget drags it through the browser's offset, landing it on the
+ * previous day anywhere west of UTC. The SQL type is the only reliable signal that
+ * there's no time component to convert.
  */
-function columnKind(dataType: string): AdminColumnKind {
-  switch (dataType) {
+function columnKind(column: PgColumn): AdminColumnKind {
+  if (column.getSQLType() === "date") return "date-only";
+
+  switch (column.dataType) {
     case "string":
     case "number":
     case "bigint":
@@ -64,7 +75,7 @@ function columnKind(dataType: string): AdminColumnKind {
     case "json":
     case "array":
     case "buffer":
-      return dataType;
+      return column.dataType;
     default:
       return "unknown";
   }
@@ -125,7 +136,7 @@ export function describeTable(exposed: ExposedTable): AdminTableMeta {
   const columns: AdminColumnMeta[] = readableColumns(exposed).map((column) => ({
     name: column.name,
     sqlType: column.getSQLType(),
-    kind: columnKind(column.dataType),
+    kind: columnKind(column),
     nullable: !column.notNull,
     primaryKey: primaryKey.includes(column.name),
     unique: column.isUnique || singleColumnUnique.has(column.name),
