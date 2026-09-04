@@ -7,10 +7,23 @@ import {
   test,
 } from "bun:test";
 import { api, config } from "keryx";
+import { createAdminListAction } from "../actions/list";
+import {
+  createAdminCreateAction,
+  createAdminDestroyAction,
+  createAdminShowAction,
+  createAdminUpdateAction,
+} from "../actions/records";
+import {
+  createAdminTableSchemaAction,
+  createAdminTablesAction,
+} from "../actions/tables";
+import { createAdminUIAction } from "../actions/ui";
 import { adminPlugin } from "../index";
 import type { AdminColumnMeta, AdminTableMeta } from "../util/introspect";
-import type { AdminRole } from "../util/roles";
+import { type AdminRole, roleFromUserColumn } from "../util/roles";
 import {
+  adminWidgets,
   createFixtureTables,
   dropFixtureTables,
   truncateFixtures,
@@ -164,6 +177,52 @@ describe("admin plugin", () => {
       } finally {
         config.admin.enabled = true;
       }
+    });
+  });
+
+  describe("roleFromUserColumn", () => {
+    type FakeSession = { userId?: number };
+
+    /** Stand in for a Connection carrying just the session the helper reads. */
+    const connectionFor = (session: FakeSession | undefined) =>
+      ({ session: session ? { data: session } : undefined }) as never;
+
+    const resolver = roleFromUserColumn<FakeSession>({
+      table: adminWidgets,
+      sessionKey: (session) => session.userId,
+      // `name` stands in for whatever column an app keys admin access off.
+      role: (row) =>
+        row.name === "admin-full"
+          ? "full"
+          : row.name === "admin-read"
+            ? "read-only"
+            : null,
+    });
+
+    test("maps a loaded row to a role", async () => {
+      const full = await createWidget({ name: "admin-full" });
+      const read = await createWidget({ name: "admin-read" });
+
+      expect(
+        await resolver(connectionFor({ userId: full.record.id as number })),
+      ).toBe("full");
+      expect(
+        await resolver(connectionFor({ userId: read.record.id as number })),
+      ).toBe("read-only");
+    });
+
+    test("denies when the mapping returns null", async () => {
+      const { record } = await createWidget({ name: "ordinary" });
+
+      expect(
+        await resolver(connectionFor({ userId: record.id as number })),
+      ).toBeNull();
+    });
+
+    test("denies anonymous callers and rows that no longer exist", async () => {
+      expect(await resolver(connectionFor(undefined))).toBeNull();
+      expect(await resolver(connectionFor({}))).toBeNull();
+      expect(await resolver(connectionFor({ userId: 999999 }))).toBeNull();
     });
   });
 
@@ -699,6 +758,20 @@ describe("admin plugin", () => {
   });
 
   describe("MCP exposure", () => {
+    /** Every data action factory, to prove the toggle covers the whole group. */
+    const dataFactories = [
+      createAdminTablesAction,
+      createAdminTableSchemaAction,
+      createAdminListAction,
+      createAdminShowAction,
+      createAdminCreateAction,
+      createAdminUpdateAction,
+      createAdminDestroyAction,
+    ];
+
+    const build = (factory: (typeof dataFactories)[number]) =>
+      new (factory({ resolveRole: () => "full", extraMiddleware: [] }))();
+
     test("keeps data actions off the MCP surface by default", () => {
       const dataAction = api.actions.actions.find(
         (a) => a.name === "admin:table:list",
@@ -708,10 +781,35 @@ describe("admin plugin", () => {
       expect(dataAction?.mcp?.tool).toBe(false);
     });
 
-    test("never exposes the HTML UI action as a tool", () => {
-      const ui = api.actions.actions.find((a) => a.name === "admin:ui");
+    test("config.admin.mcp switches the whole group on at once", () => {
+      config.admin.mcp = true;
+      try {
+        // Read at construction, which the actions initializer runs after plugin
+        // config defaults are merged.
+        const enabled = dataFactories.map((f) => build(f).mcp?.tool);
+        expect(enabled).toEqual(dataFactories.map(() => true));
+      } finally {
+        config.admin.mcp = false;
+      }
 
+      const disabled = dataFactories.map((f) => build(f).mcp?.tool);
+      expect(disabled).toEqual(dataFactories.map(() => false));
+    });
+
+    test("never exposes the HTML UI action as a tool, even with MCP on", () => {
+      const ui = api.actions.actions.find((a) => a.name === "admin:ui");
       expect(ui?.mcp?.tool).toBe(false);
+
+      config.admin.mcp = true;
+      try {
+        const rebuilt = new (createAdminUIAction({
+          resolveRole: () => "full",
+          extraMiddleware: [],
+        }))();
+        expect(rebuilt.mcp.tool).toBe(false);
+      } finally {
+        config.admin.mcp = false;
+      }
     });
 
     test("registers every data action under the admin route", () => {

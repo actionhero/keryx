@@ -29,8 +29,13 @@ export type RoleFromUserColumnOptions<TSession> = {
   idColumn?: PgColumn;
   /** Pulls the user's id out of the session. Return undefined for anonymous callers. */
   sessionKey: (session: TSession) => string | number | undefined;
-  /** Maps a loaded user row to a role. Return `null` to deny access. */
-  role: (user: Record<string, unknown>) => AdminRole | null;
+  /**
+   * Maps a loaded user row to a role. Return `null` to deny access. May be async, for
+   * mappings that need to consult something beyond the row itself.
+   */
+  role: (
+    user: Record<string, unknown>,
+  ) => Promise<AdminRole | null> | AdminRole | null;
 };
 
 /**

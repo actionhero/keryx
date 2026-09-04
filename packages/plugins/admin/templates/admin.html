@@ -95,8 +95,10 @@
   }
   .empty { padding: 2rem; text-align: center; color: var(--fg2); font-size: 0.9rem; }
 
+  /* `* { margin: 0 }` above clobbers the UA's `margin: auto`, which is what centers a
+     modal dialog — so put it back explicitly. */
   dialog { border: 1px solid var(--border); border-radius: 8px; background: var(--bg2); color: var(--fg);
-    padding: 0; max-width: 640px; width: calc(100% - 2rem); }
+    padding: 0; margin: auto; max-width: 640px; width: calc(100% - 2rem); }
   dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
   .dlg-head { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); display: flex;
     justify-content: space-between; align-items: center; gap: 1rem; }
@@ -107,9 +109,12 @@
   .field label { display: block; font-size: 0.75rem; color: var(--fg2); margin-bottom: 0.2rem; }
   .field label .req { color: var(--danger); }
   .field label .tag { font-family: var(--mono); font-size: 0.7rem; }
-  .field input, .field select { width: 100%; }
+  /* Checkboxes are excluded: a stretched checkbox renders centered in its row. */
+  .field input:not([type="checkbox"]), .field select { width: 100%; }
   .field .note { font-size: 0.72rem; color: var(--fg2); margin-top: 0.15rem; }
-  .field-null { font-size: 0.75rem; color: var(--fg2); display: flex; align-items: center; gap: 0.3rem; margin-top: 0.25rem; }
+  .field-null { font-size: 0.75rem; color: var(--fg2); display: inline-flex; align-items: center;
+    gap: 0.3rem; margin-top: 0.3rem; cursor: pointer; }
+  .field-null input { margin: 0; }
 </style>
 </head>
 <body>
@@ -606,9 +611,11 @@ async function saveEditor() {
       await call(path, { method: "POST", body: { pk: editorTarget, values } });
     }
     el("editor").close();
-    banner(isNew ? "Row created." : "Row updated.", "success");
+    // Reload first: loadRows() clears the banner, so the confirmation has to land after
+    // it or the user never sees it.
     await refreshCounts();
     await loadRows();
+    banner(isNew ? "Row created." : "Row updated.", "success");
   } catch (error) {
     banner(error.message, "error");
   }
@@ -624,9 +631,9 @@ async function destroyRow(row) {
       method: "DELETE",
       body: { pk },
     });
-    banner("Row deleted.", "success");
     await refreshCounts();
     await loadRows();
+    banner("Row deleted.", "success");
   } catch (error) {
     banner(error.message, "error");
   }
