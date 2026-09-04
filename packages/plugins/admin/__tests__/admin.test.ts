@@ -22,7 +22,9 @@ import {
 import { createAdminUIAction } from "../actions/ui";
 import { adminPlugin } from "../index";
 import type { AdminColumnMeta, AdminTableMeta } from "../util/introspect";
+import { requireTable } from "../util/registry";
 import { type AdminRole, roleFromUserColumn } from "../util/roles";
+import { buildOrderBy } from "../util/sort";
 import {
   adminWidgets,
   createFixtureTables,
@@ -358,6 +360,103 @@ describe("admin plugin", () => {
         total: 4,
         pages: 2,
       });
+    });
+
+    describe("order-by construction", () => {
+      /**
+       * Asserted on the generated SQL rather than on paging behaviour. A tie-order bug
+       * only shows up once the planner chooses a different access path between two page
+       * requests, which small test tables never do — so a behavioural test would pass
+       * with or without the tiebreaker and guard nothing.
+       */
+      const orderBySql = (
+        sort?: Array<{ column: string; direction: "asc" | "desc" }>,
+      ) => {
+        const exposed = requireTable("admin_widgets");
+        return api.db.db
+          .select()
+          .from(exposed.table)
+          .orderBy(...buildOrderBy(exposed, sort))
+          .toSQL().sql;
+      };
+
+      test("appends the primary key after a caller's sort", () => {
+        const sql = orderBySql([{ column: "quantity", direction: "desc" }]);
+
+        expect(sql).toContain(`order by "admin_widgets"."quantity" desc`);
+        expect(sql).toContain(`"admin_widgets"."id" asc`);
+      });
+
+      test("orders by the primary key when no sort is requested", () => {
+        expect(orderBySql()).toContain(`order by "admin_widgets"."id" asc`);
+      });
+
+      test("does not repeat a column the caller already sorted on", () => {
+        const sql = orderBySql([{ column: "id", direction: "desc" }]);
+
+        expect(sql).toContain(`order by "admin_widgets"."id" desc`);
+        expect(sql).not.toContain(`"admin_widgets"."id" asc`);
+      });
+
+      test("falls back to every column for a table with no primary key", () => {
+        const exposed = requireTable("admin_keyless");
+        const sql = api.db.db
+          .select()
+          .from(exposed.table)
+          .orderBy(...buildOrderBy(exposed))
+          .toSQL().sql;
+
+        expect(sql).toContain(`order by "admin_keyless"."value" asc`);
+      });
+    });
+
+    test("pages a non-unique sort without skipping or duplicating rows", async () => {
+      // Every row shares the same `quantity`, so the sort column can't order them.
+      // Without a primary key tiebreaker the planner is free to return ties in a
+      // different order for each page request, which shows one row twice and drops
+      // another.
+      await truncateFixtures();
+      const expected = ["a", "b", "c", "d", "e", "f", "g", "h"];
+      for (const name of expected) await createWidget({ name, quantity: 5 });
+
+      const seen: string[] = [];
+      for (let page = 1; page <= 4; page++) {
+        const result = await listWidgets({
+          limit: 2,
+          page,
+          sort: [{ column: "quantity", direction: "asc" }],
+        });
+        seen.push(...(names(result.data) as string[]));
+      }
+
+      expect(seen).toHaveLength(expected.length);
+      expect([...new Set(seen)].sort()).toEqual(expected);
+    });
+
+    test("pages a keyless table without skipping or duplicating rows", async () => {
+      // No primary key to tiebreak with, so ordering falls back to every column.
+      for (const value of ["one", "two", "three", "four"]) {
+        await ok("/tables/admin_keyless/record", {
+          method: "PUT",
+          body: { values: { value } },
+        });
+      }
+
+      const seen: unknown[] = [];
+      for (let page = 1; page <= 2; page++) {
+        const result = await ok<{ data: Record<string, unknown>[] }>(
+          "/tables/admin_keyless/list",
+          { method: "POST", body: { limit: 2, page } },
+        );
+        seen.push(...result.data.map((row) => row.value));
+      }
+
+      expect([...new Set(seen)].sort()).toEqual([
+        "four",
+        "one",
+        "three",
+        "two",
+      ]);
     });
 
     test("sorts by a requested column and direction", async () => {

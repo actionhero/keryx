@@ -1,4 +1,4 @@
-import { asc, count, desc } from "drizzle-orm";
+import { count } from "drizzle-orm";
 import {
   type Action,
   api,
@@ -15,11 +15,8 @@ import {
   compileFilter,
 } from "../util/filters";
 import { selection } from "../util/records";
-import {
-  primaryKeyColumns,
-  requireColumn,
-  requireTable,
-} from "../util/registry";
+import { requireTable } from "../util/registry";
+import { buildOrderBy } from "../util/sort";
 import {
   type AdminActionOptions,
   adminMcpEnabled,
@@ -72,20 +69,7 @@ export function createAdminListAction(options: AdminActionOptions) {
       const exposed = requireTable(params.table);
       const where = compileFilter(exposed, params.filter);
 
-      // Without a deterministic order, paging through a table can show the same row
-      // twice and skip another. Fall back to the primary key when the caller doesn't
-      // specify a sort.
-      const requestedSort = params.sort?.length
-        ? params.sort
-        : primaryKeyColumns(exposed).map((c) => ({
-            column: c.name,
-            direction: "asc" as const,
-          }));
-
-      const orderBy = requestedSort.map((entry) => {
-        const column = requireColumn(exposed, entry.column);
-        return entry.direction === "desc" ? desc(column) : asc(column);
-      });
+      const orderBy = buildOrderBy(exposed, params.sort);
 
       const rowsQuery = api.db.db
         .select(selection(exposed))

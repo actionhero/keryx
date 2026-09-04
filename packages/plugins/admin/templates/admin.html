@@ -644,6 +644,15 @@ async function saveEditor() {
   const values = collectValues(isNew);
   const path = `/tables/${encodeURIComponent(state.table)}/record`;
 
+  // Since updates send only what changed, saving without editing anything would post
+  // an empty `values` and come back as "No writable columns supplied" — which reads
+  // like a failure when the user simply didn't change their mind about anything.
+  if (!isNew && Object.keys(values).length === 0) {
+    el("editor").close();
+    banner("No changes to save.", "success");
+    return;
+  }
+
   try {
     if (isNew) {
       await call(path, { method: "PUT", body: { values } });
