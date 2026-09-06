@@ -1,6 +1,11 @@
 import * as Sentry from "@sentry/bun";
 import { api, CONNECTION_TYPE, config } from "keryx";
 import {
+  isActionTraced,
+  isDroppableTransportSpan,
+  markSpanSkipped,
+  matchWebActionName,
+  peekWsActionName,
   peekWsMessageType,
   type SentrySpan,
   shouldCapture,
@@ -23,6 +28,22 @@ import { recordActionMetric } from "./telemetry";
  */
 export function registerTracingHooks(state: SentryRequestState) {
   api.hooks.web.beforeRequest((req, ctx) => {
+    ctx.metadata.sentryPrevSuppressed =
+      state.tracingSuppressedALS.getStore() === true;
+    ctx.metadata.sentryPrevSpan = state.spanALS.getStore();
+    const actionName = matchWebActionName(req);
+    if (!isActionTraced(actionName)) {
+      ctx.metadata.sentryTracingSuppressed = true;
+      state.tracingSuppressedALS.enterWith(true);
+      state.spanALS.enterWith(undefined);
+      return;
+    }
+    // Jobs/requests are top-level: clear a flag left by a previous opted-out
+    // job on this async context (node-resque workers reuse one). Nested
+    // `connection.act()` still goes through beforeAct, which preserves
+    // an outer request's suppress.
+    state.tracingSuppressedALS.enterWith(false);
+
     const method = req.method?.toUpperCase() ?? "";
     const sentryTrace = req.headers.get("sentry-trace") ?? undefined;
     const baggage = req.headers.get("baggage") ?? undefined;
@@ -45,22 +66,37 @@ export function registerTracingHooks(state: SentryRequestState) {
   });
 
   api.hooks.web.afterRequest((_req, _res, ctx, outcome) => {
-    const httpSpan = ctx.metadata.sentrySpan as SentrySpan | undefined;
-    if (!httpSpan) return;
-    httpSpan.setAttribute("http.response.status_code", outcome.status);
-    if (outcome.actionName) {
-      httpSpan.setAttribute("http.route", outcome.actionName);
-      Sentry.updateSpanName(
-        httpSpan,
-        `${outcome.method} ${outcome.actionName}`,
+    try {
+      if (ctx.metadata.sentryTracingSuppressed) return;
+      const httpSpan = ctx.metadata.sentrySpan as SentrySpan | undefined;
+      if (!httpSpan) return;
+      if (!isActionTraced(outcome.actionName)) {
+        markSpanSkipped(httpSpan);
+        httpSpan.end();
+        return;
+      }
+      httpSpan.setAttribute("http.response.status_code", outcome.status);
+      if (outcome.actionName) {
+        httpSpan.setAttribute("http.route", outcome.actionName);
+        Sentry.updateSpanName(
+          httpSpan,
+          `${outcome.method} ${outcome.actionName}`,
+        );
+      }
+      if (outcome.status >= 400) {
+        httpSpan.setStatus({ code: 2 });
+      } else {
+        httpSpan.setStatus({ code: 1 });
+      }
+      httpSpan.end();
+    } finally {
+      state.spanALS.enterWith(
+        ctx.metadata.sentryPrevSpan as SentrySpan | undefined,
+      );
+      state.tracingSuppressedALS.enterWith(
+        ctx.metadata.sentryPrevSuppressed === true,
       );
     }
-    if (outcome.status >= 400) {
-      httpSpan.setStatus({ code: 2 });
-    } else {
-      httpSpan.setStatus({ code: 1 });
-    }
-    httpSpan.end();
   });
 
   api.hooks.ws.onConnect((connection) => {
@@ -80,6 +116,17 @@ export function registerTracingHooks(state: SentryRequestState) {
   api.hooks.ws.onMessage((connection, message) => {
     const messageType = peekWsMessageType(message);
     const parent = state.wsConnections.get(connection);
+
+    if (
+      messageType === "action" &&
+      !isActionTraced(peekWsActionName(message))
+    ) {
+      // Skip the per-message span; `beforeAct` / `afterAct` own the
+      // suppress flag so it cannot stick to this long-lived connection.
+      if (parent) state.spanALS.enterWith(parent);
+      return;
+    }
+
     const span = Sentry.startInactiveSpan({
       name: `ws.message ${messageType}`,
       op: "ws.server",
@@ -183,6 +230,24 @@ export function registerTracingHooks(state: SentryRequestState) {
         ? { user: prevScope.user, tags: { ...prevScope.tags } }
         : { tags: {} },
     );
+
+    const prevSuppressed = state.tracingSuppressedALS.getStore() === true;
+    actCtx.metadata.sentryPrevSuppressed = prevSuppressed;
+
+    if (!isActionTraced(actionName) || prevSuppressed) {
+      const parent = state.spanALS.getStore();
+      if (
+        !isActionTraced(actionName) &&
+        parent &&
+        isDroppableTransportSpan(parent)
+      ) {
+        markSpanSkipped(parent);
+      }
+      state.tracingSuppressedALS.enterWith(true);
+      actCtx.metadata.sentryParentSpan = parent;
+      return;
+    }
+
     const parent = state.spanALS.getStore();
     const actionSpan = Sentry.startInactiveSpan({
       name: `action:${actionName ?? "unknown"}`,
@@ -214,18 +279,22 @@ export function registerTracingHooks(state: SentryRequestState) {
                 ? outcome.error.message
                 : String(outcome.error),
           });
-          if (shouldCapture(outcome.error, config.sentry.captureClientErrors)) {
-            Sentry.withScope((scope) => {
-              state.applyRequestScope(scope);
-              scope.setTag("keryx.action", actionName);
-              scope.setTag("keryx.connection.type", connection.type);
-              Sentry.captureException(outcome.error);
-            });
-          }
         } else {
           span.setStatus({ code: 1 });
         }
         span.end();
+      }
+
+      if (
+        !outcome.success &&
+        shouldCapture(outcome.error, config.sentry.captureClientErrors)
+      ) {
+        Sentry.withScope((scope) => {
+          state.applyRequestScope(scope);
+          scope.setTag("keryx.action", actionName);
+          scope.setTag("keryx.connection.type", connection.type);
+          Sentry.captureException(outcome.error);
+        });
       }
 
       // Nested connection.act() must not close the transport span — only the
@@ -262,11 +331,15 @@ export function registerTracingHooks(state: SentryRequestState) {
       state.requestScopeALS.enterWith(
         actCtx.metadata.sentryPrevScope as RequestScopeData | undefined,
       );
+      state.tracingSuppressedALS.enterWith(
+        actCtx.metadata.sentryPrevSuppressed === true,
+      );
     },
   );
 
   api.hooks.actions.onEnqueue((_actionName, inputs) => {
     if (!api.sentry.enabled) return;
+    if (state.tracingSuppressedALS.getStore()) return;
     const parent = state.spanALS.getStore();
     if (!parent) return;
     // Ended spans (afterJob has already closed the job root) must not
@@ -286,6 +359,9 @@ export function registerTracingHooks(state: SentryRequestState) {
   });
 
   api.hooks.resque.beforeJob((actionName, params, jobCtx) => {
+    jobCtx.metadata.sentryPrevSuppressed =
+      state.tracingSuppressedALS.getStore() === true;
+    jobCtx.metadata.sentryPrevSpan = state.spanALS.getStore();
     const p = params as Record<string, unknown>;
     const sentryTrace = p._sentryTrace as string | undefined;
     const baggage = p._sentryBaggage as string | undefined;
@@ -293,6 +369,14 @@ export function registerTracingHooks(state: SentryRequestState) {
     // action's validated params.
     delete p._sentryTrace;
     delete p._sentryBaggage;
+
+    if (!isActionTraced(actionName)) {
+      state.tracingSuppressedALS.enterWith(true);
+      state.spanALS.enterWith(undefined);
+      return;
+    }
+    // See beforeRequest: traced jobs must not inherit a leaked suppress flag.
+    state.tracingSuppressedALS.enterWith(false);
 
     const start = () =>
       Sentry.startInactiveSpan({
@@ -314,19 +398,28 @@ export function registerTracingHooks(state: SentryRequestState) {
   });
 
   api.hooks.resque.afterJob((_actionName, _params, jobCtx, outcome) => {
-    const jobSpan = jobCtx.metadata.sentrySpan as SentrySpan | undefined;
-    if (!jobSpan) return;
-    if (outcome.success) {
-      jobSpan.setStatus({ code: 1 });
-    } else {
-      jobSpan.setStatus({
-        code: 2,
-        message:
-          outcome.error instanceof Error
-            ? outcome.error.message
-            : String(outcome.error),
-      });
+    try {
+      const jobSpan = jobCtx.metadata.sentrySpan as SentrySpan | undefined;
+      if (!jobSpan) return;
+      if (outcome.success) {
+        jobSpan.setStatus({ code: 1 });
+      } else {
+        jobSpan.setStatus({
+          code: 2,
+          message:
+            outcome.error instanceof Error
+              ? outcome.error.message
+              : String(outcome.error),
+        });
+      }
+      jobSpan.end();
+    } finally {
+      state.spanALS.enterWith(
+        jobCtx.metadata.sentryPrevSpan as SentrySpan | undefined,
+      );
+      state.tracingSuppressedALS.enterWith(
+        jobCtx.metadata.sentryPrevSuppressed === true,
+      );
     }
-    jobSpan.end();
   });
 }

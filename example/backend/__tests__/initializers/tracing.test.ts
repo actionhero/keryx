@@ -7,8 +7,21 @@ import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
-import { api, config } from "keryx";
+import { type Action, api, config, HTTP_METHOD } from "keryx";
+import { z } from "zod";
 import { HOOK_TIMEOUT, serverUrl } from "../setup";
+
+class TracingPing implements Action {
+  name = "tracing:ping";
+  description = "Traced action that pings Redis for span tests";
+  inputs = z.object({});
+  web = { route: "/tracing-ping", method: HTTP_METHOD.GET };
+  mcp = { tool: false };
+  async run() {
+    if (api.redis?.redis) await api.redis.redis.ping();
+    return { ok: true };
+  }
+}
 
 const spanExporter = new InMemorySpanExporter();
 
@@ -28,9 +41,13 @@ beforeAll(async () => {
   await api.initialize();
   config.tracing.enabled = true;
   await api.start();
+  api.actions.actions.push(new TracingPing());
 }, HOOK_TIMEOUT);
 
 afterAll(async () => {
+  api.actions.actions = api.actions.actions.filter(
+    (a: Action) => a.name !== "tracing:ping",
+  );
   await api.stop();
   config.tracing.enabled = false;
   await testProvider.shutdown();
@@ -46,15 +63,15 @@ describe("tracing", () => {
   test("action execution creates spans", async () => {
     spanExporter.reset();
     const url = serverUrl();
-    const res = await fetch(`${url}/api/status`);
+    const res = await fetch(`${url}/api/tracing-ping`);
     expect(res.status).toBe(200);
 
     await Bun.sleep(100);
 
     const spans = spanExporter.getFinishedSpans();
-    const actionSpan = spans.find((s) => s.name === "action:status");
+    const actionSpan = spans.find((s) => s.name === "action:tracing:ping");
     expect(actionSpan).toBeDefined();
-    expect(actionSpan!.attributes["keryx.action"]).toBe("status");
+    expect(actionSpan!.attributes["keryx.action"]).toBe("tracing:ping");
     expect(actionSpan!.attributes["keryx.connection.type"]).toBe("web");
     expect(actionSpan!.attributes["keryx.action.duration_ms"]).toBeDefined();
   });
@@ -62,18 +79,18 @@ describe("tracing", () => {
   test("HTTP request creates parent span with stable semconv attributes", async () => {
     spanExporter.reset();
     const url = serverUrl();
-    const res = await fetch(`${url}/api/status`);
+    const res = await fetch(`${url}/api/tracing-ping`);
     expect(res.status).toBe(200);
 
     await Bun.sleep(100);
 
     const spans = spanExporter.getFinishedSpans();
     // Span name is updated to include route after resolution
-    const httpSpan = spans.find((s) => s.name === "GET status");
+    const httpSpan = spans.find((s) => s.name === "GET tracing:ping");
     expect(httpSpan).toBeDefined();
     expect(httpSpan!.attributes["http.request.method"]).toBe("GET");
     expect(httpSpan!.attributes["http.response.status_code"]).toBe(200);
-    expect(httpSpan!.attributes["http.route"]).toBe("status");
+    expect(httpSpan!.attributes["http.route"]).toBe("tracing:ping");
   });
 
   test("W3C traceparent header is extracted from incoming requests", async () => {
@@ -83,7 +100,7 @@ describe("tracing", () => {
     const traceparent = `00-${traceId}-${spanId}-01`;
 
     const url = serverUrl();
-    const res = await fetch(`${url}/api/status`, {
+    const res = await fetch(`${url}/api/tracing-ping`, {
       headers: { traceparent },
     });
     expect(res.status).toBe(200);
@@ -100,13 +117,13 @@ describe("tracing", () => {
   test("action span is a child of HTTP span", async () => {
     spanExporter.reset();
     const url = serverUrl();
-    await fetch(`${url}/api/status`);
+    await fetch(`${url}/api/tracing-ping`);
 
     await Bun.sleep(100);
 
     const spans = spanExporter.getFinishedSpans();
-    const httpSpan = spans.find((s) => s.name === "GET status");
-    const actionSpan = spans.find((s) => s.name === "action:status");
+    const httpSpan = spans.find((s) => s.name === "GET tracing:ping");
+    const actionSpan = spans.find((s) => s.name === "action:tracing:ping");
 
     expect(httpSpan).toBeDefined();
     expect(actionSpan).toBeDefined();
@@ -132,6 +149,24 @@ describe("tracing", () => {
     const httpSpan = spans.find((s) => s.name.startsWith("GET"));
     expect(httpSpan).toBeDefined();
     expect(httpSpan!.attributes["http.response.status_code"]).toBe(404);
+  });
+
+  test("actions with tracing = false emit no HTTP or action spans", async () => {
+    spanExporter.reset();
+    const url = serverUrl();
+    const statusAction = api.actions.actions.find((a) => a.name === "status");
+    expect(statusAction?.tracing).toBe(false);
+    const res = await fetch(`${url}/api/status`);
+    expect(res.status).toBe(200);
+
+    await Bun.sleep(100);
+
+    const spans = spanExporter.getFinishedSpans();
+    expect(spans.some((s) => s.name === "GET status")).toBe(false);
+    expect(spans.some((s) => s.name === "action:status")).toBe(false);
+    // The status action pings Redis as a health check; that must not be traced.
+    // Other redis.* spans may still appear from the Resque worker polling queues.
+    expect(spans.some((s) => s.name === "redis.ping")).toBe(false);
   });
 
   test("tracing and metrics flags are independent", () => {
@@ -169,7 +204,7 @@ describe("tracing", () => {
   test("Redis command spans use stable semconv attributes", async () => {
     spanExporter.reset();
     const url = serverUrl();
-    await fetch(`${url}/api/status`);
+    await fetch(`${url}/api/tracing-ping`);
 
     await Bun.sleep(100);
 
@@ -184,7 +219,7 @@ describe("tracing", () => {
   test("Redis spans capture command + keys in db.query.text (no values)", async () => {
     spanExporter.reset();
     const url = serverUrl();
-    await fetch(`${url}/api/status`);
+    await fetch(`${url}/api/tracing-ping`);
 
     await Bun.sleep(100);
 
@@ -211,12 +246,12 @@ describe("tracing", () => {
   test("Redis spans exist alongside action spans in the same request", async () => {
     spanExporter.reset();
     const url = serverUrl();
-    await fetch(`${url}/api/status`);
+    await fetch(`${url}/api/tracing-ping`);
 
     await Bun.sleep(100);
 
     const spans = spanExporter.getFinishedSpans();
-    const actionSpan = spans.find((s) => s.name === "action:status");
+    const actionSpan = spans.find((s) => s.name === "action:tracing:ping");
     const redisSpans = spans.filter((s) => s.name.startsWith("redis."));
 
     expect(actionSpan).toBeDefined();
@@ -227,16 +262,16 @@ describe("tracing", () => {
   test("Redis spans from inside action.run are children of the action span", async () => {
     spanExporter.reset();
     const url = serverUrl();
-    // The status action explicitly calls api.redis.redis.ping() inside run(),
+    // tracing:ping explicitly calls api.redis.redis.ping() inside run(),
     // which produces a `redis.ping` span that should be parented to the
     // action span (session loads happen *before* beforeAct and are parented
     // to the HTTP span — that's correct, just not what we're testing here).
-    await fetch(`${url}/api/status`);
+    await fetch(`${url}/api/tracing-ping`);
 
     await Bun.sleep(100);
 
     const spans = spanExporter.getFinishedSpans();
-    const actionSpan = spans.find((s) => s.name === "action:status");
+    const actionSpan = spans.find((s) => s.name === "action:tracing:ping");
     expect(actionSpan).toBeDefined();
 
     const traceId = actionSpan!.spanContext().traceId;

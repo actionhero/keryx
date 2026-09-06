@@ -33,6 +33,7 @@ export class Status implements Action {
   inputs = z.object({});
   mcp = { tool: true };
   web = { route: "/status", method: HTTP_METHOD.GET };
+  tracing = false;
 
   async run() {
     const consumedMemoryMB =
@@ -61,6 +62,7 @@ export class StatusMarkdown implements Action {
   inputs = z.object({});
   mcp = { tool: true, responseFormat: MCP_RESPONSE_FORMAT.MARKDOWN };
   web = { route: "/status/markdown", method: HTTP_METHOD.GET };
+  tracing = false;
 
   async run() {
     const consumedMemoryMB =

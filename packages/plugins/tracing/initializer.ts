@@ -2,9 +2,11 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import path from "node:path";
 import { instrumentDrizzleClient } from "@kubiks/otel-drizzle";
 import {
+  type Attributes,
   type Context,
   type ContextManager,
   context,
+  type Link,
   propagation,
   ROOT_CONTEXT,
   type Span,
@@ -19,10 +21,13 @@ import { resourceFromAttributes } from "@opentelemetry/resources";
 import {
   BasicTracerProvider,
   BatchSpanProcessor,
+  type Sampler,
+  SamplingDecision,
+  type SamplingResult,
   TraceIdRatioBasedSampler,
 } from "@opentelemetry/sdk-trace-base";
 import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
-import { api, config, Initializer, logger } from "keryx";
+import { api, config, HTTP_METHOD, Initializer, logger } from "keryx";
 
 const namespace = "tracing";
 
@@ -40,6 +45,71 @@ declare module "keryx" {
 interface RequestState {
   httpSpan: Span;
   method: string;
+}
+
+/**
+ * True unless the named action set `tracing = false`. Unknown names stay traced.
+ */
+function isActionTraced(actionName: string | undefined): boolean {
+  if (!actionName) return true;
+  const action = api.actions.actions.find((a) => a.name === actionName);
+  return action?.tracing !== false;
+}
+
+/**
+ * Best-effort action name from an incoming HTTP request, used to skip the
+ * HTTP span before session/DB work runs.
+ */
+function matchWebActionName(req: Request): string | undefined {
+  try {
+    const pathname = new URL(req.url).pathname;
+    const pathToMatch = pathname.replace(
+      new RegExp(config.server.web.apiRoute),
+      "",
+    );
+    if (!pathToMatch) return undefined;
+    const method = (req.method?.toUpperCase() ?? "GET") as HTTP_METHOD;
+    return api.actions.router.match(pathToMatch, method)?.actionName;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Sampler that records nothing while an action with `tracing = false` is
+ * running, so Redis / Drizzle child spans don't leak as their own traces.
+ * Delegates to an inner sampler the rest of the time.
+ */
+class SuppressibleSampler implements Sampler {
+  constructor(
+    private inner: Sampler,
+    private isSuppressed: () => boolean,
+  ) {}
+
+  shouldSample(
+    context: Context,
+    traceId: string,
+    spanName: string,
+    spanKind: SpanKind,
+    attributes: Attributes,
+    links: Link[],
+  ): SamplingResult {
+    if (this.isSuppressed()) {
+      return { decision: SamplingDecision.NOT_RECORD };
+    }
+    return this.inner.shouldSample(
+      context,
+      traceId,
+      spanName,
+      spanKind,
+      attributes,
+      links,
+    );
+  }
+
+  toString(): string {
+    return `SuppressibleSampler(${this.inner.toString()})`;
+  }
 }
 
 /**
@@ -135,6 +205,12 @@ export class TracingPlugin extends Initializer {
    * calls with `context.with`.
    */
   private requestALS = new AsyncLocalStorage<RequestState>();
+  /**
+   * When true, new spans (Redis, Drizzle, nested work) are not recorded.
+   * Set at the request or job boundary for `tracing = false` and restored
+   * when that request / job finishes.
+   */
+  private tracingSuppressedALS = new AsyncLocalStorage<boolean>();
 
   constructor() {
     super(namespace);
@@ -189,7 +265,10 @@ export class TracingPlugin extends Initializer {
       url: `${config.tracing.otlpEndpoint}/v1/traces`,
     });
 
-    const sampler = new TraceIdRatioBasedSampler(config.tracing.sampleRate);
+    const sampler = new SuppressibleSampler(
+      new TraceIdRatioBasedSampler(config.tracing.sampleRate),
+      () => this.tracingSuppressedALS.getStore() === true,
+    );
 
     this.tracerProvider = new BasicTracerProvider({
       resource,
@@ -249,6 +328,20 @@ export class TracingPlugin extends Initializer {
     const tracing = api.tracing;
 
     api.hooks.web.beforeRequest((req, ctx) => {
+      ctx.metadata.otelPrevSuppressed =
+        this.tracingSuppressedALS.getStore() === true;
+      ctx.metadata.otelPrevContext = context.active();
+      const actionName = matchWebActionName(req);
+      if (!isActionTraced(actionName)) {
+        ctx.metadata.otelTracingSuppressed = true;
+        this.tracingSuppressedALS.enterWith(true);
+        this.contextManager.enterWith(ROOT_CONTEXT);
+        return;
+      }
+      // Traced requests must not inherit a leaked flag from a previous
+      // opted-out request/job on this async context.
+      this.tracingSuppressedALS.enterWith(false);
+
       const method = req.method?.toUpperCase() ?? "";
       const parentCtx = tracing.extractContext(req.headers);
       const httpSpan = tracing.tracer.startSpan(
@@ -272,21 +365,43 @@ export class TracingPlugin extends Initializer {
     });
 
     api.hooks.web.afterRequest((_req, _res, ctx, outcome) => {
-      const httpSpan = ctx.metadata.otelSpan as Span | undefined;
-      if (!httpSpan) return;
-      httpSpan.setAttribute("http.response.status_code", outcome.status);
-      if (outcome.actionName) {
-        httpSpan.setAttribute("http.route", outcome.actionName);
+      try {
+        if (ctx.metadata.otelTracingSuppressed) return;
+        const httpSpan = ctx.metadata.otelSpan as Span | undefined;
+        if (!httpSpan) return;
+        if (!isActionTraced(outcome.actionName)) {
+          // Don't export a transaction for an opted-out action. Leaving the
+          // span un-ended means the processor never sees it.
+          return;
+        }
+        httpSpan.setAttribute("http.response.status_code", outcome.status);
+        if (outcome.actionName) {
+          httpSpan.setAttribute("http.route", outcome.actionName);
+        }
+        if (outcome.status >= 400) {
+          httpSpan.setStatus({ code: SpanStatusCode.ERROR });
+        } else {
+          httpSpan.setStatus({ code: SpanStatusCode.OK });
+        }
+        httpSpan.end();
+      } finally {
+        const prevCtx = ctx.metadata.otelPrevContext as Context | undefined;
+        this.contextManager.enterWith(prevCtx ?? ROOT_CONTEXT);
+        this.tracingSuppressedALS.enterWith(
+          ctx.metadata.otelPrevSuppressed === true,
+        );
       }
-      if (outcome.status >= 400) {
-        httpSpan.setStatus({ code: SpanStatusCode.ERROR });
-      } else {
-        httpSpan.setStatus({ code: SpanStatusCode.OK });
-      }
-      httpSpan.end();
     });
 
     api.hooks.actions.beforeAct((actionName, _params, connection, actCtx) => {
+      const prevSuppressed = this.tracingSuppressedALS.getStore() === true;
+      actCtx.metadata.otelPrevSuppressed = prevSuppressed;
+
+      if (!isActionTraced(actionName) || prevSuppressed) {
+        this.tracingSuppressedALS.enterWith(true);
+        return;
+      }
+
       const parentCtx = context.active();
 
       // For web requests, update the HTTP span's name with the resolved route
@@ -320,6 +435,9 @@ export class TracingPlugin extends Initializer {
 
     api.hooks.actions.afterAct(
       (_actionName, _params, _connection, actCtx, outcome) => {
+        this.tracingSuppressedALS.enterWith(
+          actCtx.metadata.otelPrevSuppressed === true,
+        );
         const span = actCtx.metadata.otelSpan as Span | undefined;
         if (!span) return;
         span.setAttribute("keryx.action.duration_ms", outcome.duration);
@@ -339,6 +457,7 @@ export class TracingPlugin extends Initializer {
 
     api.hooks.actions.onEnqueue((_actionName, inputs) => {
       if (!tracing.enabled) return;
+      if (this.tracingSuppressedALS.getStore()) return;
       const carrier: Record<string, string> = {};
       tracing.injectContext(carrier);
       if (!carrier.traceparent) return;
@@ -348,20 +467,37 @@ export class TracingPlugin extends Initializer {
       return next;
     });
 
-    api.hooks.resque.beforeJob((_actionName, params, _ctx) => {
+    api.hooks.resque.beforeJob((actionName, params, jobCtx) => {
+      jobCtx.metadata.otelPrevSuppressed =
+        this.tracingSuppressedALS.getStore() === true;
+      jobCtx.metadata.otelPrevContext = context.active();
       const p = params as Record<string, unknown>;
       const traceParent = p._traceParent as string | undefined;
-      if (!traceParent) return;
       const traceState = p._traceState as string | undefined;
-      const headers = new Headers();
-      headers.set("traceparent", traceParent);
-      if (traceState) headers.set("tracestate", traceState);
-      const extractedCtx = tracing.extractContext(headers);
       // Strip internal framework trace-propagation fields so they don't leak
       // into the action's validated params.
       delete p._traceParent;
       delete p._traceState;
+      if (!isActionTraced(actionName)) {
+        this.tracingSuppressedALS.enterWith(true);
+        this.contextManager.enterWith(ROOT_CONTEXT);
+        return;
+      }
+      this.tracingSuppressedALS.enterWith(false);
+      if (!traceParent) return;
+      const headers = new Headers();
+      headers.set("traceparent", traceParent);
+      if (traceState) headers.set("tracestate", traceState);
+      const extractedCtx = tracing.extractContext(headers);
       this.contextManager.enterWith(extractedCtx);
+    });
+
+    api.hooks.resque.afterJob((_actionName, _params, jobCtx) => {
+      const prevCtx = jobCtx.metadata.otelPrevContext as Context | undefined;
+      this.contextManager.enterWith(prevCtx ?? ROOT_CONTEXT);
+      this.tracingSuppressedALS.enterWith(
+        jobCtx.metadata.otelPrevSuppressed === true,
+      );
     });
   }
 
@@ -383,9 +519,16 @@ export class TracingPlugin extends Initializer {
     if (!client) return;
     const tracer = api.tracing.tracer;
     const originalSendCommand = client.sendCommand.bind(client);
+    const isSuppressed = () => this.tracingSuppressedALS.getStore() === true;
     client.sendCommand = function (
       ...args: Parameters<typeof originalSendCommand>
     ) {
+      if (isSuppressed()) {
+        return originalSendCommand(...args);
+      }
+      if (!trace.getSpan(context.active())) {
+        return originalSendCommand(...args);
+      }
       const [command] = args;
       const commandName = (command as { name?: string }).name ?? "unknown";
       const queryText = buildRedisQueryText(command, commandName);

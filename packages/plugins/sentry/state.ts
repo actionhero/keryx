@@ -33,6 +33,13 @@ export class SentryRequestState {
    * current request instead of leaking through a shared global scope.
    */
   requestScopeALS = new AsyncLocalStorage<RequestScopeData | undefined>();
+  /**
+   * When true, Redis / Postgres instrumentation skips creating spans. Set at
+   * the request or job boundary for `tracing = false` and restored when that
+   * request / job finishes so the next traced work on the same async
+   * context is not left suppressed.
+   */
+  tracingSuppressedALS = new AsyncLocalStorage<boolean>();
   wsConnections = new WeakMap<object, SentrySpan>();
   wsMessageSpans = new WeakMap<object, SentrySpan>();
   mcpSessions = new Map<string, SentrySpan>();

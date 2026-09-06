@@ -62,6 +62,23 @@ The plugin adds its own `config.sentry.*` namespace. All keys except the `before
 
 `beforeSend`, `beforeSendSpan`, `beforeSendLog`, `beforeSendMetric`, and `transport` are config-only (not env vars). Use them to filter PII, drop noisy logs/metrics, or to swap the transport in tests.
 
+## Opting Out of Tracing
+
+Set `tracing = false` on an action to keep it out of Sentry traces. See [Opting Out of Tracing](/guide/actions#opting-out-of-tracing) on the actions guide for the full behavior — no action span, no Redis / Postgres spans during that action, and for HTTP and background tasks the whole transaction is dropped. Error capture and the per-action count metric still run.
+
+```ts
+export class Status implements Action {
+  name = "status";
+  tracing = false;
+  web = { route: "/status", method: HTTP_METHOD.GET };
+  async run() {
+    return { ok: true };
+  }
+}
+```
+
+The built-in `status` action already opts out, so load-balancer health checks don't fill your Sentry project with `GET status` transactions.
+
 ## Logs and Metrics
 
 Sentry [logs](https://docs.sentry.io/product/explore/logs/) and [metrics](https://docs.sentry.io/product/explore/metrics/) are opt-in. Both are off by default so existing installs keep sending only errors and traces.
@@ -93,13 +110,13 @@ Sentry.metrics.count("orders.created", 1, { attributes: { plan: user.plan } });
 
 | Span name                    | Op            | Attributes                                                                 | Notes                                                                                          |
 | ---------------------------- | ------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `<METHOD>` / `GET status`    | `http.server` | `http.request.method`, `http.response.status_code`, `http.route`, `url.full` | Root HTTP span. Renamed to `<METHOD> <route>` once the action resolves                         |
+| `<METHOD>` / `GET user:create` | `http.server` | `http.request.method`, `http.response.status_code`, `http.route`, `url.full` | Root HTTP span. Renamed to `<METHOD> <route>` once the action resolves. Not created when the action sets `tracing = false`. |
 | `ws.connect`                 | `ws.server`   | `keryx.connection.type`, `keryx.connection.id`                             | Opened on accept, ended on disconnect                                                          |
 | `ws.message <type>`          | `ws.server`   | `keryx.ws.message_type`                                                    | Child of the connection span. Action messages stay open until `afterAct`                       |
 | `mcp.connect`                | `mcp.server`  | `keryx.mcp.session_id`                                                     | Opened when the MCP session is initialized, ended on teardown                                  |
 | `mcp.message`                | `mcp.server`  | `keryx.mcp.session_id`                                                     | Child of the session span. Ended when the action finishes or the session closes                |
 | `task:<name>`                | `queue.process` | `keryx.action`, `keryx.connection.type`, `messaging.destination.name`     | Root transaction for a Resque job. Continues the enqueuer's trace when headers are present; otherwise starts a new trace |
-| `action:<name>`              | `keryx.action` | `keryx.action`, `keryx.connection.type`, `keryx.action.duration_ms`        | Fires for every action across HTTP, WebSocket, CLI, background tasks, and MCP                  |
+| `action:<name>`              | `keryx.action` | `keryx.action`, `keryx.connection.type`, `keryx.action.duration_ms`        | Fires for every traced action across HTTP, WebSocket, CLI, background tasks, and MCP. Actions with `tracing = false` are skipped. |
 | `redis.<command>`            | `db`          | `db.system="redis"`, `db.operation.name`, `db.query.text`                  | `db.query.text` is `<command> <key1> <key2>…` — keys only, values are never captured           |
 | `pg.<OP>`                    | `db`          | `db.system="postgresql"`, `db.operation.name`, `db.query.text`             | Wraps the node-postgres `Pool` Drizzle uses. SQL text up to 1000 chars; bind values are not    |
 
@@ -160,7 +177,7 @@ The plugin is fully hook-based — it does **not** modify core Keryx code. It re
 - `api.hooks.web.beforeRequest` / `afterRequest` — create and finalize the HTTP span
 - `api.hooks.ws.onConnect` / `onMessage` / `onDisconnect` — WebSocket connection and message spans
 - `api.hooks.mcp.onConnect` / `onMessage` / `onDisconnect` — MCP session and message spans
-- `api.hooks.actions.beforeAct` / `afterAct` — create and finalize the action span; capture 5xx exceptions; emit the per-action count metric when metrics are enabled
+- `api.hooks.actions.beforeAct` / `afterAct` — create and finalize the action span (skipped when the action sets `tracing = false`); capture 5xx exceptions; emit the per-action count metric when metrics are enabled
 - `api.hooks.actions.onEnqueue` — inject Sentry trace headers into task params
 - `api.hooks.resque.beforeJob` / `afterJob` — create and finalize the root `queue.process` transaction (continuing the enqueuer's trace when headers are present)
 

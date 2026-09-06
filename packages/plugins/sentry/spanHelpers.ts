@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/bun";
-import { ErrorStatusCodes, TypedError } from "keryx";
+import { api, config, ErrorStatusCodes, HTTP_METHOD, TypedError } from "keryx";
 
 /**
  * A lazily-started, inactive Sentry span. The plugin creates spans this way
@@ -7,6 +7,89 @@ import { ErrorStatusCodes, TypedError } from "keryx";
  * hand across the framework's async hooks.
  */
 export type SentrySpan = ReturnType<typeof Sentry.startInactiveSpan>;
+
+/**
+ * Attribute written onto a transport span that should not be sent. The plugin
+ * registers this key with Sentry's `ignoreSpans` so marked spans are dropped
+ * even if they are ended.
+ */
+export const TRACING_SKIP_ATTR = "keryx.tracing.skip";
+
+/**
+ * True unless the named action set `tracing = false`. Unknown or unresolved
+ * names stay traced — opt-out is explicit.
+ *
+ * @param actionName - Action name from routing / `beforeAct`, or `undefined`
+ *   when the request did not resolve to an action.
+ */
+export function isActionTraced(actionName: string | undefined): boolean {
+  if (!actionName) return true;
+  const action = api.actions.actions.find((a) => a.name === actionName);
+  return action?.tracing !== false;
+}
+
+/**
+ * Best-effort action name from an incoming HTTP request, used to skip the
+ * HTTP span *before* session/DB work runs. Returns `undefined` when the path
+ * does not match a web route.
+ *
+ * @param req - The incoming request. Only `url` and `method` are read.
+ */
+export function matchWebActionName(req: Request): string | undefined {
+  try {
+    const pathname = new URL(req.url).pathname;
+    const pathToMatch = pathname.replace(
+      new RegExp(config.server.web.apiRoute),
+      "",
+    );
+    if (!pathToMatch) return undefined;
+    const method = (req.method?.toUpperCase() ?? "GET") as HTTP_METHOD;
+    return api.actions.router.match(pathToMatch, method)?.actionName;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Read a WebSocket frame's `action` field without throwing on non-JSON.
+ *
+ * @param message - Raw WebSocket payload.
+ */
+export function peekWsActionName(message: string | Buffer): string | undefined {
+  try {
+    const parsed = JSON.parse(message.toString()) as { action?: unknown };
+    return typeof parsed.action === "string" ? parsed.action : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Mark a span so Sentry's `ignoreSpans` filter drops it on send.
+ *
+ * @param span - Live Sentry span to suppress.
+ */
+export function markSpanSkipped(span: SentrySpan): void {
+  span.setAttribute(TRACING_SKIP_ATTR, true);
+}
+
+/**
+ * True when this parent is a per-request / per-message / per-job transport
+ * span that should be dropped along with an opted-out action — not a
+ * long-lived connection/session span.
+ *
+ * @param span - Parent span from `spanALS` at `beforeAct` time.
+ */
+export function isDroppableTransportSpan(span: SentrySpan): boolean {
+  const json = Sentry.spanToJSON(span);
+  const op = json.op;
+  const name = String(json.description ?? "");
+  if (op === "http.server") return true;
+  if (op === "queue.process") return true;
+  if (name === "mcp.message") return true;
+  if (name.startsWith("ws.message")) return true;
+  return false;
+}
 
 /**
  * Build the `db.query.text` attribute for a Redis span: `"<command> <key>..."`

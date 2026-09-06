@@ -186,6 +186,16 @@ describe("Action constructor overrides", () => {
     expect(action.timeout).toBe(0);
   });
 
+  test("tracing defaults to unset (treated as enabled by tracing plugins)", () => {
+    const action = new MinimalAction({ name: "minimal" });
+    expect(action.tracing).toBeUndefined();
+  });
+
+  test("tracing: false is preserved", () => {
+    const action = new ConfiguredAction({ name: "status", tracing: false });
+    expect(action.tracing).toBe(false);
+  });
+
   test("input zod schema is attached", () => {
     const schema = z.object({ count: z.number().int().min(1) });
     const action = new ConfiguredAction({ name: "x", inputs: schema });

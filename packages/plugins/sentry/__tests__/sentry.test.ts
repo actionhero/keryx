@@ -76,26 +76,81 @@ class SentryUserBoom implements Action {
 
 class SentryEnqueue implements Action {
   name = "sentry:enqueue";
-  description = "Enqueues status as a background task";
+  description = "Enqueues sentry:traced as a background task";
   inputs = z.object({});
   web = { route: "/sentry-enqueue", method: HTTP_METHOD.GET };
   mcp = { tool: false };
   async run() {
-    await api.actions.enqueue("status");
+    await api.actions.enqueue("sentry:traced");
     return { enqueued: true };
   }
 }
 
 class SentryNest implements Action {
   name = "sentry:nest";
-  description = "Calls status via connection.act()";
+  description = "Calls sentry:traced via connection.act()";
   inputs = z.object({});
   web = { route: "/sentry-nest", method: HTTP_METHOD.GET };
   mcp = { tool: false };
   async run(_params: Record<string, unknown>, connection?: Connection) {
-    const { error } = await connection!.act("status", {});
+    const { error } = await connection!.act("sentry:traced", {});
     if (error) throw error;
     return { nested: true };
+  }
+}
+
+class SentryTraced implements Action {
+  name = "sentry:traced";
+  description = "Pings Redis and Postgres so span tests have a traced action";
+  inputs = z.object({});
+  web = { route: "/sentry-traced", method: HTTP_METHOD.GET };
+  mcp = { tool: false };
+  async run() {
+    if (api.redis?.redis) await api.redis.redis.ping();
+    if (api.db?.pool) await api.db.pool.query("SELECT 1 AS one");
+    return { ok: true };
+  }
+}
+
+class SentryQuiet implements Action {
+  name = "sentry:quiet";
+  description = "Opts out of tracing";
+  tracing = false;
+  inputs = z.object({});
+  web = { route: "/sentry-quiet", method: HTTP_METHOD.GET };
+  mcp = { tool: false };
+  async run() {
+    if (api.redis?.redis) await api.redis.redis.ping();
+    return { ok: true };
+  }
+}
+
+class SentryQuietNest implements Action {
+  name = "sentry:quiet-nest";
+  description = "Opts out of tracing then calls sentry:traced via act()";
+  tracing = false;
+  inputs = z.object({});
+  web = { route: "/sentry-quiet-nest", method: HTTP_METHOD.GET };
+  mcp = { tool: false };
+  async run(_params: Record<string, unknown>, connection?: Connection) {
+    const { error } = await connection!.act("sentry:traced", {});
+    if (error) throw error;
+    return { nested: true };
+  }
+}
+
+class SentryQuietBoom implements Action {
+  name = "sentry:quiet-boom";
+  description = "Opts out of tracing but still throws a 500";
+  tracing = false;
+  inputs = z.object({});
+  web = { route: "/sentry-quiet-boom", method: HTTP_METHOD.GET };
+  mcp = { tool: false };
+  async run() {
+    throw new TypedError({
+      message: "quiet boom failure",
+      type: ErrorType.CONNECTION_ACTION_RUN,
+    });
   }
 }
 
@@ -222,6 +277,16 @@ describe("sentry plugin (enabled)", () => {
     const recurring = new SentryRecurring();
     api.actions.actions.push(recurring);
     api.resque.jobs[recurring.name] = api.resque.wrapActionAsJob(recurring);
+    const traced = new SentryTraced();
+    api.actions.actions.push(traced);
+    api.resque.jobs[traced.name] = api.resque.wrapActionAsJob(traced);
+    const quiet = new SentryQuiet();
+    api.actions.actions.push(quiet);
+    api.resque.jobs[quiet.name] = api.resque.wrapActionAsJob(quiet);
+    api.actions.actions.push(new SentryQuietNest());
+    const quietBoom = new SentryQuietBoom();
+    api.actions.actions.push(quietBoom);
+    api.resque.jobs[quietBoom.name] = api.resque.wrapActionAsJob(quietBoom);
   }, HOOK_TIMEOUT);
 
   afterAll(async () => {
@@ -231,11 +296,18 @@ describe("sentry plugin (enabled)", () => {
         a.name !== "sentry:user-boom" &&
         a.name !== "sentry:enqueue" &&
         a.name !== "sentry:nest" &&
-        a.name !== "sentry:recurring",
+        a.name !== "sentry:recurring" &&
+        a.name !== "sentry:traced" &&
+        a.name !== "sentry:quiet" &&
+        a.name !== "sentry:quiet-nest" &&
+        a.name !== "sentry:quiet-boom",
     );
     delete api.resque.jobs["sentry:boom"];
     delete api.resque.jobs["sentry:nest"];
     delete api.resque.jobs["sentry:recurring"];
+    delete api.resque.jobs["sentry:traced"];
+    delete api.resque.jobs["sentry:quiet"];
+    delete api.resque.jobs["sentry:quiet-boom"];
     await api.stop();
     config.plugins = [];
   }, HOOK_TIMEOUT);
@@ -338,7 +410,7 @@ describe("sentry plugin (enabled)", () => {
     config.sentry.enableMetrics = false;
     try {
       logger.warn("should not reach sentry while logs are off");
-      const res = await fetch(`${serverUrl()}/api/status`);
+      const res = await fetch(`${serverUrl()}/api/sentry-traced`);
       expect(res.status).toBe(200);
       await api.sentry.flush(2000);
       await Bun.sleep(50);
@@ -358,7 +430,7 @@ describe("sentry plugin (enabled)", () => {
 
   test("HTTP request creates a transport span and an action span", async () => {
     spans.length = 0;
-    const res = await fetch(`${serverUrl()}/api/status`);
+    const res = await fetch(`${serverUrl()}/api/sentry-traced`);
     expect(res.status).toBe(200);
     await api.sentry.flush(2000);
     await Bun.sleep(50);
@@ -366,16 +438,144 @@ describe("sentry plugin (enabled)", () => {
     const httpSpan = spans.find(
       (s) => s.op === "http.server" || s.name.startsWith("GET"),
     );
-    const actionSpan = spans.find((s) => s.name === "action:status");
+    const actionSpan = spans.find((s) => s.name === "action:sentry:traced");
     expect(httpSpan).toBeDefined();
     expect(actionSpan).toBeDefined();
-    expect(actionSpan!.data["keryx.action"]).toBe("status");
+    expect(actionSpan!.data["keryx.action"]).toBe("sentry:traced");
     expect(actionSpan!.data["keryx.connection.type"]).toBe("web");
+  });
+
+  test("actions with tracing = false emit no HTTP or action spans", async () => {
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+    const prior = new Set(spans);
+    const res = await fetch(`${serverUrl()}/api/sentry-quiet`);
+    expect(res.status).toBe(200);
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const fresh = spans.filter((s) => !prior.has(s));
+    expect(fresh.some((s) => s.op === "http.server")).toBe(false);
+    expect(fresh.some((s) => s.name === "action:sentry:quiet")).toBe(false);
+    expect(fresh.some((s) => s.name.startsWith("redis."))).toBe(false);
+    expect(fresh.some((s) => s.name.startsWith("pg."))).toBe(false);
+  });
+
+  test("nested act() under tracing = false does not emit an inner action span", async () => {
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+    const prior = new Set(spans);
+    const res = await fetch(`${serverUrl()}/api/sentry-quiet-nest`);
+    expect(res.status).toBe(200);
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const fresh = spans.filter((s) => !prior.has(s));
+    expect(fresh.some((s) => s.op === "http.server")).toBe(false);
+    expect(fresh.some((s) => s.name === "action:sentry:quiet-nest")).toBe(
+      false,
+    );
+    expect(fresh.some((s) => s.name === "action:sentry:traced")).toBe(false);
+    expect(fresh.some((s) => s.name.startsWith("redis."))).toBe(false);
+  });
+
+  test("tracing = false still records the per-action count metric", async () => {
+    metrics.length = 0;
+    const res = await fetch(`${serverUrl()}/api/sentry-quiet`);
+    expect(res.status).toBe(200);
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const quietMetric = metrics.find(
+      (m) =>
+        m.name === "keryx.action.count" &&
+        m.attributes["keryx.action"] === "sentry:quiet",
+    );
+    expect(quietMetric).toBeDefined();
+  });
+
+  test("tracing = false still captures 5xx exceptions", async () => {
+    events.length = 0;
+    spans.length = 0;
+    const res = await fetch(`${serverUrl()}/api/sentry-quiet-boom`);
+    expect(res.status).toBe(500);
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    expect(spans.some((s) => s.name === "action:sentry:quiet-boom")).toBe(
+      false,
+    );
+    const messages = events.map((e) => eventMessage(e));
+    expect(messages.some((m) => m.includes("quiet boom failure"))).toBe(true);
+  });
+
+  test("opted-out background tasks emit no queue.process span", async () => {
+    await api.sentry.flush(2000);
+    spans.length = 0;
+    await performJob("sentry:quiet");
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    expect(spans.some((s) => s.name === "task:sentry:quiet")).toBe(false);
+    expect(spans.some((s) => s.name === "action:sentry:quiet")).toBe(false);
+    expect(spans.some((s) => s.name === "redis.ping")).toBe(false);
+  });
+
+  test("tracing suppress does not leak to the next job on the worker", async () => {
+    await api.sentry.flush(2000);
+    spans.length = 0;
+
+    const quietCtx = {
+      queue: "default",
+      metadata: {} as Record<string, unknown>,
+    };
+    const tracedCtx = {
+      queue: "default",
+      metadata: {} as Record<string, unknown>,
+    };
+    const quietOutcome = {
+      success: true as const,
+      result: null,
+      duration: 1,
+    };
+
+    for (const hook of api.hooks.resque.beforeJobHooks) {
+      await hook("sentry:quiet", {}, quietCtx);
+    }
+    for (const hook of api.hooks.resque.afterJobHooks) {
+      await hook("sentry:quiet", {}, quietCtx, quietOutcome);
+    }
+    for (const hook of api.hooks.resque.beforeJobHooks) {
+      await hook("sentry:traced", {}, tracedCtx);
+    }
+
+    await api.redis.redis.ping();
+
+    for (const hook of api.hooks.resque.afterJobHooks) {
+      await hook("sentry:traced", {}, tracedCtx, quietOutcome);
+    }
+
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    expect(quietCtx.metadata.sentryPrevSuppressed).toBe(false);
+    expect(tracedCtx.metadata.sentrySpan).toBeDefined();
+    expect(spans.some((s) => s.name === "redis.ping")).toBe(true);
+
+    await api.sentry.flush(2000);
+    spans.length = 0;
+    await performJob("sentry:quiet");
+    await performJob("sentry:traced");
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    expect(spans.some((s) => s.name === "task:sentry:traced")).toBe(true);
+    expect(spans.some((s) => s.name === "redis.ping")).toBe(true);
   });
 
   test("Redis commands create db spans", async () => {
     spans.length = 0;
-    const res = await fetch(`${serverUrl()}/api/status`);
+    const res = await fetch(`${serverUrl()}/api/sentry-traced`);
     expect(res.status).toBe(200);
     await api.sentry.flush(2000);
     await Bun.sleep(50);
@@ -393,7 +593,7 @@ describe("sentry plugin (enabled)", () => {
 
   test("Postgres commands create db spans", async () => {
     spans.length = 0;
-    const res = await fetch(`${serverUrl()}/api/status`);
+    const res = await fetch(`${serverUrl()}/api/sentry-traced`);
     expect(res.status).toBe(200);
     await api.sentry.flush(2000);
     await Bun.sleep(50);
@@ -422,7 +622,7 @@ describe("sentry plugin (enabled)", () => {
     socket.send(
       JSON.stringify({
         messageType: "action",
-        action: "status",
+        action: "sentry:traced",
         messageId: 1,
         params: {},
       }),
@@ -441,7 +641,7 @@ describe("sentry plugin (enabled)", () => {
     expect(
       spans.some(
         (s) =>
-          s.name === "action:status" &&
+          s.name === "action:sentry:traced" &&
           s.data["keryx.connection.type"] === "websocket",
       ),
     ).toBe(true);
@@ -502,14 +702,18 @@ describe("sentry plugin (enabled)", () => {
   });
 
   test("Postgres queries are not double-instrumented", async () => {
-    spans.length = 0;
-    await api.db.pool.query("SELECT 1 AS one");
-    await api.db.pool.query("SELECT 1 AS one");
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+    const prior = new Set(spans);
+    const res1 = await fetch(`${serverUrl()}/api/sentry-traced`);
+    const res2 = await fetch(`${serverUrl()}/api/sentry-traced`);
+    expect(res1.status).toBe(200);
+    expect(res2.status).toBe(200);
     await api.sentry.flush(2000);
     await Bun.sleep(50);
 
     const selectSpans = spans.filter(
-      (s) => s.data["db.query.text"] === "SELECT 1 AS one",
+      (s) => !prior.has(s) && s.data["db.query.text"] === "SELECT 1 AS one",
     );
     // One span per query — no stacked pool.query + client.query duplicate.
     expect(selectSpans.length).toBe(2);
@@ -714,19 +918,19 @@ describe("sentry plugin (enabled)", () => {
 
   test("background tasks create a root queue.process span and a child action span", async () => {
     spans.length = 0;
-    await performJob("status");
+    await performJob("sentry:traced");
     await api.sentry.flush(2000);
     await Bun.sleep(50);
 
-    const taskSpan = spans.find((s) => s.name === "task:status");
+    const taskSpan = spans.find((s) => s.name === "task:sentry:traced");
     const actionSpan = spans.find(
       (s) =>
-        s.name === "action:status" &&
+        s.name === "action:sentry:traced" &&
         s.data["keryx.connection.type"] === "task",
     );
     expect(taskSpan).toBeDefined();
     expect(taskSpan!.op).toBe("queue.process");
-    expect(taskSpan!.data["keryx.action"]).toBe("status");
+    expect(taskSpan!.data["keryx.action"]).toBe("sentry:traced");
     expect(taskSpan!.data["keryx.connection.type"]).toBe("task");
     expect(taskSpan!.data["messaging.destination.name"]).toBe("default");
     expect(actionSpan).toBeDefined();
@@ -742,19 +946,19 @@ describe("sentry plugin (enabled)", () => {
     expect(res.status).toBe(200);
 
     const queued = await api.actions.queued();
-    const statusJob = queued.find((j) => j.class === "status");
-    expect(statusJob).toBeDefined();
-    const payload = statusJob!.args[0] as Record<string, unknown>;
+    const tracedJob = queued.find((j) => j.class === "sentry:traced");
+    expect(tracedJob).toBeDefined();
+    const payload = tracedJob!.args[0] as Record<string, unknown>;
     expect(typeof payload._sentryTrace).toBe("string");
 
-    await performJob("status", payload);
+    await performJob("sentry:traced", payload);
     await api.sentry.flush(2000);
     await Bun.sleep(50);
 
     const httpSpan = spans.find(
       (s) => s.op === "http.server" && s.name.includes("sentry:enqueue"),
     );
-    const taskSpan = spans.find((s) => s.name === "task:status");
+    const taskSpan = spans.find((s) => s.name === "task:sentry:traced");
     expect(httpSpan).toBeDefined();
     expect(taskSpan).toBeDefined();
     expect(taskSpan!.traceId).toBe(httpSpan!.traceId);
@@ -773,7 +977,8 @@ describe("sentry plugin (enabled)", () => {
     const outer = spans.find((s) => s.name === "action:sentry:nest");
     const inner = spans.find(
       (s) =>
-        s.name === "action:status" && s.data["keryx.connection.type"] === "web",
+        s.name === "action:sentry:traced" &&
+        s.data["keryx.connection.type"] === "web",
     );
     expect(httpSpan).toBeDefined();
     expect(outer).toBeDefined();
@@ -792,12 +997,12 @@ describe("sentry plugin (enabled)", () => {
     const taskRoots = spans.filter((s) => s.op === "queue.process");
     expect(taskRoots).toHaveLength(1);
     expect(taskRoots[0]!.name).toBe("task:sentry:nest");
-    expect(spans.some((s) => s.name === "task:status")).toBe(false);
+    expect(spans.some((s) => s.name === "task:sentry:traced")).toBe(false);
 
     const outer = spans.find((s) => s.name === "action:sentry:nest");
     const inner = spans.find(
       (s) =>
-        s.name === "action:status" &&
+        s.name === "action:sentry:traced" &&
         s.data["keryx.connection.type"] === "task",
     );
     expect(outer).toBeDefined();
