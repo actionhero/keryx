@@ -176,3 +176,7 @@ Your custom metrics will be exported alongside Keryx's built-in metrics on the s
 All built-in metric attributes have bounded cardinality — they use action names, HTTP methods, status codes, and queue names, all of which are known at startup. This means the number of unique time series stays proportional to your action count and memory usage remains constant regardless of traffic volume.
 
 If you record custom metrics via your own `Meter`, avoid using unbounded values (user IDs, request paths, timestamps, etc.) as attributes. Unbounded cardinality causes the OTel SDK to allocate a new time series per unique combination, which can lead to unbounded memory growth.
+
+## Distributed Tracing
+
+For traces, use [`@keryxjs/tracing`](/plugins/tracing) (OTLP) or [`@keryxjs/sentry`](/plugins/sentry). Both honor `tracing = false` on an action so health checks like `status` stay out of the trace backend — see [Opting Out of Tracing](/guide/actions#opting-out-of-tracing). Don't run both plugins at once; they fight over the process-wide tracing context.

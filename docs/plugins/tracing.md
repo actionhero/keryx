@@ -51,7 +51,7 @@ Run the example backend with tracing enabled:
 OTEL_TRACING_ENABLED=true bun dev
 ```
 
-Open the UI at `http://localhost:16686`, pick `keryx-example-backend` (or whatever `OTEL_SERVICE_NAME` resolves to) in the service dropdown, and click **Find Traces**. A request to `/api/status` will show an HTTP span parenting an `action:*` span; actions that touch Redis or Postgres will show `redis.*` and `drizzle.*` children.
+Open the UI at `http://localhost:16686`, pick `keryx-example-backend` (or whatever `OTEL_SERVICE_NAME` resolves to) in the service dropdown, and click **Find Traces**. A request to a traced action (not `status` — that opts out) will show an HTTP span parenting an `action:*` span; actions that touch Redis or Postgres will show `redis.*` and `drizzle.*` children.
 
 ![Jaeger trace for PUT session:create: the HTTP span parents action:session:create, which in turn parents redis.get/set/incr/expire and drizzle.select child spans. The detail pane shows redis.set with db.query.text "set session:1aa34179-…" — the key is captured, the value is not.](/images/tracing-jaeger-session-create.png)
 
@@ -78,12 +78,27 @@ The plugin adds its own `config.tracing.*` namespace. All keys can be set via en
 | `tracing.spanShutdownTimeoutMs` | `OTEL_SPAN_SHUTDOWN_TIMEOUT_MS`  | `5000`                    | Timeout for flushing pending spans on shutdown          |
 | `observability.serviceName`     | `OTEL_SERVICE_NAME`              | _(app name)_              | Service name set on all spans (shared with core metrics) |
 
+## Opting Out of Tracing
+
+Set `tracing = false` on an action to keep it out of OTLP export. See [Opting Out of Tracing](/guide/actions#opting-out-of-tracing) on the actions guide for the full behavior — no action span, no Redis spans during that action, and for HTTP the whole request transaction is dropped. The built-in `status` action already opts out so health-check pings don't flood Jaeger.
+
+```ts
+export class Status implements Action {
+  name = "status";
+  tracing = false;
+  web = { route: "/status", method: HTTP_METHOD.GET };
+  async run() {
+    return { ok: true };
+  }
+}
+```
+
 ## What Gets Instrumented
 
 | Span name                 | Kind     | Attributes                                                      | Notes                                                         |
 | ------------------------- | -------- | --------------------------------------------------------------- | ------------------------------------------------------------- |
-| `<METHOD>` / `GET status` | SERVER   | `http.request.method`, `http.response.status_code`, `http.route`, `url.full` | Renamed to `<METHOD> <route>` once the action resolves        |
-| `action:<name>`           | INTERNAL | `keryx.action`, `keryx.connection.type`, `keryx.action.duration_ms` | Fires for every action across all transports (HTTP, WS, task, CLI, MCP) |
+| `<METHOD>` / `GET user:create` | SERVER   | `http.request.method`, `http.response.status_code`, `http.route`, `url.full` | Renamed to `<METHOD> <route>` once the action resolves. Not created when the action sets `tracing = false`. |
+| `action:<name>`           | INTERNAL | `keryx.action`, `keryx.connection.type`, `keryx.action.duration_ms` | Fires for every traced action across all transports (HTTP, WS, task, CLI, MCP). Actions with `tracing = false` are skipped. |
 | `redis.<command>`         | CLIENT   | `db.system.name="redis"`, `db.operation.name`, `db.query.text`  | `db.query.text` is `<command> <key1> <key2>…` — keys only, values are never captured (so AUTH passwords, SET values, etc. stay out of traces) |
 | `drizzle.*`               | CLIENT   | `db.system="postgresql"`, `db.statement` (up to 1000 chars)     | Provided by `@kubiks/otel-drizzle`                            |
 
@@ -127,7 +142,7 @@ When tracing is disabled, `api.tracing.tracer` returns a no-op tracer — `start
 The plugin is fully hook-based — it does **not** modify core Keryx code. It registers:
 
 - `api.hooks.web.beforeRequest` / `afterRequest` — create and finalize the HTTP span
-- `api.hooks.actions.beforeAct` / `afterAct` — create and finalize the action span
+- `api.hooks.actions.beforeAct` / `afterAct` — create and finalize the action span (skipped when the action sets `tracing = false`)
 - `api.hooks.actions.onEnqueue` — inject trace context into task params
 - `api.hooks.resque.beforeJob` — extract trace context when a worker picks up a task
 

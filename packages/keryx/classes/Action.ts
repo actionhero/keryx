@@ -189,6 +189,17 @@ export type ActionConstructorInputs = {
   /** Per-action timeout in ms (overrides global `config.actions.timeout`; 0 disables) */
   timeout?: number;
 
+  /**
+   * When `false`, tracing plugins (`@keryxjs/sentry`, `@keryxjs/tracing`) skip
+   * this action: no action span, and for HTTP / background tasks the whole
+   * request or job transaction is dropped. Error capture and metrics still
+   * run. Unset (the default) means the action is traced.
+   *
+   * Use this for high-frequency health checks so they don't flood the trace
+   * backend. The built-in `status` action sets `tracing = false`.
+   */
+  tracing?: boolean;
+
   /** Configure this action as a background task/job */
   task?: {
     /** Optional recurring frequency in milliseconds */
@@ -251,6 +262,11 @@ export abstract class Action {
     rawBody?: boolean;
   };
   timeout?: number;
+  /**
+   * When `false`, tracing plugins skip this action. Unset means traced.
+   * See {@link ActionConstructorInputs.tracing}.
+   */
+  tracing?: boolean;
   task?: {
     frequency?: number;
     queue: string;
@@ -261,6 +277,7 @@ export abstract class Action {
     this.inputs = args.inputs;
     this.middleware = args.middleware ?? [];
     this.timeout = args.timeout;
+    this.tracing = args.tracing;
     // MCP tools are opt-in — see the actions initializer for rationale. An action
     // becomes a tool only when it sets `mcp.tool = true` (or declares `mcp.ui`).
     this.mcp = { tool: false, ...args.mcp };

@@ -37,6 +37,12 @@ abstract class Action {
   /** Per-action timeout in ms (overrides config.actions.timeout; 0 disables) */
   timeout?: number;
 
+  /**
+   * When `false`, tracing plugins skip this action. Unset (the default) means traced.
+   * The built-in `status` action sets `tracing = false`.
+   */
+  tracing?: boolean;
+
   /** Background task config — queue is required, frequency makes it recurring */
   task?: {
     frequency?: number;
@@ -56,6 +62,8 @@ abstract class Action {
   ): Promise<any>;
 }
 ```
+
+Set `tracing = false` to skip distributed tracing for an action. See [Opting Out of Tracing](/guide/actions#opting-out-of-tracing).
 
 ## How Actions Work Across Transports
 

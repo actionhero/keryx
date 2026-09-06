@@ -1,5 +1,5 @@
 ---
-description: How to write actions — inputs, validation, web routes, task scheduling, middleware, MCP exposure, and type helpers.
+description: How to write actions — inputs, validation, web routes, task scheduling, middleware, MCP exposure, tracing opt-out, and type helpers.
 ---
 
 # Actions
@@ -31,6 +31,8 @@ export class Status implements Action {
 
 That's a fully functioning HTTP endpoint, CLI command, and WebSocket handler. Hit `GET /api/status` from a browser, run `./keryx.ts status -q | jq` from the terminal, or send `{ action: "status" }` over a WebSocket — same action, same response.
 
+The built-in `status` action also sets [`tracing = false`](#opting-out-of-tracing) so load-balancer health checks don't flood Sentry or Jaeger.
+
 ## Properties
 
 | Property      | Type                    | What it does                                                                   |
@@ -43,6 +45,7 @@ That's a fully functioning HTTP endpoint, CLI command, and WebSocket handler. Hi
 | `middleware`  | `ActionMiddleware[]`    | Runs before/after the action (auth, logging, etc.)                             |
 | `mcp`         | `McpActionConfig`       | Controls MCP exposure: tool, resource, and/or prompt (tools are opt-in)       |
 | `timeout`     | `number`                | Per-action timeout in ms (overrides `config.actions.timeout`; `0` disables)    |
+| `tracing`     | `boolean`               | Set `false` to [skip distributed tracing](#opting-out-of-tracing) for this action. Unset means traced. |
 
 ## Input Validation
 
@@ -254,6 +257,23 @@ task = { queue: "default", frequency: 1000 * 60 * 60 }; // every hour
 
 See [Tasks](/guide/tasks) for the full story on background processing and the fan-out pattern.
 
+## Opting Out of Tracing
+
+Health checks and other high-frequency endpoints will drown a trace backend if you sample them at the same rate as real work. Set `tracing = false` on the action:
+
+```ts
+export class Status implements Action {
+  name = "status";
+  tracing = false;
+  web = { route: "/status", method: HTTP_METHOD.GET };
+  // ...
+}
+```
+
+[`@keryxjs/sentry`](/plugins/sentry) and [`@keryxjs/tracing`](/plugins/tracing) both honor this: no action span, and for HTTP and background tasks the whole request or job transaction is dropped. Nested `connection.act()` into an opted-out action skips that inner span but leaves the outer trace alone. Error capture and metrics still run — you still hear about a failing health check, you just don't store a trace for every successful ping.
+
+The built-in `status` action sets `tracing = false` already.
+
 ## Timeouts
 
 Every action execution is wrapped with a timeout (default: 5 minutes). If an action exceeds its timeout, the framework aborts it and returns an HTTP `408` error with type `CONNECTION_ACTION_TIMEOUT`.
@@ -308,3 +328,5 @@ New actions need to be re-exported from `backend/actions/.index.ts`. This is how
 
 - [`Action` class reference](/reference/actions) — every property, type helper, and option in one place
 - [Servers](/reference/servers) — how an action is routed over HTTP, WebSocket, CLI, and MCP
+- [Sentry plugin](/plugins/sentry) — error monitoring and traces in Sentry, including per-action opt-out
+- [Tracing plugin](/plugins/tracing) — OTLP distributed tracing, including per-action opt-out

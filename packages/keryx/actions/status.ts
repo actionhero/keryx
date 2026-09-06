@@ -10,6 +10,7 @@ export class Status implements Action {
     "Returns server health and runtime information including the server name, process ID, package version, uptime in milliseconds, memory consumption in MB, and dependency health checks for the database and Redis. Does not require authentication.";
   inputs = z.object({});
   web = { route: "/status", method: HTTP_METHOD.GET };
+  tracing = false;
 
   async run() {
     const consumedMemoryMB =

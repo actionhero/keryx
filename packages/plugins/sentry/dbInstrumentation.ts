@@ -22,14 +22,22 @@ type SpanStore = AsyncLocalStorage<SentrySpan | undefined>;
  *
  * @param spanALS - Async store holding the active parent span so each Redis
  *   span nests under the current request / action span.
+ * @param isSuppressed - When this returns true (an action set `tracing = false`),
+ *   the original command runs with no span.
  */
-export function instrumentRedis(spanALS: SpanStore) {
+export function instrumentRedis(
+  spanALS: SpanStore,
+  isSuppressed: () => boolean = () => false,
+) {
   const client = api.redis?.redis;
   if (!client) return;
   const originalSendCommand = client.sendCommand.bind(client);
   client.sendCommand = function (
     ...args: Parameters<typeof originalSendCommand>
   ) {
+    if (isSuppressed()) {
+      return originalSendCommand(...args);
+    }
     const [command] = args;
     const commandName = (command as { name?: string }).name ?? "unknown";
     const queryText = buildRedisQueryText(command, commandName);
@@ -64,8 +72,13 @@ export function instrumentRedis(spanALS: SpanStore) {
  *
  * @param spanALS - Async store holding the active parent span so each Postgres
  *   span nests under the current request / action span.
+ * @param isSuppressed - When this returns true (an action set `tracing = false`),
+ *   the original query runs with no span.
  */
-export function instrumentPostgres(spanALS: SpanStore) {
+export function instrumentPostgres(
+  spanALS: SpanStore,
+  isSuppressed: () => boolean = () => false,
+) {
   const pool = (
     api as {
       db?: {
@@ -83,6 +96,9 @@ export function instrumentPostgres(spanALS: SpanStore) {
     wrappedClients.add(client);
     const originalClientQuery = client.query.bind(client);
     client.query = (...args: unknown[]) => {
+      if (isSuppressed()) {
+        return originalClientQuery(...args);
+      }
       const sqlText = queryTextFromArgs(args);
       const span = Sentry.startInactiveSpan({
         name: `pg.${pgOperation(sqlText)}`,

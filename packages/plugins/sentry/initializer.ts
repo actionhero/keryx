@@ -3,6 +3,7 @@ import * as Sentry from "@sentry/bun";
 import { api, config, Initializer, logger } from "keryx";
 import { instrumentPostgres, instrumentRedis } from "./dbInstrumentation";
 import { createNoopNamespace } from "./namespace";
+import { TRACING_SKIP_ATTR } from "./spanHelpers";
 import { SentryRequestState } from "./state";
 import { instrumentLogger } from "./telemetry";
 import { registerTracingHooks } from "./tracingHooks";
@@ -89,6 +90,7 @@ export class SentryPlugin extends Initializer {
       enableMetrics: config.sentry.enableMetrics,
       beforeSend: config.sentry.beforeSend,
       beforeSendSpan: config.sentry.beforeSendSpan,
+      ignoreSpans: [{ attributes: { [TRACING_SKIP_ATTR]: true } }],
       beforeSendLog: config.sentry.beforeSendLog,
       beforeSendMetric: config.sentry.beforeSendMetric,
       transport: config.sentry.transport,
@@ -129,8 +131,14 @@ export class SentryPlugin extends Initializer {
     ns.flush = (timeoutMs) => Sentry.flush(timeoutMs);
 
     registerTracingHooks(this.state);
-    instrumentRedis(this.state.spanALS);
-    instrumentPostgres(this.state.spanALS);
+    instrumentRedis(
+      this.state.spanALS,
+      () => this.state.tracingSuppressedALS.getStore() === true,
+    );
+    instrumentPostgres(
+      this.state.spanALS,
+      () => this.state.tracingSuppressedALS.getStore() === true,
+    );
     if (config.sentry.enableLogs) {
       // `instrumentLogger` returns `undefined` if the logger is already
       // wrapped; only overwrite the restorer when we actually wrapped it, so a
