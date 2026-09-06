@@ -34,8 +34,10 @@ export class SentryRequestState {
    */
   requestScopeALS = new AsyncLocalStorage<RequestScopeData | undefined>();
   /**
-   * When true, Redis / Postgres instrumentation skips creating spans. Set for
-   * the duration of an action that opted out via `tracing = false`.
+   * When true, Redis / Postgres instrumentation skips creating spans. Set at
+   * the request or job boundary for `tracing = false` and restored when that
+   * request / job finishes so the next traced work on the same async
+   * context is not left suppressed.
    */
   tracingSuppressedALS = new AsyncLocalStorage<boolean>();
   wsConnections = new WeakMap<object, SentrySpan>();

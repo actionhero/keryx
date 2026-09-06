@@ -207,7 +207,8 @@ export class TracingPlugin extends Initializer {
   private requestALS = new AsyncLocalStorage<RequestState>();
   /**
    * When true, new spans (Redis, Drizzle, nested work) are not recorded.
-   * Set for the duration of an action that opted out via `tracing = false`.
+   * Set at the request or job boundary for `tracing = false` and restored
+   * when that request / job finishes.
    */
   private tracingSuppressedALS = new AsyncLocalStorage<boolean>();
 
@@ -327,12 +328,17 @@ export class TracingPlugin extends Initializer {
     const tracing = api.tracing;
 
     api.hooks.web.beforeRequest((req, ctx) => {
+      ctx.metadata.otelPrevSuppressed =
+        this.tracingSuppressedALS.getStore() === true;
       const actionName = matchWebActionName(req);
       if (!isActionTraced(actionName)) {
         ctx.metadata.otelTracingSuppressed = true;
         this.tracingSuppressedALS.enterWith(true);
         return;
       }
+      // Traced requests must not inherit a leaked flag from a previous
+      // opted-out request/job on this async context.
+      this.tracingSuppressedALS.enterWith(false);
 
       const method = req.method?.toUpperCase() ?? "";
       const parentCtx = tracing.extractContext(req.headers);
@@ -357,24 +363,30 @@ export class TracingPlugin extends Initializer {
     });
 
     api.hooks.web.afterRequest((_req, _res, ctx, outcome) => {
-      if (ctx.metadata.otelTracingSuppressed) return;
-      const httpSpan = ctx.metadata.otelSpan as Span | undefined;
-      if (!httpSpan) return;
-      if (!isActionTraced(outcome.actionName)) {
-        // Don't export a transaction for an opted-out action. Leaving the
-        // span un-ended means the processor never sees it.
-        return;
+      try {
+        if (ctx.metadata.otelTracingSuppressed) return;
+        const httpSpan = ctx.metadata.otelSpan as Span | undefined;
+        if (!httpSpan) return;
+        if (!isActionTraced(outcome.actionName)) {
+          // Don't export a transaction for an opted-out action. Leaving the
+          // span un-ended means the processor never sees it.
+          return;
+        }
+        httpSpan.setAttribute("http.response.status_code", outcome.status);
+        if (outcome.actionName) {
+          httpSpan.setAttribute("http.route", outcome.actionName);
+        }
+        if (outcome.status >= 400) {
+          httpSpan.setStatus({ code: SpanStatusCode.ERROR });
+        } else {
+          httpSpan.setStatus({ code: SpanStatusCode.OK });
+        }
+        httpSpan.end();
+      } finally {
+        this.tracingSuppressedALS.enterWith(
+          ctx.metadata.otelPrevSuppressed === true,
+        );
       }
-      httpSpan.setAttribute("http.response.status_code", outcome.status);
-      if (outcome.actionName) {
-        httpSpan.setAttribute("http.route", outcome.actionName);
-      }
-      if (outcome.status >= 400) {
-        httpSpan.setStatus({ code: SpanStatusCode.ERROR });
-      } else {
-        httpSpan.setStatus({ code: SpanStatusCode.OK });
-      }
-      httpSpan.end();
     });
 
     api.hooks.actions.beforeAct((actionName, _params, connection, actCtx) => {
@@ -451,7 +463,9 @@ export class TracingPlugin extends Initializer {
       return next;
     });
 
-    api.hooks.resque.beforeJob((actionName, params, _ctx) => {
+    api.hooks.resque.beforeJob((actionName, params, jobCtx) => {
+      jobCtx.metadata.otelPrevSuppressed =
+        this.tracingSuppressedALS.getStore() === true;
       const p = params as Record<string, unknown>;
       const traceParent = p._traceParent as string | undefined;
       const traceState = p._traceState as string | undefined;
@@ -463,12 +477,19 @@ export class TracingPlugin extends Initializer {
         this.tracingSuppressedALS.enterWith(true);
         return;
       }
+      this.tracingSuppressedALS.enterWith(false);
       if (!traceParent) return;
       const headers = new Headers();
       headers.set("traceparent", traceParent);
       if (traceState) headers.set("tracestate", traceState);
       const extractedCtx = tracing.extractContext(headers);
       this.contextManager.enterWith(extractedCtx);
+    });
+
+    api.hooks.resque.afterJob((_actionName, _params, jobCtx) => {
+      this.tracingSuppressedALS.enterWith(
+        jobCtx.metadata.otelPrevSuppressed === true,
+      );
     });
   }
 

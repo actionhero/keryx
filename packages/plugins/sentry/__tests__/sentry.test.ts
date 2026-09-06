@@ -266,7 +266,9 @@ describe("sentry plugin (enabled)", () => {
     const traced = new SentryTraced();
     api.actions.actions.push(traced);
     api.resque.jobs[traced.name] = api.resque.wrapActionAsJob(traced);
-    api.actions.actions.push(new SentryQuiet());
+    const quiet = new SentryQuiet();
+    api.actions.actions.push(quiet);
+    api.resque.jobs[quiet.name] = api.resque.wrapActionAsJob(quiet);
     const quietBoom = new SentryQuietBoom();
     api.actions.actions.push(quietBoom);
     api.resque.jobs[quietBoom.name] = api.resque.wrapActionAsJob(quietBoom);
@@ -288,6 +290,7 @@ describe("sentry plugin (enabled)", () => {
     delete api.resque.jobs["sentry:nest"];
     delete api.resque.jobs["sentry:recurring"];
     delete api.resque.jobs["sentry:traced"];
+    delete api.resque.jobs["sentry:quiet"];
     delete api.resque.jobs["sentry:quiet-boom"];
     await api.stop();
     config.plugins = [];
@@ -427,14 +430,15 @@ describe("sentry plugin (enabled)", () => {
   });
 
   test("actions with tracing = false emit no HTTP or action spans", async () => {
+    await api.sentry.flush(2000);
     spans.length = 0;
-    const res = await fetch(`${serverUrl()}/api/status`);
+    const res = await fetch(`${serverUrl()}/api/sentry-quiet`);
     expect(res.status).toBe(200);
     await api.sentry.flush(2000);
     await Bun.sleep(50);
 
     expect(spans.some((s) => s.op === "http.server")).toBe(false);
-    expect(spans.some((s) => s.name === "action:status")).toBe(false);
+    expect(spans.some((s) => s.name === "action:sentry:quiet")).toBe(false);
     expect(spans.some((s) => s.name.startsWith("redis."))).toBe(false);
     expect(spans.some((s) => s.name.startsWith("pg."))).toBe(false);
   });
@@ -470,13 +474,67 @@ describe("sentry plugin (enabled)", () => {
   });
 
   test("opted-out background tasks emit no queue.process span", async () => {
+    await api.sentry.flush(2000);
     spans.length = 0;
-    await performJob("status");
+    await performJob("sentry:quiet");
     await api.sentry.flush(2000);
     await Bun.sleep(50);
 
-    expect(spans.some((s) => s.name === "task:status")).toBe(false);
-    expect(spans.some((s) => s.name === "action:status")).toBe(false);
+    expect(spans.some((s) => s.name === "task:sentry:quiet")).toBe(false);
+    expect(spans.some((s) => s.name === "action:sentry:quiet")).toBe(false);
+    expect(spans.some((s) => s.name === "redis.ping")).toBe(false);
+  });
+
+  test("tracing suppress does not leak to the next job on the worker", async () => {
+    await api.sentry.flush(2000);
+    spans.length = 0;
+
+    const quietCtx = {
+      queue: "default",
+      metadata: {} as Record<string, unknown>,
+    };
+    const tracedCtx = {
+      queue: "default",
+      metadata: {} as Record<string, unknown>,
+    };
+    const quietOutcome = {
+      success: true as const,
+      result: null,
+      duration: 1,
+    };
+
+    for (const hook of api.hooks.resque.beforeJobHooks) {
+      await hook("sentry:quiet", {}, quietCtx);
+    }
+    for (const hook of api.hooks.resque.afterJobHooks) {
+      await hook("sentry:quiet", {}, quietCtx, quietOutcome);
+    }
+    for (const hook of api.hooks.resque.beforeJobHooks) {
+      await hook("sentry:traced", {}, tracedCtx);
+    }
+
+    await api.redis.redis.ping();
+
+    for (const hook of api.hooks.resque.afterJobHooks) {
+      await hook("sentry:traced", {}, tracedCtx, quietOutcome);
+    }
+
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    expect(quietCtx.metadata.sentryPrevSuppressed).toBe(false);
+    expect(tracedCtx.metadata.sentrySpan).toBeDefined();
+    expect(spans.some((s) => s.name === "redis.ping")).toBe(true);
+
+    await api.sentry.flush(2000);
+    spans.length = 0;
+    await performJob("sentry:quiet");
+    await performJob("sentry:traced");
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    expect(spans.some((s) => s.name === "task:sentry:traced")).toBe(true);
+    expect(spans.some((s) => s.name === "redis.ping")).toBe(true);
   });
 
   test("Redis commands create db spans", async () => {
