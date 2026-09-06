@@ -234,9 +234,13 @@ export function registerTracingHooks(state: SentryRequestState) {
     const prevSuppressed = state.tracingSuppressedALS.getStore() === true;
     actCtx.metadata.sentryPrevSuppressed = prevSuppressed;
 
-    if (!isActionTraced(actionName)) {
+    if (!isActionTraced(actionName) || prevSuppressed) {
       const parent = state.spanALS.getStore();
-      if (parent && isDroppableTransportSpan(parent)) {
+      if (
+        !isActionTraced(actionName) &&
+        parent &&
+        isDroppableTransportSpan(parent)
+      ) {
         markSpanSkipped(parent);
       }
       state.tracingSuppressedALS.enterWith(true);

@@ -270,7 +270,7 @@ export class Status implements Action {
 }
 ```
 
-[`@keryxjs/sentry`](/plugins/sentry) and [`@keryxjs/tracing`](/plugins/tracing) both honor this: no action span, and for HTTP and background tasks the whole request or job transaction is dropped. Nested `connection.act()` into an opted-out action skips that inner span but leaves the outer trace alone. Error capture and metrics still run — you still hear about a failing health check, you just don't store a trace for every successful ping.
+[`@keryxjs/sentry`](/plugins/sentry) and [`@keryxjs/tracing`](/plugins/tracing) both honor this: no action span, and for HTTP and background tasks the whole request or job transaction is dropped. Nested `connection.act()` into an opted-out action skips that inner span but leaves the outer trace alone. Nested `connection.act()` *from* an opted-out action stays dark too — the outer request already opted out of the whole transaction. Error capture and metrics still run — you still hear about a failing health check, you just don't store a trace for every successful ping.
 
 The built-in `status` action sets `tracing = false` already.
 

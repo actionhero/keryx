@@ -125,6 +125,20 @@ class SentryQuiet implements Action {
   }
 }
 
+class SentryQuietNest implements Action {
+  name = "sentry:quiet-nest";
+  description = "Opts out of tracing then calls sentry:traced via act()";
+  tracing = false;
+  inputs = z.object({});
+  web = { route: "/sentry-quiet-nest", method: HTTP_METHOD.GET };
+  mcp = { tool: false };
+  async run(_params: Record<string, unknown>, connection?: Connection) {
+    const { error } = await connection!.act("sentry:traced", {});
+    if (error) throw error;
+    return { nested: true };
+  }
+}
+
 class SentryQuietBoom implements Action {
   name = "sentry:quiet-boom";
   description = "Opts out of tracing but still throws a 500";
@@ -269,6 +283,7 @@ describe("sentry plugin (enabled)", () => {
     const quiet = new SentryQuiet();
     api.actions.actions.push(quiet);
     api.resque.jobs[quiet.name] = api.resque.wrapActionAsJob(quiet);
+    api.actions.actions.push(new SentryQuietNest());
     const quietBoom = new SentryQuietBoom();
     api.actions.actions.push(quietBoom);
     api.resque.jobs[quietBoom.name] = api.resque.wrapActionAsJob(quietBoom);
@@ -284,6 +299,7 @@ describe("sentry plugin (enabled)", () => {
         a.name !== "sentry:recurring" &&
         a.name !== "sentry:traced" &&
         a.name !== "sentry:quiet" &&
+        a.name !== "sentry:quiet-nest" &&
         a.name !== "sentry:quiet-boom",
     );
     delete api.resque.jobs["sentry:boom"];
@@ -443,6 +459,24 @@ describe("sentry plugin (enabled)", () => {
     expect(fresh.some((s) => s.name === "action:sentry:quiet")).toBe(false);
     expect(fresh.some((s) => s.name.startsWith("redis."))).toBe(false);
     expect(fresh.some((s) => s.name.startsWith("pg."))).toBe(false);
+  });
+
+  test("nested act() under tracing = false does not emit an inner action span", async () => {
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+    const prior = new Set(spans);
+    const res = await fetch(`${serverUrl()}/api/sentry-quiet-nest`);
+    expect(res.status).toBe(200);
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+
+    const fresh = spans.filter((s) => !prior.has(s));
+    expect(fresh.some((s) => s.op === "http.server")).toBe(false);
+    expect(fresh.some((s) => s.name === "action:sentry:quiet-nest")).toBe(
+      false,
+    );
+    expect(fresh.some((s) => s.name === "action:sentry:traced")).toBe(false);
+    expect(fresh.some((s) => s.name.startsWith("redis."))).toBe(false);
   });
 
   test("tracing = false still records the per-action count metric", async () => {

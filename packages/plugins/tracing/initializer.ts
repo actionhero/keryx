@@ -397,7 +397,7 @@ export class TracingPlugin extends Initializer {
       const prevSuppressed = this.tracingSuppressedALS.getStore() === true;
       actCtx.metadata.otelPrevSuppressed = prevSuppressed;
 
-      if (!isActionTraced(actionName)) {
+      if (!isActionTraced(actionName) || prevSuppressed) {
         this.tracingSuppressedALS.enterWith(true);
         return;
       }
