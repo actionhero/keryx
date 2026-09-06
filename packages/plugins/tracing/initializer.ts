@@ -330,10 +330,12 @@ export class TracingPlugin extends Initializer {
     api.hooks.web.beforeRequest((req, ctx) => {
       ctx.metadata.otelPrevSuppressed =
         this.tracingSuppressedALS.getStore() === true;
+      ctx.metadata.otelPrevContext = context.active();
       const actionName = matchWebActionName(req);
       if (!isActionTraced(actionName)) {
         ctx.metadata.otelTracingSuppressed = true;
         this.tracingSuppressedALS.enterWith(true);
+        this.contextManager.enterWith(ROOT_CONTEXT);
         return;
       }
       // Traced requests must not inherit a leaked flag from a previous
@@ -383,6 +385,8 @@ export class TracingPlugin extends Initializer {
         }
         httpSpan.end();
       } finally {
+        const prevCtx = ctx.metadata.otelPrevContext as Context | undefined;
+        this.contextManager.enterWith(prevCtx ?? ROOT_CONTEXT);
         this.tracingSuppressedALS.enterWith(
           ctx.metadata.otelPrevSuppressed === true,
         );
@@ -466,6 +470,7 @@ export class TracingPlugin extends Initializer {
     api.hooks.resque.beforeJob((actionName, params, jobCtx) => {
       jobCtx.metadata.otelPrevSuppressed =
         this.tracingSuppressedALS.getStore() === true;
+      jobCtx.metadata.otelPrevContext = context.active();
       const p = params as Record<string, unknown>;
       const traceParent = p._traceParent as string | undefined;
       const traceState = p._traceState as string | undefined;
@@ -475,6 +480,7 @@ export class TracingPlugin extends Initializer {
       delete p._traceState;
       if (!isActionTraced(actionName)) {
         this.tracingSuppressedALS.enterWith(true);
+        this.contextManager.enterWith(ROOT_CONTEXT);
         return;
       }
       this.tracingSuppressedALS.enterWith(false);
@@ -487,6 +493,8 @@ export class TracingPlugin extends Initializer {
     });
 
     api.hooks.resque.afterJob((_actionName, _params, jobCtx) => {
+      const prevCtx = jobCtx.metadata.otelPrevContext as Context | undefined;
+      this.contextManager.enterWith(prevCtx ?? ROOT_CONTEXT);
       this.tracingSuppressedALS.enterWith(
         jobCtx.metadata.otelPrevSuppressed === true,
       );
@@ -516,6 +524,9 @@ export class TracingPlugin extends Initializer {
       ...args: Parameters<typeof originalSendCommand>
     ) {
       if (isSuppressed()) {
+        return originalSendCommand(...args);
+      }
+      if (!trace.getSpan(context.active())) {
         return originalSendCommand(...args);
       }
       const [command] = args;

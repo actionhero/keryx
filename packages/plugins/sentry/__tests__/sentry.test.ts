@@ -431,16 +431,18 @@ describe("sentry plugin (enabled)", () => {
 
   test("actions with tracing = false emit no HTTP or action spans", async () => {
     await api.sentry.flush(2000);
-    spans.length = 0;
+    await Bun.sleep(50);
+    const prior = new Set(spans);
     const res = await fetch(`${serverUrl()}/api/sentry-quiet`);
     expect(res.status).toBe(200);
     await api.sentry.flush(2000);
     await Bun.sleep(50);
 
-    expect(spans.some((s) => s.op === "http.server")).toBe(false);
-    expect(spans.some((s) => s.name === "action:sentry:quiet")).toBe(false);
-    expect(spans.some((s) => s.name.startsWith("redis."))).toBe(false);
-    expect(spans.some((s) => s.name.startsWith("pg."))).toBe(false);
+    const fresh = spans.filter((s) => !prior.has(s));
+    expect(fresh.some((s) => s.op === "http.server")).toBe(false);
+    expect(fresh.some((s) => s.name === "action:sentry:quiet")).toBe(false);
+    expect(fresh.some((s) => s.name.startsWith("redis."))).toBe(false);
+    expect(fresh.some((s) => s.name.startsWith("pg."))).toBe(false);
   });
 
   test("tracing = false still records the per-action count metric", async () => {
@@ -666,14 +668,18 @@ describe("sentry plugin (enabled)", () => {
   });
 
   test("Postgres queries are not double-instrumented", async () => {
-    spans.length = 0;
-    await api.db.pool.query("SELECT 1 AS one");
-    await api.db.pool.query("SELECT 1 AS one");
+    await api.sentry.flush(2000);
+    await Bun.sleep(50);
+    const prior = new Set(spans);
+    const res1 = await fetch(`${serverUrl()}/api/sentry-traced`);
+    const res2 = await fetch(`${serverUrl()}/api/sentry-traced`);
+    expect(res1.status).toBe(200);
+    expect(res2.status).toBe(200);
     await api.sentry.flush(2000);
     await Bun.sleep(50);
 
     const selectSpans = spans.filter(
-      (s) => s.data["db.query.text"] === "SELECT 1 AS one",
+      (s) => !prior.has(s) && s.data["db.query.text"] === "SELECT 1 AS one",
     );
     // One span per query — no stacked pool.query + client.query duplicate.
     expect(selectSpans.length).toBe(2);

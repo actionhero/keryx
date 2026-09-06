@@ -30,10 +30,12 @@ export function registerTracingHooks(state: SentryRequestState) {
   api.hooks.web.beforeRequest((req, ctx) => {
     ctx.metadata.sentryPrevSuppressed =
       state.tracingSuppressedALS.getStore() === true;
+    ctx.metadata.sentryPrevSpan = state.spanALS.getStore();
     const actionName = matchWebActionName(req);
     if (!isActionTraced(actionName)) {
       ctx.metadata.sentryTracingSuppressed = true;
       state.tracingSuppressedALS.enterWith(true);
+      state.spanALS.enterWith(undefined);
       return;
     }
     // Jobs/requests are top-level: clear a flag left by a previous opted-out
@@ -88,6 +90,9 @@ export function registerTracingHooks(state: SentryRequestState) {
       }
       httpSpan.end();
     } finally {
+      state.spanALS.enterWith(
+        ctx.metadata.sentryPrevSpan as SentrySpan | undefined,
+      );
       state.tracingSuppressedALS.enterWith(
         ctx.metadata.sentryPrevSuppressed === true,
       );
@@ -352,6 +357,7 @@ export function registerTracingHooks(state: SentryRequestState) {
   api.hooks.resque.beforeJob((actionName, params, jobCtx) => {
     jobCtx.metadata.sentryPrevSuppressed =
       state.tracingSuppressedALS.getStore() === true;
+    jobCtx.metadata.sentryPrevSpan = state.spanALS.getStore();
     const p = params as Record<string, unknown>;
     const sentryTrace = p._sentryTrace as string | undefined;
     const baggage = p._sentryBaggage as string | undefined;
@@ -362,6 +368,7 @@ export function registerTracingHooks(state: SentryRequestState) {
 
     if (!isActionTraced(actionName)) {
       state.tracingSuppressedALS.enterWith(true);
+      state.spanALS.enterWith(undefined);
       return;
     }
     // See beforeRequest: traced jobs must not inherit a leaked suppress flag.
@@ -403,6 +410,9 @@ export function registerTracingHooks(state: SentryRequestState) {
       }
       jobSpan.end();
     } finally {
+      state.spanALS.enterWith(
+        jobCtx.metadata.sentryPrevSpan as SentrySpan | undefined,
+      );
       state.tracingSuppressedALS.enterWith(
         jobCtx.metadata.sentryPrevSuppressed === true,
       );

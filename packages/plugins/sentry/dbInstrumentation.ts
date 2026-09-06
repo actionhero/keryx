@@ -23,7 +23,9 @@ type SpanStore = AsyncLocalStorage<SentrySpan | undefined>;
  * @param spanALS - Async store holding the active parent span so each Redis
  *   span nests under the current request / action span.
  * @param isSuppressed - When this returns true (an action set `tracing = false`),
- *   the original command runs with no span.
+ *   the original command runs with no span. Commands with no active parent span
+ *   are also skipped so opted-out requests and worker polling do not emit
+ *   orphan Redis traces.
  */
 export function instrumentRedis(
   spanALS: SpanStore,
@@ -38,13 +40,17 @@ export function instrumentRedis(
     if (isSuppressed()) {
       return originalSendCommand(...args);
     }
+    const parent = spanALS.getStore();
+    if (!parent) {
+      return originalSendCommand(...args);
+    }
     const [command] = args;
     const commandName = (command as { name?: string }).name ?? "unknown";
     const queryText = buildRedisQueryText(command, commandName);
     const span = Sentry.startInactiveSpan({
       name: `redis.${commandName}`,
       op: "db",
-      parentSpan: spanALS.getStore(),
+      parentSpan: parent,
       attributes: {
         "db.system": "redis",
         "db.operation.name": commandName,
@@ -73,7 +79,8 @@ export function instrumentRedis(
  * @param spanALS - Async store holding the active parent span so each Postgres
  *   span nests under the current request / action span.
  * @param isSuppressed - When this returns true (an action set `tracing = false`),
- *   the original query runs with no span.
+ *   the original query runs with no span. Queries with no active parent span
+ *   are also skipped so opted-out requests do not emit orphan Postgres traces.
  */
 export function instrumentPostgres(
   spanALS: SpanStore,
@@ -99,11 +106,15 @@ export function instrumentPostgres(
       if (isSuppressed()) {
         return originalClientQuery(...args);
       }
+      const parent = spanALS.getStore();
+      if (!parent) {
+        return originalClientQuery(...args);
+      }
       const sqlText = queryTextFromArgs(args);
       const span = Sentry.startInactiveSpan({
         name: `pg.${pgOperation(sqlText)}`,
         op: "db",
-        parentSpan: spanALS.getStore(),
+        parentSpan: parent,
         attributes: {
           "db.system": "postgresql",
           "db.operation.name": pgOperation(sqlText),
