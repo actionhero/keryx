@@ -32,9 +32,13 @@ export type {
   ActOutcome,
   AfterActHook,
   BeforeActHook,
+  McpElicitationAction,
+  McpFormElicitationResult,
+  McpUrlElicitationResult,
 } from "./classes/Connection";
 export { CONNECTION_TYPE, Connection } from "./classes/Connection";
 export { LogLevel } from "./classes/Logger";
+export { McpUrlElicitationRequiredError } from "./classes/McpUrlElicitationRequiredError";
 export type { KeryxPlugin, PluginGenerator } from "./classes/Plugin";
 export { SSEResponse, StreamingResponse } from "./classes/StreamingResponse";
 export { ErrorStatusCodes, ErrorType, TypedError } from "./classes/TypedError";

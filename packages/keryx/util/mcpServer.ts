@@ -6,10 +6,12 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import {
   DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
+  ElicitResultSchema,
   JSONRPCMessageSchema,
   type ServerNotification,
   type ServerRequest,
   SUPPORTED_PROTOCOL_VERSIONS,
+  UrlElicitationRequiredError,
 } from "@modelcontextprotocol/sdk/types.js";
 import { randomUUID } from "crypto";
 import * as z4mini from "zod/v4-mini";
@@ -17,6 +19,7 @@ import { api, logger } from "../api";
 import type { Action, McpUiConfig } from "../classes/Action";
 import { MCP_APP_MIME_TYPE, MCP_RESPONSE_FORMAT } from "../classes/Action";
 import { CONNECTION_TYPE, Connection } from "../classes/Connection";
+import { McpUrlElicitationRequiredError } from "../classes/McpUrlElicitationRequiredError";
 import { StreamingResponse } from "../classes/StreamingResponse";
 import { ErrorType, TypedError } from "../classes/TypedError";
 import { UIResponse } from "../classes/UIResponse";
@@ -58,10 +61,22 @@ export type McpAuthInfo = {
  * Create an authenticated MCP Connection from the auth info attached to an MCP request.
  * Shared by tool, resource, and prompt handlers to avoid duplicating connection setup.
  */
-export async function createMcpConnection(extra: {
-  authInfo?: McpAuthInfo;
-  sessionId?: string;
-}): Promise<Connection> {
+export async function createMcpConnection(
+  extra: {
+    authInfo?: McpAuthInfo;
+    sessionId?: string;
+    signal?: AbortSignal;
+    sendNotification?: RequestHandlerExtra<
+      ServerRequest,
+      ServerNotification
+    >["sendNotification"];
+    sendRequest?: RequestHandlerExtra<
+      ServerRequest,
+      ServerNotification
+    >["sendRequest"];
+  },
+  mcpServer?: McpServer,
+): Promise<Connection> {
   const authInfo = extra.authInfo;
   const clientIp = (authInfo?.extra?.ip as string) || "unknown";
   const connection = new Connection(
@@ -75,6 +90,29 @@ export async function createMcpConnection(extra: {
   if (authInfo?.extra?.userId) {
     await connection.loadSession();
     await connection.updateSession({ userId: authInfo.extra.userId });
+  }
+
+  if (
+    mcpServer &&
+    extra.signal &&
+    extra.sendNotification &&
+    extra.sendRequest
+  ) {
+    connection.setMcpElicitationContext({
+      clientCapabilities: mcpServer.server.getClientCapabilities(),
+      requestSignal: extra.signal,
+      elicitInput: (params, signal) =>
+        extra.sendRequest!(
+          { method: "elicitation/create", params },
+          ElicitResultSchema,
+          { signal },
+        ),
+      completeElicitation: (elicitationId) =>
+        extra.sendNotification!({
+          method: "notifications/elicitation/complete",
+          params: { elicitationId },
+        }),
+    });
   }
 
   return connection;
@@ -613,7 +651,7 @@ function registerTools(mcpServer: McpServer) {
         extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
       ) => {
         const mcpSessionId = extra.sessionId || "";
-        const connection = await createMcpConnection(extra);
+        const connection = await createMcpConnection(extra, mcpServer);
 
         try {
           const params =
@@ -629,6 +667,12 @@ function registerTools(mcpServer: McpServer) {
           );
 
           if (error) {
+            if (error instanceof McpUrlElicitationRequiredError) {
+              throw new UrlElicitationRequiredError(
+                error.elicitations,
+                error.message,
+              );
+            }
             return {
               content: [
                 {
@@ -724,7 +768,7 @@ function registerResources(mcpServer: McpServer) {
       extra: any,
     ) => {
       const mcpSessionId = extra.sessionId || "";
-      const connection = await createMcpConnection(extra);
+      const connection = await createMcpConnection(extra, mcpServer);
 
       try {
         const params: Record<string, unknown> = { ...variables };
@@ -853,7 +897,7 @@ function registerPrompts(mcpServer: McpServer) {
       },
       async (args: any, extra: any) => {
         const mcpSessionId = extra.sessionId || "";
-        const connection = await createMcpConnection(extra);
+        const connection = await createMcpConnection(extra, mcpServer);
 
         try {
           const params =

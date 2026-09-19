@@ -9,7 +9,7 @@ description: MCP Apps — render an action's MCP tool result as an interactive H
 In Keryx this is a natural extension of the action model. Just as an action already exposes an MCP tool, resource, or prompt, it can declare a UI. You point `mcp.ui.client` at a browser entrypoint and return a [`UIResponse`](#uiresponse) from `run()` — Keryx bundles the client and wires up the rest.
 
 ::: tip Prerequisite
-MCP Apps build on the MCP server. Enable it first (see [MCP Server](./mcp.md)), then add a UI to any tool action.
+MCP Apps build on the MCP server. Enable it first (see [MCP Server](./mcp.md)), then add a UI to any tool action. Elicitation (`connection.elicitForm` / `elicitUrl`) is a separate server-to-client request — it is not how MCP Apps collect input.
 :::
 
 ## How it works

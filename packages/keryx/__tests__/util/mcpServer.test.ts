@@ -8,11 +8,17 @@ import {
 } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import {
+  ElicitationCompleteNotificationSchema,
+  ElicitRequestSchema,
+  McpError,
+} from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { api } from "../../api";
 import { Action, HTTP_METHOD } from "../../classes/Action";
 import { Channel } from "../../classes/Channel";
-import type { Connection } from "../../classes/Connection";
+import { CONNECTION_TYPE, Connection } from "../../classes/Connection";
+import { McpUrlElicitationRequiredError } from "../../classes/McpUrlElicitationRequiredError";
 import { ErrorType, TypedError } from "../../classes/TypedError";
 import { config } from "../../config";
 import {
@@ -88,6 +94,118 @@ class TestPrompt extends Action {
   }
 }
 
+class TestFormElicitation extends Action {
+  constructor() {
+    super({
+      name: "test:form-elicitation",
+      inputs: z.object({}),
+      mcp: { tool: true },
+    });
+  }
+
+  async run(_params: Record<string, never>, connection: Connection) {
+    return connection.elicitForm({
+      message: "Choose a display name",
+      schema: z.object({ displayName: z.string().min(1) }),
+    });
+  }
+}
+
+class TestUrlElicitation extends Action {
+  constructor() {
+    super({
+      name: "test:url-elicitation",
+      inputs: z.object({}),
+      mcp: { tool: true },
+    });
+  }
+
+  async run(_params: Record<string, never>, connection: Connection) {
+    const result = await connection.elicitUrl({
+      message: "Open the account linking page",
+      url: "https://example.com/link",
+      elicitationId: "link-account",
+    });
+    if (result.action === "accept") {
+      await connection.completeElicitation(result.elicitationId);
+    }
+    return result;
+  }
+}
+
+class TestUrlElicitationRequired extends Action {
+  constructor() {
+    super({
+      name: "test:url-elicitation-required",
+      inputs: z.object({}),
+      mcp: { tool: true },
+    });
+  }
+
+  async run() {
+    throw new McpUrlElicitationRequiredError([
+      {
+        mode: "url",
+        message: "Link your account",
+        url: "https://example.com/link",
+        elicitationId: "required-link",
+      },
+    ]);
+  }
+}
+
+class TestElicitingResource extends Action {
+  constructor() {
+    super({
+      name: "test:eliciting-resource",
+      inputs: z.object({}),
+      mcp: {
+        tool: false,
+        resource: { uri: "keryx://eliciting-resource" },
+      },
+    });
+  }
+
+  async run(_params: Record<string, never>, connection: Connection) {
+    const result = await connection.elicitForm({
+      message: "Name this resource",
+      schema: z.object({ name: z.string() }),
+    });
+    return {
+      text: result.action === "accept" ? result.content.name : result.action,
+    };
+  }
+}
+
+class TestElicitingPrompt extends Action {
+  constructor() {
+    super({
+      name: "test:eliciting-prompt",
+      inputs: z.object({}),
+      mcp: { tool: false, prompt: { title: "Eliciting Prompt" } },
+    });
+  }
+
+  async run(_params: Record<string, never>, connection: Connection) {
+    const result = await connection.elicitForm({
+      message: "Choose a prompt topic",
+      schema: z.object({ topic: z.string() }),
+    });
+    return {
+      messages: [
+        {
+          role: "user" as const,
+          content: {
+            type: "text" as const,
+            text:
+              result.action === "accept" ? result.content.topic : result.action,
+          },
+        },
+      ],
+    };
+  }
+}
+
 describe("mcpServer utilities (integration)", () => {
   const testActions: Action[] = [];
 
@@ -103,7 +221,15 @@ describe("mcpServer utilities (integration)", () => {
     // when the test client connects.
     const templateResource = new TestTemplateResource();
     const prompt = new TestPrompt();
-    testActions.push(templateResource, prompt);
+    testActions.push(
+      templateResource,
+      prompt,
+      new TestFormElicitation(),
+      new TestUrlElicitation(),
+      new TestUrlElicitationRequired(),
+      new TestElicitingResource(),
+      new TestElicitingPrompt(),
+    );
     api.actions.actions.push(...testActions);
   });
 
@@ -230,6 +356,236 @@ describe("mcpServer utilities (integration)", () => {
         } catch {
           // ignore
         }
+      }
+    });
+  });
+
+  describe("elicitation", () => {
+    let accessToken: string;
+
+    beforeAll(async () => {
+      accessToken = crypto.randomUUID();
+      await api.redis.redis.set(
+        `oauth:token:${accessToken}`,
+        JSON.stringify({ userId: 0, clientId: "test", scopes: [] }),
+        "EX",
+        60,
+      );
+    });
+
+    function buildClient(elicitation?: {
+      form?: { applyDefaults?: boolean };
+      url?: Record<string, never>;
+    }) {
+      const transport = new StreamableHTTPClientTransport(new URL(mcpUrl()), {
+        requestInit: {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        },
+      });
+      const client = new Client(
+        { name: "elicitation-test", version: "1.0.0" },
+        { capabilities: elicitation ? { elicitation } : {} },
+      );
+      return { client, transport };
+    }
+
+    test("form elicitation returns typed accepted content", async () => {
+      const { client, transport } = buildClient({ form: {} });
+      client.setRequestHandler(ElicitRequestSchema, (request) => {
+        expect(request.params.mode).toBe("form");
+        if (request.params.mode === "url") {
+          throw new Error("Expected form elicitation");
+        }
+        expect(request.params.requestedSchema.required).toContain(
+          "displayName",
+        );
+        return {
+          action: "accept",
+          content: { displayName: "Ada" },
+        };
+      });
+      await client.connect(transport);
+
+      try {
+        const result = await client.callTool({
+          name: "test-form-elicitation",
+          arguments: {},
+        });
+        expect(result.isError).not.toBe(true);
+        expect(result.structuredContent).toEqual({
+          action: "accept",
+          content: { displayName: "Ada" },
+        });
+      } finally {
+        await transport.close();
+      }
+    });
+
+    test.each([
+      "decline",
+      "cancel",
+    ] as const)("form elicitation returns %s", async (action) => {
+      const { client, transport } = buildClient({ form: {} });
+      client.setRequestHandler(ElicitRequestSchema, () => ({ action }));
+      await client.connect(transport);
+
+      try {
+        const result = await client.callTool({
+          name: "test-form-elicitation",
+          arguments: {},
+        });
+        expect(result.structuredContent).toEqual({ action });
+      } finally {
+        await transport.close();
+      }
+    });
+
+    test("missing elicitation capability returns a typed tool error", async () => {
+      const { client, transport } = buildClient();
+      await client.connect(transport);
+
+      try {
+        const result = await client.callTool({
+          name: "test-form-elicitation",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const content = result.content as Array<{ type: string; text: string }>;
+        expect(JSON.parse(content[0].text)).toEqual({
+          error: "MCP client does not support form elicitation",
+          type: ErrorType.CONNECTION_MCP_ELICITATION,
+        });
+      } finally {
+        await transport.close();
+      }
+    });
+
+    test("form-only client cannot receive URL elicitation", async () => {
+      const { client, transport } = buildClient({ form: {} });
+      await client.connect(transport);
+
+      try {
+        const result = await client.callTool({
+          name: "test-url-elicitation",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const content = result.content as Array<{ type: string; text: string }>;
+        expect(content[0].text).toContain(
+          "MCP client does not support url elicitation",
+        );
+      } finally {
+        await transport.close();
+      }
+    });
+
+    test("URL acceptance sends a completion notification", async () => {
+      const { client, transport } = buildClient({ form: {}, url: {} });
+      let completedId: string | undefined;
+      client.setRequestHandler(ElicitRequestSchema, (request) => {
+        expect(request.params).toMatchObject({
+          mode: "url",
+          elicitationId: "link-account",
+          url: "https://example.com/link",
+        });
+        return { action: "accept" };
+      });
+      client.setNotificationHandler(
+        ElicitationCompleteNotificationSchema,
+        (notification) => {
+          completedId = notification.params.elicitationId;
+        },
+      );
+      await client.connect(transport);
+
+      try {
+        const result = await client.callTool({
+          name: "test-url-elicitation",
+          arguments: {},
+        });
+        expect(result.isError).not.toBe(true);
+        expect(completedId).toBe("link-account");
+      } finally {
+        await transport.close();
+      }
+    });
+
+    test("resources and prompts can elicit", async () => {
+      const { client, transport } = buildClient({ form: {} });
+      client.setRequestHandler(ElicitRequestSchema, (request) => ({
+        action: "accept",
+        content:
+          request.params.mode === "form" &&
+          "name" in request.params.requestedSchema.properties
+            ? { name: "elicited resource" }
+            : { topic: "elicited prompt" },
+      }));
+      await client.connect(transport);
+
+      try {
+        const resource = await client.readResource({
+          uri: "keryx://eliciting-resource",
+        });
+        expect(resource.contents[0]).toMatchObject({
+          text: "elicited resource",
+        });
+
+        const prompt = await client.getPrompt({
+          name: "test-eliciting-prompt",
+        });
+        expect(prompt.messages[0].content).toMatchObject({
+          text: "elicited prompt",
+        });
+      } finally {
+        await transport.close();
+      }
+    });
+
+    test("URL required errors retain MCP code and elicitation data", async () => {
+      const { client, transport } = buildClient({ form: {}, url: {} });
+      await client.connect(transport);
+
+      try {
+        await expect(
+          client.callTool({
+            name: "test-url-elicitation-required",
+            arguments: {},
+          }),
+        ).rejects.toMatchObject({
+          code: -32042,
+          data: {
+            elicitations: [
+              {
+                mode: "url",
+                elicitationId: "required-link",
+              },
+            ],
+          },
+        } satisfies Partial<McpError>);
+      } finally {
+        await transport.close();
+      }
+    });
+
+    test("elicitation throws outside an MCP request", async () => {
+      const connection = new Connection(
+        CONNECTION_TYPE.WEB,
+        "test",
+        crypto.randomUUID(),
+      );
+      try {
+        await expect(
+          connection.elicitForm({
+            message: "Not available",
+            schema: z.object({ value: z.string() }),
+          }),
+        ).rejects.toMatchObject({
+          type: ErrorType.CONNECTION_MCP_ELICITATION,
+          message:
+            "MCP elicitation is only available on MCP connections (got web)",
+        });
+      } finally {
+        connection.destroy();
       }
     });
   });

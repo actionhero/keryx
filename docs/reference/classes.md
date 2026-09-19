@@ -110,6 +110,30 @@ class Connection<
   /** Broadcast a message to a subscribed channel */
   async broadcast(channel: string, message: string): Promise<void>;
 
+  /**
+   * Ask the MCP client for structured, non-sensitive input. Throws
+   * `CONNECTION_MCP_ELICITATION` unless `connection.type` is MCP and the
+   * client advertised form elicitation.
+   */
+  async elicitForm<TSchema extends z.ZodType>(options: {
+    message: string;
+    schema: TSchema;
+  }): Promise<McpFormElicitationResult<TSchema>>;
+
+  /**
+   * Ask the MCP client for consent to open an out-of-band URL. `accept` is
+   * consent, not completion. Throws unless the connection is MCP and the
+   * client advertised URL elicitation.
+   */
+  async elicitUrl(options: {
+    message: string;
+    url: string | URL;
+    elicitationId?: string;
+  }): Promise<McpUrlElicitationResult>;
+
+  /** Notify the MCP client that an accepted URL elicitation finished. */
+  async completeElicitation(elicitationId: string): Promise<void>;
+
   /** Remove this connection from the connection pool */
   destroy(): void;
 }
@@ -248,6 +272,7 @@ References:
 | `CONNECTION_CHANNEL_VALIDATION`      | 400    | Invalid channel name                       |
 | `CONNECTION_ACTION_TIMEOUT`          | 408    | Action exceeded its timeout                |
 | `CONNECTION_RATE_LIMITED`            | 429    | Client exceeded rate limit                 |
+| `CONNECTION_MCP_ELICITATION`         | 406    | Elicitation used off MCP, or client lacks the mode |
 | `CONNECTION_TASK_DEFINITION`         | 500    | Task definition error                      |
 
 ## Logger

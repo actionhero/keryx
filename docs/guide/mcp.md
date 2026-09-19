@@ -1,5 +1,5 @@
 ---
-description: MCP server configuration — how actions become tools, controlling tool exposure, McpActionConfig options, response formats, resources, and prompts.
+description: MCP server configuration — how actions become tools, controlling tool exposure, McpActionConfig options, elicitation, response formats, resources, and prompts.
 ---
 
 # MCP Server
@@ -103,6 +103,114 @@ The full `mcp` property is of type `McpActionConfig`:
 | `responseFormat` | `MCP_RESPONSE_FORMAT` | `JSON`  | Response format for MCP tool calls (see [Response Format](#response-format) below) |
 
 The `isLoginAction` and `isSignupAction` markers tell the OAuth system which actions to invoke when users authenticate through the MCP authorization page. These actions must return `OAuthActionResponse` (`{ user: { id: number } }`).
+
+## Elicitation
+
+A tool can pause mid-call and ask the user for more information through the MCP client. That is **elicitation**, not a second HTTP form and not an [MCP App](./mcp-apps.md). Keryx exposes it on the current [`Connection`](/reference/classes#connection): `elicitForm`, `elicitUrl`, and `completeElicitation`. Those methods throw a `TypedError` with `ErrorType.CONNECTION_MCP_ELICITATION` on any transport that is not MCP.
+
+Do not request passwords, API keys, access tokens, or payment details with form mode. Use URL mode for secrets so the values never cross the MCP client.
+
+### Client capabilities
+
+Keryx checks the client's `initialize` capabilities **before** sending `elicitation/create`. There is no automatic fallback to extra tool inputs.
+
+| Client declared | `elicitForm` | `elicitUrl` |
+| --------------- | ------------ | ----------- |
+| no `elicitation` | throws | throws |
+| `elicitation: {}` | allowed (form only) | throws |
+| `elicitation: { form: {}, url: {} }` | allowed | allowed |
+
+A missing capability becomes a normal failed tool result (`isError: true`) with a structured `{ error, type }` payload. Catch it in the action if you want a softer message.
+
+The in-flight action timeout still applies. Elicitation is aborted when that timeout fires.
+
+### Form mode
+
+This is an MCP-only tool. There is no web route.
+
+```ts
+export class ConfirmDisplayName implements Action {
+  name = "user:confirm-display-name";
+  description = "Ask the user for a display name, then return it";
+  inputs = z.object({});
+  mcp = { tool: true };
+
+  async run(_params: ActionParams<ConfirmDisplayName>, connection: Connection) {
+    const elicited = await connection.elicitForm({
+      message: "What display name should we show other people?",
+      schema: z.object({
+        displayName: z.string().min(1).max(40).describe("Public display name"),
+      }),
+    });
+
+    if (elicited.action !== "accept") {
+      return { saved: false, reason: elicited.action }; // "decline" | "cancel"
+    }
+
+    return { saved: true, displayName: elicited.content.displayName };
+  }
+}
+```
+
+`schema` must be a flat Zod object of primitives (strings, numbers, booleans, string enums). Nested objects are rejected up front.
+
+### URL mode
+
+`elicitUrl` waits only for **consent to open the URL**. `accept` does not mean the other page finished. Your app detects completion (Redis, a database row, a webhook), then calls `completeElicitation` so the client can close its prompt.
+
+```ts
+const ELICIT_KEY = (id: string) => `mcp:elicit:${id}`;
+
+export class LinkApiKey implements Action {
+  name = "secrets:link-api-key";
+  inputs = z.object({});
+  mcp = { tool: true };
+
+  async run(
+    _params: ActionParams<LinkApiKey>,
+    connection: Connection,
+    abortSignal?: AbortSignal,
+  ) {
+    const elicitationId = crypto.randomUUID();
+    const url = new URL(
+      `${config.server.web.apiRoute}/secrets/api-key`,
+      config.server.web.applicationUrl,
+    );
+    url.searchParams.set("elicitationId", elicitationId);
+
+    const elicited = await connection.elicitUrl({
+      message: "Open this page to store an API key.",
+      url,
+      elicitationId,
+    });
+    if (elicited.action !== "accept") {
+      return { linked: false, reason: elicited.action };
+    }
+
+    while (!abortSignal?.aborted) {
+      const raw = await api.redis.redis.get(ELICIT_KEY(elicitationId));
+      if (raw) {
+        await connection.completeElicitation(elicitationId);
+        return { linked: true };
+      }
+      await Bun.sleep(50);
+    }
+
+    throw new TypedError({
+      message: "Timed out waiting for API key page",
+      type: ErrorType.CONNECTION_ACTION_TIMEOUT,
+    });
+  }
+}
+```
+
+The destination page is a **separate** HTTP action, not a web route on the tool. It writes the Redis key when the user submits. If that HTTP request lands on another process, Redis still bridges the wait.
+
+Keryx does not ship a generic waiter — completion is app-specific.
+
+### URL required, then retry
+
+When the current tool call cannot stay open, throw `McpUrlElicitationRequiredError` with one or more URL elicitations. Keryx maps that to MCP JSON-RPC `-32042`. The client completes the URL flow and retries the original request.
 
 ## Response Format
 

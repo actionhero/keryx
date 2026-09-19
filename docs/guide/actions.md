@@ -146,6 +146,8 @@ Content types are matched on the base media type, so `application/json` and `app
 
 `rawRequest` only exists for HTTP — it's `undefined` over WebSocket, CLI, background tasks, and MCP, where there's no request to speak of. An action built around raw bytes is an HTTP endpoint first; guard on `connection.rawRequest` if the same action can be reached another way.
 
+During an MCP tool, resource, or prompt call, `connection.elicitForm()` and `connection.elicitUrl()` ask the MCP client for more input. They throw `ErrorType.CONNECTION_MCP_ELICITATION` on every other transport. See [Elicitation](/guide/mcp#elicitation).
+
 Swagger documents a `rawBody` endpoint's request body as opaque bytes (`*/*`), and any Zod inputs that aren't path params as query params — because that's where they have to come from.
 
 ## Raw Response Passthrough
