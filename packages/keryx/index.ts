@@ -48,11 +48,6 @@ export type {
   OnMcpMessageHook,
 } from "./initializers/mcp";
 export type {
-  McpElicitationAction,
-  McpFormElicitationResult,
-  McpUrlElicitationResult,
-} from "./util/mcpElicitation";
-export type {
   AfterJobHook,
   BeforeJobHook,
   JobContext,
@@ -75,6 +70,11 @@ export { buildProgram } from "./util/cli";
 export { deepMerge, deepMergeDefaults, loadFromEnvIfSet } from "./util/config";
 export { getValidTypes } from "./util/generate";
 export { globLoader, globModuleExports } from "./util/glob";
+export type {
+  McpElicitationAction,
+  McpFormElicitationResult,
+  McpUrlElicitationResult,
+} from "./util/mcpElicitation";
 export { type PaginatedResult, paginate } from "./util/pagination";
 export { safeCompare } from "./util/safeCompare";
 export type { JSONSchema } from "./util/swaggerSchemaGenerator";
