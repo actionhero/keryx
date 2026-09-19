@@ -1,10 +1,19 @@
 import { randomUUID } from "crypto";
+import type { z } from "zod";
 import { api, logger } from "../api";
 import { config } from "../config";
 import type { PubSubMessage } from "../initializers/pubsub";
 import type { SessionData } from "../initializers/session";
 import type { RateLimitInfo } from "../middleware/rateLimit";
 import { ansi } from "../util/ansi";
+import {
+  completeMcpElicitation,
+  elicitMcpForm,
+  elicitMcpUrl,
+  type McpElicitationContext,
+  type McpFormElicitationResult,
+  type McpUrlElicitationResult,
+} from "../util/mcpElicitation";
 import { isSecret } from "../util/zodMixins";
 import type { Action, ActionParams } from "./Action";
 import { LogFormat } from "./Logger";
@@ -130,6 +139,10 @@ export class Connection<
   metadata: Partial<TMeta>;
   /** @internal Tracks nested `act()` depth so metadata is only reset on the outermost call. */
   private _actDepth = 0;
+  /** @internal MCP request functions for this transient connection. */
+  private mcpElicitationContext?: McpElicitationContext;
+  /** Abort signal for the action currently executing on this connection. */
+  private actionAbortSignal?: AbortSignal;
 
   /**
    * Create a new connection and register it in `api.connections`.
@@ -293,6 +306,89 @@ export class Connection<
     }
 
     return api.session.regenerate(this);
+  }
+
+  /**
+   * Attach the current MCP request context. Framework transport code calls this before
+   * invoking an action; application code should use {@link elicitForm} and
+   * {@link elicitUrl} instead.
+   *
+   * @param context - Request-scoped MCP client capabilities and send functions.
+   * @internal
+   */
+  setMcpElicitationContext(context: McpElicitationContext): void {
+    this.mcpElicitationContext = context;
+  }
+
+  /**
+   * Ask an MCP client to collect non-sensitive structured input from the user.
+   * Accepted content is validated against `schema` before it is returned.
+   *
+   * Form elicitation must never request passwords, API keys, access tokens, payment
+   * credentials, or other secrets. Use {@link elicitUrl} for sensitive input.
+   *
+   * @param options - Human-readable prompt and a flat Zod object schema containing
+   * primitive fields supported by MCP.
+   * @returns The client's accept, decline, or cancel decision.
+   * @throws {TypedError} When called outside MCP, when the client lacks form
+   * elicitation support, when the schema is incompatible, or when accepted content
+   * fails validation.
+   */
+  async elicitForm<TSchema extends z.ZodType>(options: {
+    message: string;
+    schema: TSchema;
+  }): Promise<McpFormElicitationResult<TSchema>> {
+    return elicitMcpForm(
+      {
+        connectionType: this.type,
+        context: this.mcpElicitationContext,
+        actionAbortSignal: this.actionAbortSignal,
+      },
+      options,
+    );
+  }
+
+  /**
+   * Ask an MCP client to obtain consent to open an out-of-band URL.
+   *
+   * An `accept` result only means that the user consented to navigate. The application
+   * must detect completion through its own callback, webhook, database, or Redis state,
+   * then call {@link completeElicitation}.
+   *
+   * @param options - Message, absolute URL, and optional stable elicitation id.
+   * @returns The client's decision and the elicitation id used for later completion.
+   * @throws {TypedError} When called outside MCP, when the client lacks URL
+   * elicitation support, or when `url` is invalid.
+   */
+  async elicitUrl(options: {
+    message: string;
+    url: string | URL;
+    elicitationId?: string;
+  }): Promise<McpUrlElicitationResult> {
+    return elicitMcpUrl(
+      {
+        connectionType: this.type,
+        context: this.mcpElicitationContext,
+        actionAbortSignal: this.actionAbortSignal,
+      },
+      options,
+    );
+  }
+
+  /**
+   * Notify the initiating MCP client that an accepted URL elicitation completed.
+   *
+   * @param elicitationId - The id supplied to or returned by {@link elicitUrl}.
+   * @throws {TypedError} When called outside an active MCP request.
+   */
+  async completeElicitation(elicitationId: string): Promise<void> {
+    await completeMcpElicitation(
+      {
+        connectionType: this.type,
+        context: this.mcpElicitationContext,
+      },
+      elicitationId,
+    );
   }
 
   /** Add a channel to this connection's subscription set. */
@@ -469,11 +565,18 @@ export class Connection<
       }, timeoutMs);
     });
 
-    return Promise.race([
-      action.run(params, this, controller.signal),
-      timeoutPromise,
-    ]);
+    const previousSignal = this.actionAbortSignal;
+    this.actionAbortSignal = controller.signal;
+    try {
+      return await Promise.race([
+        action.run(params, this, controller.signal),
+        timeoutPromise,
+      ]);
+    } finally {
+      this.actionAbortSignal = previousSignal;
+    }
   }
+
   private async formatParams(params: Record<string, unknown>, action: Action) {
     if (!action.inputs) return {} as ActionParams<Action>;
 

@@ -245,6 +245,26 @@ test("cleanup task removes old messages", async () => {
 });
 ```
 
+## Testing MCP elicitation
+
+Advertise the capability on the SDK client and handle `elicitation/create`:
+
+```ts
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+
+const client = new Client(
+  { name: "test", version: "1.0.0" },
+  { capabilities: { elicitation: { form: {}, url: {} } } },
+);
+client.setRequestHandler(ElicitRequestSchema, () => ({
+  action: "accept",
+  content: { displayName: "Ada" },
+}));
+```
+
+A client that omits `elicitation` should see a failed tool result, not a JSON-RPC protocol error. See [Elicitation](/guide/mcp#elicitation).
+
 ## Gotcha: Stale Processes
 
 If you're changing code but your tests are still seeing old behavior… you probably have a stale server process running from a previous dev session. This has bitten me more than once:

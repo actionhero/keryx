@@ -19,6 +19,7 @@ Keryx treats MCP as a first-class transport. Any [action](/guide/actions) you wr
 - **Per-session MCP servers** — each agent connection gets its own isolated `McpServer` instance. No cross-session state leaks.
 - **Typed errors** — agents get structured `ErrorType` values, not "500 Internal Server Error." They can distinguish validation failures from auth errors from business logic errors.
 - **Real-time notifications** — PubSub events are forwarded to connected agents as MCP logging messages. Agents don't just call tools — they react to events.
+- **Elicitation** — a tool can pause and ask the user for more input ([form or URL](/guide/mcp#elicitation)). Clients that omit the capability get a failed tool result, not a protocol error.
 
 ## Quick Start
 
@@ -236,6 +237,6 @@ The Zod-to-JSON-Schema conversion handles edge cases automatically. Types that c
 
 ## Next Steps
 
-- [MCP reference](/guide/mcp) — full technical details on the MCP server, OAuth endpoints, templates, and configuration
+- [MCP reference](/guide/mcp) — full technical details on the MCP server, elicitation, OAuth endpoints, templates, and configuration
 - [Authentication guide](/guide/authentication) — how sessions and middleware work across all transports
 - [Actions guide](/guide/actions) — the core concept behind every MCP tool

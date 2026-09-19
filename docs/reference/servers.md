@@ -191,7 +191,9 @@ The authorization page is rendered from Mustache templates in `packages/keryx/te
 2. The initializer verifies the token against Redis (`oauth:token:{token}`)
 3. A new `Connection` is created with type `"mcp"` and the authenticated user's session
 4. Action params are extracted from the MCP tool call arguments
-5. `connection.act()` executes the action through the standard middleware pipeline
+5. `connection.act()` executes the action through the standard middleware pipeline.\*
 6. The result is returned as an MCP tool response
+
+\* During `run()`, the action may send a nested `elicitation/create` request if the client advertised that mode. A `McpUrlElicitationRequiredError` is mapped to JSON-RPC `-32042` so the client can finish a URL flow and retry. See [Elicitation](/guide/mcp#elicitation).
 
 See the [MCP guide](/guide/mcp) for full usage details.

@@ -35,6 +35,7 @@ export type {
 } from "./classes/Connection";
 export { CONNECTION_TYPE, Connection } from "./classes/Connection";
 export { LogLevel } from "./classes/Logger";
+export { McpUrlElicitationRequiredError } from "./classes/McpUrlElicitationRequiredError";
 export type { KeryxPlugin, PluginGenerator } from "./classes/Plugin";
 export { SSEResponse, StreamingResponse } from "./classes/StreamingResponse";
 export { ErrorStatusCodes, ErrorType, TypedError } from "./classes/TypedError";
@@ -69,6 +70,11 @@ export { buildProgram } from "./util/cli";
 export { deepMerge, deepMergeDefaults, loadFromEnvIfSet } from "./util/config";
 export { getValidTypes } from "./util/generate";
 export { globLoader, globModuleExports } from "./util/glob";
+export type {
+  McpElicitationAction,
+  McpFormElicitationResult,
+  McpUrlElicitationResult,
+} from "./util/mcpElicitation";
 export { type PaginatedResult, paginate } from "./util/pagination";
 export { safeCompare } from "./util/safeCompare";
 export type { JSONSchema } from "./util/swaggerSchemaGenerator";
