@@ -32,9 +32,6 @@ export type {
   ActOutcome,
   AfterActHook,
   BeforeActHook,
-  McpElicitationAction,
-  McpFormElicitationResult,
-  McpUrlElicitationResult,
 } from "./classes/Connection";
 export { CONNECTION_TYPE, Connection } from "./classes/Connection";
 export { LogLevel } from "./classes/Logger";
@@ -50,6 +47,11 @@ export type {
   OnMcpDisconnectHook,
   OnMcpMessageHook,
 } from "./initializers/mcp";
+export type {
+  McpElicitationAction,
+  McpFormElicitationResult,
+  McpUrlElicitationResult,
+} from "./util/mcpElicitation";
 export type {
   AfterJobHook,
   BeforeJobHook,

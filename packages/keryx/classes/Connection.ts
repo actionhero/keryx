@@ -1,18 +1,19 @@
-import type {
-  ClientCapabilities,
-  ElicitRequestFormParams,
-  ElicitRequestURLParams,
-  ElicitResult,
-} from "@modelcontextprotocol/sdk/types.js";
-import { ElicitRequestFormParamsSchema } from "@modelcontextprotocol/sdk/types.js";
 import { randomUUID } from "crypto";
-import { z } from "zod";
+import type { z } from "zod";
 import { api, logger } from "../api";
 import { config } from "../config";
 import type { PubSubMessage } from "../initializers/pubsub";
 import type { SessionData } from "../initializers/session";
 import type { RateLimitInfo } from "../middleware/rateLimit";
 import { ansi } from "../util/ansi";
+import {
+  completeMcpElicitation,
+  elicitMcpForm,
+  elicitMcpUrl,
+  type McpElicitationContext,
+  type McpFormElicitationResult,
+  type McpUrlElicitationResult,
+} from "../util/mcpElicitation";
 import { isSecret } from "../util/zodMixins";
 import type { Action, ActionParams } from "./Action";
 import { LogFormat } from "./Logger";
@@ -91,31 +92,6 @@ export enum CONNECTION_TYPE {
   /** Action invoked from the OAuth login/signup flow. */
   OAUTH = "oauth",
 }
-
-/** Result action returned by an MCP client for an elicitation request. */
-export type McpElicitationAction = ElicitResult["action"];
-
-/** Result of an MCP form elicitation, with accepted content inferred from its Zod schema. */
-export type McpFormElicitationResult<TSchema extends z.ZodType> =
-  | { action: "accept"; content: z.infer<TSchema> }
-  | { action: "decline" | "cancel"; content?: undefined };
-
-/** Result of an MCP URL elicitation. Acceptance means consent, not completion. */
-export type McpUrlElicitationResult = {
-  action: McpElicitationAction;
-  elicitationId: string;
-};
-
-/** @internal Request-scoped MCP functions attached by the MCP transport. */
-export type McpElicitationContext = {
-  clientCapabilities?: ClientCapabilities;
-  requestSignal: AbortSignal;
-  elicitInput: (
-    params: ElicitRequestFormParams | ElicitRequestURLParams,
-    signal: AbortSignal,
-  ) => Promise<ElicitResult>;
-  completeElicitation: (elicitationId: string) => Promise<void>;
-};
 
 /**
  * Represents a client connection to the server — HTTP request, WebSocket, or internal caller.
@@ -362,36 +338,14 @@ export class Connection<
     message: string;
     schema: TSchema;
   }): Promise<McpFormElicitationResult<TSchema>> {
-    const context = this.requireMcpElicitation("form");
-    let requestedSchema: ElicitRequestFormParams["requestedSchema"];
-    try {
-      requestedSchema =
-        ElicitRequestFormParamsSchema.shape.requestedSchema.parse(
-          z.toJSONSchema(options.schema, { target: "draft-7", io: "input" }),
-        );
-    } catch (cause) {
-      throw new TypedError({
-        message: `Invalid MCP form elicitation schema: ${cause}`,
-        type: ErrorType.CONNECTION_MCP_ELICITATION,
-        cause,
-      });
-    }
-
-    const result = await context.elicitInput(
-      { mode: "form", message: options.message, requestedSchema },
-      this.mcpElicitationSignal(context),
+    return elicitMcpForm(
+      {
+        connectionType: this.type,
+        context: this.mcpElicitationContext,
+        actionAbortSignal: this.actionAbortSignal,
+      },
+      options,
     );
-    if (result.action !== "accept") return { action: result.action };
-
-    const parsed = await options.schema.safeParseAsync(result.content);
-    if (!parsed.success) {
-      throw new TypedError({
-        message: `MCP client returned invalid elicitation content: ${parsed.error.message}`,
-        type: ErrorType.CONNECTION_MCP_ELICITATION,
-        cause: parsed.error,
-      });
-    }
-    return { action: "accept", content: parsed.data };
   }
 
   /**
@@ -411,29 +365,14 @@ export class Connection<
     url: string | URL;
     elicitationId?: string;
   }): Promise<McpUrlElicitationResult> {
-    const context = this.requireMcpElicitation("url");
-    let url: string;
-    try {
-      url = new URL(options.url).toString();
-    } catch (cause) {
-      throw new TypedError({
-        message: `Invalid MCP elicitation URL: ${options.url}`,
-        type: ErrorType.CONNECTION_MCP_ELICITATION,
-        cause,
-      });
-    }
-
-    const elicitationId = options.elicitationId ?? randomUUID();
-    const result = await context.elicitInput(
+    return elicitMcpUrl(
       {
-        mode: "url",
-        message: options.message,
-        url,
-        elicitationId,
+        connectionType: this.type,
+        context: this.mcpElicitationContext,
+        actionAbortSignal: this.actionAbortSignal,
       },
-      this.mcpElicitationSignal(context),
+      options,
     );
-    return { action: result.action, elicitationId };
   }
 
   /**
@@ -443,8 +382,13 @@ export class Connection<
    * @throws {TypedError} When called outside an active MCP request.
    */
   async completeElicitation(elicitationId: string): Promise<void> {
-    const context = this.requireMcpElicitation("url");
-    await context.completeElicitation(elicitationId);
+    await completeMcpElicitation(
+      {
+        connectionType: this.type,
+        context: this.mcpElicitationContext,
+      },
+      elicitationId,
+    );
   }
 
   /** Add a channel to this connection's subscription set. */
@@ -631,43 +575,6 @@ export class Connection<
     } finally {
       this.actionAbortSignal = previousSignal;
     }
-  }
-
-  private requireMcpElicitation(mode: "form" | "url"): McpElicitationContext {
-    if (this.type !== CONNECTION_TYPE.MCP) {
-      throw new TypedError({
-        message: `MCP elicitation is only available on MCP connections (got ${this.type})`,
-        type: ErrorType.CONNECTION_MCP_ELICITATION,
-      });
-    }
-
-    const context = this.mcpElicitationContext;
-    if (!context) {
-      throw new TypedError({
-        message: "MCP elicitation is only available during an MCP request",
-        type: ErrorType.CONNECTION_MCP_ELICITATION,
-      });
-    }
-
-    const elicitation = context.clientCapabilities?.elicitation;
-    const supportsForm =
-      elicitation !== undefined &&
-      (elicitation.form !== undefined || Object.keys(elicitation).length === 0);
-    const supported =
-      mode === "form" ? supportsForm : elicitation?.url !== undefined;
-    if (!supported) {
-      throw new TypedError({
-        message: `MCP client does not support ${mode} elicitation`,
-        type: ErrorType.CONNECTION_MCP_ELICITATION,
-      });
-    }
-    return context;
-  }
-
-  private mcpElicitationSignal(context: McpElicitationContext): AbortSignal {
-    return this.actionAbortSignal
-      ? AbortSignal.any([context.requestSignal, this.actionAbortSignal])
-      : context.requestSignal;
   }
 
   private async formatParams(params: Record<string, unknown>, action: Action) {
