@@ -440,6 +440,34 @@ describe("mcpServer utilities (integration)", () => {
       }
     });
 
+    test("accepted form content that fails the Zod schema is a typed error", async () => {
+      const { client, transport } = buildClient({ form: {} });
+      client.setRequestHandler(ElicitRequestSchema, () => ({
+        action: "accept",
+        content: { displayName: "" },
+      }));
+      await client.connect(transport);
+
+      try {
+        const result = await client.callTool({
+          name: "test-form-elicitation",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const content = result.content as Array<{ type: string; text: string }>;
+        const payload = JSON.parse(content[0].text) as {
+          error: string;
+          type: string;
+        };
+        expect(payload.type).toBe(ErrorType.CONNECTION_MCP_ELICITATION);
+        expect(payload.error).toContain(
+          "MCP client returned invalid elicitation content",
+        );
+      } finally {
+        await transport.close();
+      }
+    });
+
     test("missing elicitation capability returns a typed tool error", async () => {
       const { client, transport } = buildClient();
       await client.connect(transport);
