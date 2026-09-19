@@ -106,7 +106,12 @@ class TestFormElicitation extends Action {
   async run(_params: Record<string, never>, connection: Connection) {
     return connection.elicitForm({
       message: "Choose a display name",
-      schema: z.object({ displayName: z.string().min(1) }),
+      schema: z.object({
+        displayName: z
+          .string()
+          .min(1)
+          .refine((value) => value !== "blocked"),
+      }),
     });
   }
 }
@@ -441,10 +446,12 @@ describe("mcpServer utilities (integration)", () => {
     });
 
     test("accepted form content that fails the Zod schema is a typed error", async () => {
+      // Empty strings can fail MCP JSON Schema before Zod runs. A refine that is
+      // not represented in requestedSchema exercises our post-accept parse.
       const { client, transport } = buildClient({ form: {} });
       client.setRequestHandler(ElicitRequestSchema, () => ({
         action: "accept",
-        content: { displayName: "" },
+        content: { displayName: "blocked" },
       }));
       await client.connect(transport);
 
