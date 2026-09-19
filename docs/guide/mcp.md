@@ -114,11 +114,11 @@ Do not request passwords, API keys, access tokens, or payment details with form 
 
 Keryx checks the client's `initialize` capabilities **before** sending `elicitation/create`. There is no automatic fallback to extra tool inputs.
 
-| Client declared | `elicitForm` | `elicitUrl` |
-| --------------- | ------------ | ----------- |
-| no `elicitation` | throws | throws |
-| `elicitation: {}` | allowed (form only) | throws |
-| `elicitation: { form: {}, url: {} }` | allowed | allowed |
+| Client declared                      | `elicitForm`        | `elicitUrl` |
+| ------------------------------------ | ------------------- | ----------- |
+| no `elicitation`                     | throws              | throws      |
+| `elicitation: {}`                    | allowed (form only) | throws      |
+| `elicitation: { form: {}, url: {} }` | allowed             | allowed     |
 
 A missing capability becomes a normal failed tool result (`isError: true`) with a structured `{ error, type }` payload. Catch it in the action if you want a softer message.
 

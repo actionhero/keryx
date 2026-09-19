@@ -272,7 +272,7 @@ References:
 | `CONNECTION_CHANNEL_VALIDATION`      | 400    | Invalid channel name                       |
 | `CONNECTION_ACTION_TIMEOUT`          | 408    | Action exceeded its timeout                |
 | `CONNECTION_RATE_LIMITED`            | 429    | Client exceeded rate limit                 |
-| `CONNECTION_MCP_ELICITATION`         | 406    | Elicitation used off MCP, or client lacks the mode |
+| `CONNECTION_MCP_ELICITATION`         | 406    | Elicitation off MCP, or mode unsupported   |
 | `CONNECTION_TASK_DEFINITION`         | 500    | Task definition error                      |
 
 ## Logger
