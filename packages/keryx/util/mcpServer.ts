@@ -6,7 +6,6 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import {
   DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
-  ElicitResultSchema,
   JSONRPCMessageSchema,
   type ServerNotification,
   type ServerRequest,
@@ -66,14 +65,6 @@ export async function createMcpConnection(
     authInfo?: McpAuthInfo;
     sessionId?: string;
     signal?: AbortSignal;
-    sendNotification?: RequestHandlerExtra<
-      ServerRequest,
-      ServerNotification
-    >["sendNotification"];
-    sendRequest?: RequestHandlerExtra<
-      ServerRequest,
-      ServerNotification
-    >["sendRequest"];
   },
   mcpServer?: McpServer,
 ): Promise<Connection> {
@@ -92,26 +83,14 @@ export async function createMcpConnection(
     await connection.updateSession({ userId: authInfo.extra.userId });
   }
 
-  if (
-    mcpServer &&
-    extra.signal &&
-    extra.sendNotification &&
-    extra.sendRequest
-  ) {
+  if (mcpServer && extra.signal) {
     connection.setMcpElicitationContext({
       clientCapabilities: mcpServer.server.getClientCapabilities(),
       requestSignal: extra.signal,
       elicitInput: (params, signal) =>
-        extra.sendRequest!(
-          { method: "elicitation/create", params },
-          ElicitResultSchema,
-          { signal },
-        ),
+        mcpServer.server.elicitInput(params, { signal }),
       completeElicitation: (elicitationId) =>
-        extra.sendNotification!({
-          method: "notifications/elicitation/complete",
-          params: { elicitationId },
-        }),
+        mcpServer.server.createElicitationCompletionNotifier(elicitationId)(),
     });
   }
 

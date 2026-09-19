@@ -26,7 +26,7 @@ import {
   MCP_JSONRPC_ERROR,
   validateJsonRpcPayload,
 } from "../../util/mcpServer";
-import { serverUrl, useTestServer } from "../setup";
+import { serverUrl, useTestServer, waitFor } from "../setup";
 
 const mcpUrl = () => `${serverUrl()}${config.server.mcp.route}`;
 
@@ -504,6 +504,10 @@ describe("mcpServer utilities (integration)", () => {
           arguments: {},
         });
         expect(result.isError).not.toBe(true);
+        await waitFor(() => completedId === "link-account", {
+          interval: 10,
+          timeout: 1000,
+        });
         expect(completedId).toBe("link-account");
       } finally {
         await transport.close();
@@ -512,14 +516,19 @@ describe("mcpServer utilities (integration)", () => {
 
     test("resources and prompts can elicit", async () => {
       const { client, transport } = buildClient({ form: {} });
-      client.setRequestHandler(ElicitRequestSchema, (request) => ({
-        action: "accept",
-        content:
-          request.params.mode === "form" &&
-          "name" in request.params.requestedSchema.properties
-            ? { name: "elicited resource" }
-            : { topic: "elicited prompt" },
-      }));
+      client.setRequestHandler(ElicitRequestSchema, (request) => {
+        if (request.params.mode === "url") {
+          throw new Error("Expected form elicitation");
+        }
+        const properties = request.params.requestedSchema.properties;
+        return {
+          action: "accept" as const,
+          content:
+            "name" in properties
+              ? { name: "elicited resource" }
+              : { topic: "elicited prompt" },
+        };
+      });
       await client.connect(transport);
 
       try {
@@ -532,6 +541,7 @@ describe("mcpServer utilities (integration)", () => {
 
         const prompt = await client.getPrompt({
           name: "test-eliciting-prompt",
+          arguments: {},
         });
         expect(prompt.messages[0].content).toMatchObject({
           text: "elicited prompt",
@@ -574,16 +584,23 @@ describe("mcpServer utilities (integration)", () => {
         crypto.randomUUID(),
       );
       try {
+        const expected = {
+          type: ErrorType.CONNECTION_MCP_ELICITATION,
+          message:
+            "MCP elicitation is only available on MCP connections (got web)",
+        };
         await expect(
           connection.elicitForm({
             message: "Not available",
             schema: z.object({ value: z.string() }),
           }),
-        ).rejects.toMatchObject({
-          type: ErrorType.CONNECTION_MCP_ELICITATION,
-          message:
-            "MCP elicitation is only available on MCP connections (got web)",
-        });
+        ).rejects.toMatchObject(expected);
+        await expect(
+          connection.elicitUrl({
+            message: "Not available",
+            url: "https://example.com/elicit",
+          }),
+        ).rejects.toMatchObject(expected);
       } finally {
         connection.destroy();
       }
