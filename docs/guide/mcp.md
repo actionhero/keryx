@@ -444,7 +444,7 @@ Each authenticated MCP connection creates its own `McpServer` instance. Sessions
 
 ### Cluster-wide sessions (multi-node)
 
-Sessions are recorded in a **shared Redis registry** (`mcp:session:<id>`), so any node in a cluster can serve any session — the same way keryx already scales WebSocket clients using the shared session store and Redis PubSub. When you run more than one keryx process behind a load balancer:
+Sessions are recorded in a **shared Redis registry** (`mcp:session:<id>`) — in-process when `REDIS_URL="memory://"`, which limits you to a single node — so any node in a cluster can serve any session — the same way keryx already scales WebSocket clients using the shared session store and Redis PubSub. When you run more than one keryx process behind a load balancer:
 
 - **Source of truth is Redis, not local memory.** Every request validates the `mcp-session-id` against the registry. The live transport/`McpServer` objects stay node-local (like a WebSocket socket — they can't move), but they're a cache, not the authority.
 - **Lazy adoption.** If a request lands on a node that doesn't hold the transport (the load balancer routed it elsewhere), that node re-materializes the session locally from the shared record and serves the request. No sticky-session configuration is required.

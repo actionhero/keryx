@@ -65,8 +65,8 @@ export function serverUrl(): string {
  *    start/stop pair rather than splitting it, or handle cleanup in `afterEach`.
  *
  * @param opts.clearDatabase - Truncate all tables in `beforeAll`. Default `false`.
- *   Requires the `db` initializer to be active. Opt in for tests that mutate
- *   persistent state.
+ *   Requires the `db` initializer to be active; a no-op when the database is
+ *   disabled (empty `DATABASE_URL`). Opt in for tests that mutate persistent state.
  * @param opts.clearRedis - Flush the current Redis DB in `beforeAll`. Default
  *   `false`. Requires the `redis` initializer to be active. Opt in for tests
  *   that exercise pub/sub so messages from prior tests don't leak in.

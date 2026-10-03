@@ -145,7 +145,7 @@ import { SessionMiddleware } from "../middleware/session";
 
 **Every code change should include tests.** When adding features, fixing bugs, or modifying behavior, always write or update tests to cover the change. If a PR has no test changes, that's a red flag.
 
-Tests make real HTTP requests via `fetch` — no mock server. Tests run non-concurrently to avoid port conflicts. See `docs/guide/testing.md` for patterns, helpers (`serverUrl()`, `HOOK_TIMEOUT`), and test file structure.
+Tests make real HTTP requests via `fetch` — no mock server. Tests run non-concurrently to avoid port conflicts. Postgres and Redis are optional at runtime: an empty `DATABASE_URL` (or `"none"`) disables the database, and `REDIS_URL="memory://"` uses an in-process Redis (ioredis-mock). `packages/keryx/__tests__/standalone.test.ts` and `scaffold-standalone-e2e.test.ts` cover that mode and run in CI with no services. See `docs/guide/testing.md` for patterns, helpers (`serverUrl()`, `HOOK_TIMEOUT`), and test file structure.
 
 ## Documentation Site (`docs/`)
 

@@ -17,6 +17,8 @@ The `redis` initializer creates two ioredis connections at startup:
 
 Both connect to the URL in `config.redis.connectionString` (defaults to `redis://localhost:6379/0`, overridable via `REDIS_URL`). The initializer verifies connectivity at boot — if Redis is unreachable, the server won't start.
 
+Set `REDIS_URL="memory://"` and both clients become in-process [ioredis-mock](https://github.com/stipsan/ioredis-mock) instances instead. Caching still works, but the cache belongs to one process and is empty after every restart — see [Running Without Postgres or Redis](/guide/deployment#running-without-postgres-or-redis).
+
 Because `api.redis.redis` is a standard ioredis instance, every Redis command is available: `GET`, `SET`, `DEL`, `HSET`, `LPUSH`, `EXPIRE`, `SETNX`, pipelines, Lua scripts, streams — the full Redis API. No wrapper to learn.
 
 ## Cache-Aside Pattern

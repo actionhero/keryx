@@ -43,11 +43,21 @@ bun install
 
 The generated `.env` points `DATABASE_URL` at a database named after your project, and `DATABASE_URL_TEST` at `<project>-test` — so create both before starting the server. `keryx new` prints these same steps when it finishes.
 
-The `keryx new` command will prompt you for a project name and optional features (database setup, example action). You can also skip prompts with `--no-interactive`:
+The `keryx new` command will prompt you for a project name and optional features (database, Redis server, example action). You can also skip prompts with `--no-interactive`:
 
 ```bash
 bunx keryx new my-app --no-interactive
 ```
+
+### Without Postgres or Redis
+
+Postgres and Redis are what Keryx is built for, and what you should run in production. For a quick prototype or a single-process tool, you can skip them:
+
+```bash
+bunx keryx new my-app --no-db --no-redis
+```
+
+`--no-db` leaves `DATABASE_URL` empty, so the app runs without a database. `--no-redis` sets `REDIS_URL="memory://"`, so Redis runs inside your process — background tasks, scheduled jobs, PubSub, and sessions keep working, but everything lives in one process and disappears on restart. See [Running Without Postgres or Redis](/guide/deployment#running-without-postgres-or-redis) for the trade-offs. Moving to the real thing later is just setting `DATABASE_URL` and `REDIS_URL`.
 
 ## Run the Dev Server
 
@@ -65,10 +75,10 @@ A new Keryx project looks like this:
 my-app/
 ├── actions/        # Transport-agnostic controllers
 ├── channels/       # WebSocket PubSub channels
-├── drizzle/        # Generated migration SQL
+├── drizzle/        # Generated migration SQL (not created with --no-db)
 ├── initializers/   # Lifecycle components (DB, Redis, etc.)
 ├── middleware/     # Action and channel middleware
-├── schema/         # Drizzle ORM table definitions
+├── schema/         # Drizzle ORM table definitions (not created with --no-db)
 ├── index.ts        # Sets api.rootDir, re-exports framework types
 ├── keryx.ts        # CLI entry point
 ├── .env.example    # Environment variable template

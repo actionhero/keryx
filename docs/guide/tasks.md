@@ -6,6 +6,8 @@ description: Background tasks with Resque workers and the fan-out pattern for di
 
 One of the things I've always loved about ActionHero is that background tasks are a first-class citizen — not a plugin, not a separate service, just part of the framework. Keryx keeps that tradition, using [node-resque](https://github.com/actionhero/node-resque) for job processing backed by Redis.
 
+No Redis server? With `REDIS_URL="memory://"`, the queue, workers, scheduler, and recurring tasks all run against an in-process Redis. The scheduler re-enqueues recurring tasks every time it boots, so they survive a restart; one-off and delayed jobs don't. That's fine for a single-process app — see [Running Without Postgres or Redis](/guide/deployment#running-without-postgres-or-redis) for the full list of trade-offs.
+
 The key difference from the original ActionHero: tasks and actions are the same thing now. Any action can be scheduled as a background job by adding a `task` property. Same inputs, same validation, same `run()` method.
 
 ## Defining a Task

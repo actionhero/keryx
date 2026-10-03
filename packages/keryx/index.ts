@@ -86,7 +86,7 @@ export {
 } from "./util/swaggerSchemaGenerator";
 export { toMarkdown } from "./util/toMarkdown";
 export type { DbOrTransaction, Transaction } from "./util/transaction";
-export { withTransaction } from "./util/transaction";
+export { assertDatabaseEnabled, withTransaction } from "./util/transaction";
 export {
   isSecret,
   paginationInputs,

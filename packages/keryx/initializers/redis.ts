@@ -5,6 +5,7 @@ import { config } from "../config";
 
 import {
   formatConnectionStringForLogging,
+  isMemoryRedis,
   throwConnectionError,
 } from "../util/connectionString";
 
@@ -21,6 +22,12 @@ declare module "keryx" {
  * Initializer that manages two Redis connections: `redis` for general commands and
  * `subscription` for PubSub. Both are created during `start()` and closed during `stop()`.
  * Exposes `api.redis.redis` and `api.redis.subscription` as ioredis `RedisClient` instances.
+ *
+ * When `REDIS_URL` uses the `memory:` scheme (e.g. `memory://`), both clients are
+ * in-process `ioredis-mock` instances that share one dataset instead of connections to
+ * a Redis server. Tasks, PubSub, presence, sessions and rate limiting all keep working,
+ * but state lives only in this process: it is not shared with other processes and is
+ * lost when the process exits. `api.redis.inMemory` reports which mode is active.
  */
 export class Redis extends Initializer {
   constructor() {
@@ -28,14 +35,29 @@ export class Redis extends Initializer {
   }
 
   async initialize() {
-    const redisContainer = {} as {
+    const redisContainer = { inMemory: false } as {
       redis: RedisClient;
       subscription: RedisClient;
+      /** `true` when `REDIS_URL` selected the in-process `memory://` Redis. */
+      inMemory: boolean;
     };
     return redisContainer;
   }
 
   async start() {
+    api.redis.inMemory = isMemoryRedis(config.redis.connectionString);
+
+    if (api.redis.inMemory) {
+      // Loaded on demand so apps using a real Redis never pay for ioredis-mock's Lua VM.
+      const { default: RedisMock } = await import("ioredis-mock");
+      api.redis.redis = new RedisMock();
+      api.redis.subscription = new RedisMock();
+      logger.warn(
+        "using in-memory redis (REDIS_URL=memory://): state is kept in this process only, is not shared with other processes, and is lost on restart",
+      );
+      return;
+    }
+
     api.redis.redis = new RedisClient(config.redis.connectionString);
     api.redis.subscription = new RedisClient(config.redis.connectionString);
 

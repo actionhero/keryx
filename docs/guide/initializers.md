@@ -40,8 +40,8 @@ Unknown dependency names or cycles cause a startup failure with a clear, actiona
 | `connections`   | `[]`                                                     | Connection pool management                         |
 | `signals`       | `[]`                                                     | SIGINT/SIGTERM graceful shutdown handlers          |
 | `process`       | `[]`                                                     | Process metadata (name, boot time)                 |
-| `db`            | `[]`                                                     | Sets up Drizzle ORM + connection pool              |
-| `redis`         | `[]`                                                     | Redis client connection                            |
+| `db`            | `[]`                                                     | Drizzle ORM + connection pool (skipped when `DATABASE_URL` is empty) |
+| `redis`         | `[]`                                                     | Redis client connections (in-process with `memory://`) |
 | `hooks`         | `[]`                                                     | Central registry for framework lifecycle hooks     |
 | `actions`       | `["hooks"]`                                              | Discovers and registers all actions                |
 | `observability` | `["hooks", "actions", "connections"]`                    | OpenTelemetry metrics + Prometheus scrape endpoint |
@@ -73,7 +73,7 @@ When the server starts, it renders the resolved graph to the logs so the order i
   13  channels       ← redis, pubsub
   14  servers        ← actions, hooks
   15  mcp            ← hooks, actions, oauth, connections, pubsub
-  16  resque         ← redis, actions, process, hooks
+  16  resque         ← redis, db, actions, process, hooks
 ```
 
 ## The Module Augmentation Pattern

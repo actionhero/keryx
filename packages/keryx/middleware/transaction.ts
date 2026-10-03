@@ -4,7 +4,7 @@ import { api, logger } from "../api";
 import type { ActionMiddleware } from "../classes/Action";
 import type { Connection } from "../classes/Connection";
 import type { TypedError } from "../classes/TypedError";
-import type { Transaction } from "../util/transaction";
+import { assertDatabaseEnabled, type Transaction } from "../util/transaction";
 
 /**
  * Action middleware that wraps the entire action execution in a database transaction.
@@ -50,6 +50,8 @@ export const TransactionMiddleware: ActionMiddleware = {
     _params: Record<string, unknown>,
     connection: Connection,
   ) => {
+    assertDatabaseEnabled("TransactionMiddleware");
+
     // If a parent action already opened a transaction, reuse it.
     // Track depth so only the outermost middleware commits/rolls back.
     const depth = (connection.metadata._txDepth as number | undefined) ?? 0;

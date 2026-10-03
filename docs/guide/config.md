@@ -15,12 +15,12 @@ backend/config/
 ├── index.ts        # Aggregates everything into one `config` object
 ├── actions.ts      # Action timeout, fan-out batch size and TTL
 ├── channels.ts     # Presence TTL and heartbeat interval
-├── database.ts     # Database connection string, auto-migrate flag
+├── database.ts     # Database connection string (empty = no database), auto-migrate flag
 ├── logger.ts       # Log level, timestamps, colors, output format (text/JSON)
 ├── observability.ts # OpenTelemetry metrics toggle, route, service name
 ├── process.ts      # Process name, shutdown timeout
 ├── rateLimit.ts    # Rate limiting windows and thresholds
-├── redis.ts        # Redis connection string
+├── redis.ts        # Redis connection string (memory:// = in-process Redis)
 ├── session.ts      # Session TTL, cookie security flags
 ├── tasks.ts        # Task queue settings
 └── server/
@@ -34,7 +34,7 @@ Everything rolls up into a single `config` object:
 ```ts
 import { config } from "../config";
 
-config.database.connectionString; // Postgres URL
+config.database.connectionString; // Postgres URL ("" = no database)
 config.server.web.port; // 8080
 config.logger.level; // "info"
 ```
@@ -83,7 +83,7 @@ The `loadFromEnvIfSet()` helper is where the magic happens:
 import { loadFromEnvIfSet } from "../util/config";
 
 export const configDatabase = {
-  connectionString: await loadFromEnvIfSet("DATABASE_URL", "x"),
+  connectionString: await loadFromEnvIfSet("DATABASE_URL", ""),
   autoMigrate: await loadFromEnvIfSet("DATABASE_AUTO_MIGRATE", true),
 };
 ```
@@ -92,11 +92,13 @@ The resolution order is:
 
 1. `DATABASE_URL_TEST` (env var with `NODE_ENV` suffix — checked first)
 2. `DATABASE_URL` (plain env var)
-3. `"x"` (the default value)
+3. `""` (the default value)
 
 This means you can set `DATABASE_URL_TEST=postgres://localhost/bun-test` and it'll automatically be used when `NODE_ENV=test`, without any conditional logic in your config files.
 
 The helper is also type-aware — it parses `"true"`/`"false"` strings into booleans and numeric strings into numbers. So `DATABASE_AUTO_MIGRATE=false` does what you'd expect.
+
+One gotcha: an *empty* env var counts as unset for the `NODE_ENV` override. `DATABASE_URL_TEST=""` falls through to `DATABASE_URL`. To turn something off for one environment only, use an explicit value — that's why the database accepts `"none"` as well as `""`.
 
 ## Reference
 
@@ -112,8 +114,10 @@ The helper is also type-aware — it parses `"true"`/`"false"` strings into bool
 
 | Key                | Env Var                 | Default |
 | ------------------ | ----------------------- | ------- |
-| `connectionString` | `DATABASE_URL`          | `"x"`   |
+| `connectionString` | `DATABASE_URL`          | `""`    |
 | `autoMigrate`      | `DATABASE_AUTO_MIGRATE` | `true`  |
+
+An empty `DATABASE_URL` (the default) or `"none"` runs without a database. Nothing connects, no migrations run, `api.db.enabled` is `false`, and `/status` reports the database check as `null` instead of failing. `withTransaction()`, `TransactionMiddleware`, and `zIdOrModel()` throw a clear `TypedError` if you call them anyway. Set a `postgres://` URL and the database comes back — no code changes.
 
 #### Advanced: Pool Tuning
 
@@ -172,9 +176,11 @@ Example JSON output:
 
 ### Redis
 
-| Key                | Env Var     | Default                      |
-| ------------------ | ----------- | ---------------------------- |
-| `connectionString` | `REDIS_URL` | `"redis://localhost:6379/0"` |
+| Key                | Env Var     | Default                      | Description                                               |
+| ------------------ | ----------- | ---------------------------- | --------------------------------------------------------- |
+| `connectionString` | `REDIS_URL` | `"redis://localhost:6379/0"` | Redis server URL, or `memory://` for the in-process Redis |
+
+`REDIS_URL="memory://"` swaps the Redis server for [ioredis-mock](https://github.com/stipsan/ioredis-mock) running inside your process. Tasks, the scheduler, PubSub, presence, sessions, OAuth, rate limiting, and fan-out all keep working, and `api.redis.inMemory` is `true`. The catch: that state belongs to one process and is gone when it exits. See [Running Without Postgres or Redis](/guide/deployment#running-without-postgres-or-redis).
 
 ### Session
 

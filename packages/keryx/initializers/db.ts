@@ -14,6 +14,7 @@ import { ErrorType, TypedError } from "../classes/TypedError";
 import { config } from "../config";
 import {
   formatConnectionStringForLogging,
+  isDatabaseDisabled,
   throwConnectionError,
 } from "../util/connectionString";
 import { globModuleExports } from "../util/glob";
@@ -72,6 +73,15 @@ declare module "keryx" {
   }
 }
 
+/**
+ * Initializer that connects Drizzle ORM to Postgres, runs migrations, and exposes
+ * `api.db.db` (the Drizzle instance), `api.db.pool` and `api.db.schema`.
+ *
+ * An empty `DATABASE_URL` (or `"none"`) disables the database: nothing connects, no
+ * migrations run, `api.db.enabled` is `false`, and `api.db.db` / `api.db.pool` stay
+ * unset. Helpers that need a database (`withTransaction`, `TransactionMiddleware`,
+ * `zIdOrModel`) then throw a clear `TypedError` instead.
+ */
 export class DB extends Initializer {
   constructor() {
     super(namespace);
@@ -91,12 +101,27 @@ export class DB extends Initializer {
         generateMigrations: this.generateMigrations,
         clearDatabase: this.clearDatabase,
         schema,
+        /** `false` when `DATABASE_URL` is empty or `"none"` and no database is connected. */
+        enabled: false,
       },
       dbContainer,
     );
   }
 
   async start() {
+    if (isDatabaseDisabled(config.database.connectionString)) {
+      api.db.enabled = false;
+      logger.warn('database disabled (DATABASE_URL is empty or "none")');
+      const tableCount = Object.keys(api.db.schema).length;
+      if (tableCount > 0) {
+        logger.warn(
+          `${tableCount} table(s) found in ${SCHEMA_DIR}/ will not be available without a database`,
+        );
+      }
+      return;
+    }
+
+    api.db.enabled = true;
     api.db.pool = new Pool({
       connectionString: config.database.connectionString,
       ...config.database.pool,
@@ -216,6 +241,7 @@ export class DB extends Initializer {
 
   /**
    * Erase all the tables in the active database.  Will fail on production environments.
+   * A no-op when the database is disabled.
    */
   async clearDatabase(restartIdentity = true, cascade = true) {
     if (Bun.env.NODE_ENV === "production") {
@@ -224,6 +250,8 @@ export class DB extends Initializer {
         type: ErrorType.SERVER_INITIALIZATION,
       });
     }
+
+    if (!api.db.enabled) return;
 
     const { rows } = await api.db.db.execute(
       sql`SELECT tablename FROM pg_tables WHERE schemaname = CURRENT_SCHEMA`,

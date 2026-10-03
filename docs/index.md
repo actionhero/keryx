@@ -178,7 +178,7 @@ bun install
 bun dev
 ```
 
-Requires Bun, PostgreSQL, and Redis. See the [Getting Started guide](/guide/) for full setup instructions.
+Requires Bun, PostgreSQL, and Redis. See the [Getting Started guide](/guide/) for full setup instructions (including running without Postgres or Redis for quick prototypes).
 
 ## Built With
 

@@ -32,7 +32,7 @@ Yes, this means each test file starts the entire server — database connections
 The `keryx/testing` subpath exports helpers that cover the common test lifecycle:
 
 - **`useTestServer(opts?)`** — Registers `beforeAll` / `afterAll` hooks that call `api.start()` and `api.stop()`. Returns a getter that resolves the server URL (the URL isn't known until the port is bound, so it's a function, not a string). Options:
-  - `clearDatabase` (default `false`) — truncate all tables in `beforeAll` (requires the `db` initializer).
+  - `clearDatabase` (default `false`) — truncate all tables in `beforeAll` (requires the `db` initializer; a no-op when the database is disabled).
   - `clearRedis` (default `false`) — `FLUSHDB` on the current Redis database in `beforeAll` (requires the `redis` initializer). Opt in for tests that exercise pub/sub so messages from prior tests don't leak in.
 
   ```ts
@@ -114,6 +114,10 @@ createdb keryx-test
 ```
 
 Set `DATABASE_URL_TEST` in your environment (or `backend/.env`) to point at it.
+
+### Tests Without Postgres or Redis
+
+If your app doesn't use the database, skip the test database entirely: set `DATABASE_URL_TEST="none"` and `REDIS_URL_TEST="memory://"`. The full server still boots for every test file — real HTTP requests, real tasks — but against an in-process Redis, with no services to install in CI. (Use `"none"` rather than an empty string; an empty `DATABASE_URL_TEST` falls through to `DATABASE_URL`.)
 
 ## Testing Authenticated Endpoints
 

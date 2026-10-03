@@ -39,7 +39,14 @@ export async function buildProgram(opts: {
     .description("Scaffold a new Keryx application with project boilerplate")
     .option("-y, --yes", "Skip prompts and use defaults")
     .option("--no-interactive", "Skip prompts and use defaults")
-    .option("--no-db", "Skip database setup files")
+    .option(
+      "--no-db",
+      "Run without PostgreSQL (no database files, empty DATABASE_URL)",
+    )
+    .option(
+      "--no-redis",
+      "Run without a Redis server (in-memory Redis, REDIS_URL=memory://)",
+    )
     .option("--no-example", "Skip example action")
     .option(
       "--force",
@@ -52,6 +59,7 @@ export async function buildProgram(opts: {
         projectName = projectName || "my-keryx-app";
         options = {
           includeDb: cmdOpts.db !== false,
+          includeRedis: cmdOpts.redis !== false,
           includeExample: cmdOpts.example !== false,
           force: cmdOpts.force === true,
         };

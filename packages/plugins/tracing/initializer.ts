@@ -516,7 +516,9 @@ export class TracingPlugin extends Initializer {
    */
   private instrumentRedis() {
     const client = api.redis?.redis;
-    if (!client) return;
+    // The in-memory Redis (ioredis-mock, `REDIS_URL=memory://`) has no `sendCommand`
+    // to wrap, so Redis commands are not instrumented in that mode.
+    if (!client || typeof client.sendCommand !== "function") return;
     const tracer = api.tracing.tracer;
     const originalSendCommand = client.sendCommand.bind(client);
     const isSuppressed = () => this.tracingSuppressedALS.getStore() === true;

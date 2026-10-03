@@ -142,7 +142,7 @@ Make sure to include the WebSocket upgrade headers — without them, WebSocket c
 
 ## Scaling
 
-Keryx backends can run as multiple instances behind a load balancer. Redis handles the shared state:
+Keryx backends can run as multiple instances behind a load balancer. Redis handles the shared state (which is why this requires a real Redis server, not `memory://`):
 
 - **Sessions** are stored in Redis, so any instance can serve any request
 - **PubSub** broadcasts go through Redis, so channel messages reach subscribers on all instances
@@ -150,6 +150,28 @@ Keryx backends can run as multiple instances behind a load balancer. Redis handl
 - **Presence tracking** uses Redis, so `api.channels.members()` returns the global view across all instances
 
 For horizontal scaling, the main consideration is that each instance runs its own Resque workers. Configure `TASK_PROCESSORS` per instance to control how many workers each one runs. Use `["*"]` for queues unless you need dedicated worker instances for specific queues.
+
+## Running Without Postgres or Redis
+
+Not every app needs a database and a Redis cluster. An internal MCP tool server, a webhook relay, a cron-style worker — these can run on Bun alone:
+
+```bash
+DATABASE_URL=""          # or "none" — no Postgres
+REDIS_URL="memory://"    # in-process Redis
+```
+
+`bunx keryx new my-app --no-db --no-redis` scaffolds exactly this.
+
+**What keeps working:** every transport (HTTP, WebSocket, CLI, background tasks, and MCP), the task scheduler and recurring tasks, `fanOut()`, PubSub and channel presence, sessions, OAuth, and rate limiting. Under the hood, `memory://` runs [ioredis-mock](https://github.com/stipsan/ioredis-mock) — a Redis implementation inside your process — so all of the Redis-backed code paths are the same ones you'd run in production.
+
+**What you give up:**
+
+- **The database.** No Drizzle models, no migrations. `api.db.enabled` is `false`, and database helpers throw if you call them. The [admin plugin](/plugins/admin) needs Postgres and refuses to serve without it.
+- **Durability.** Everything in Redis — sessions, OAuth tokens, queued and delayed jobs, fan-out results — lives in process memory and is gone on restart. That includes every `bun dev` hot reload, so expect to be logged out when you save a file. Recurring tasks survive because the scheduler re-enqueues them at boot; one-off jobs queued before a restart do not.
+- **More than one process.** The in-memory Redis is not shared, so you can't scale horizontally, split web and worker processes, or run more than one instance behind a load balancer. A `keryx` CLI action command runs in its own process with its own empty store — it can't enqueue work for your server or see its sessions.
+- **Redis instrumentation.** The [tracing](/plugins/tracing) and [Sentry](/plugins/sentry) plugins don't emit Redis spans in memory mode.
+
+When you outgrow it, set real URLs. `DATABASE_URL=postgres://…` and `REDIS_URL=redis://…` are the whole migration — your actions, tasks, and channels don't change.
 
 ## Process Management
 
@@ -159,7 +181,7 @@ In production, use a process manager to keep the backend running:
 - **systemd** — create a service unit for the backend process
 - **PM2** — `pm2 start "bun start" --name keryx-backend`
 
-Keryx handles `SIGINT` and `SIGTERM` for graceful shutdown — it stops accepting new connections, finishes in-flight requests, and disconnects from Redis and Postgres before exiting.
+Keryx handles `SIGINT` and `SIGTERM` for graceful shutdown — it stops accepting new connections, finishes in-flight requests, and disconnects from Redis and Postgres (when configured) before exiting.
 
 ### WebSocket Drain
 

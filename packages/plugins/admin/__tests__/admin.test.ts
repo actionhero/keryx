@@ -145,6 +145,17 @@ describe("admin plugin", () => {
       for (const attempt of attempts) expect(attempt.status).toBe(401);
     });
 
+    test("refuses with a clear error when the database is disabled", async () => {
+      api.db.enabled = false;
+      try {
+        const { status, body } = await request("/tables");
+        expect(status).toBe(500);
+        expect(errorOf(body).message).toContain("requires a database");
+      } finally {
+        api.db.enabled = true;
+      }
+    });
+
     test("read-only callers can browse", async () => {
       await createWidget({ name: "readable" });
       currentRole = "read-only";
