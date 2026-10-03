@@ -4,6 +4,12 @@ import { loadFromEnvIfSet } from "../../util/config";
 export const configServerMcp = {
   enabled: await loadFromEnvIfSet("MCP_SERVER_ENABLED", false),
   route: await loadFromEnvIfSet("MCP_SERVER_ROUTE", "/mcp"),
+  // `"required"` (default): every MCP request must carry a valid OAuth bearer
+  // token. `"optional"`: requests without a token are served as anonymous
+  // sessions that may only use actions marked `mcp.public`; calling anything
+  // else returns a 401 challenge so the client can authenticate and upgrade
+  // the session. An invalid or expired token is always rejected with 401.
+  authMode: await loadFromEnvIfSet("MCP_AUTH_MODE", "required"),
   allowedOrigins: await loadFromEnvIfSet(
     "MCP_ALLOWED_ORIGINS",
     [
@@ -59,4 +65,11 @@ export const configServerMcp = {
   // registry is shared, any node in a cluster can serve any session until it
   // expires. Defaults to 24 hours.
   sessionTtl: await loadFromEnvIfSet("MCP_SESSION_TTL", 60 * 60 * 24),
+  // Idle TTL (seconds) for anonymous sessions (`authMode: "optional"`), kept
+  // shorter than `sessionTtl` so floods of throwaway sessions age out quickly.
+  // A session that upgrades to an authenticated one switches to `sessionTtl`.
+  anonymousSessionTtl: await loadFromEnvIfSet(
+    "MCP_ANONYMOUS_SESSION_TTL",
+    60 * 60,
+  ),
 };

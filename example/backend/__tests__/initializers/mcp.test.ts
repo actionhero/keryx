@@ -1806,6 +1806,132 @@ describe("mcp protocol version negotiation", () => {
   });
 });
 
+describe("mcp anonymous access (MCP_AUTH_MODE=optional)", () => {
+  beforeAll(async () => {
+    config.server.mcp.enabled = true;
+    config.server.mcp.authMode = "optional";
+    config.rateLimit.enabled = false;
+    await api.start();
+  }, HOOK_TIMEOUT);
+
+  afterAll(async () => {
+    const keys = await api.redis.redis.keys("mcp:session:*");
+    if (keys.length > 0) await api.redis.redis.del(...keys);
+    await api.stop();
+    config.server.mcp.enabled = false;
+    config.server.mcp.authMode = "required";
+    config.rateLimit.enabled = true;
+  }, HOOK_TIMEOUT);
+
+  test("an anonymous client can call the public status tool", async () => {
+    const transport = new StreamableHTTPClientTransport(new URL(mcpUrl()));
+    const client = new Client({ name: "anonymous", version: "1.0.0" });
+    await client.connect(transport);
+    try {
+      const result = await client.callTool({ name: "status", arguments: {} });
+      expect(result.isError).toBeFalsy();
+      expect(
+        (result.structuredContent as { healthy?: boolean }).healthy,
+      ).toBeBoolean();
+    } finally {
+      await transport.close().catch(() => {});
+    }
+  });
+
+  /** MCP tool names for the example app's actions, optionally only `mcp.public` ones. */
+  function expectedToolNames(onlyPublic: boolean): string[] {
+    return api.actions.actions
+      .filter((a: Action) => a.mcp?.tool === true || a.mcp?.ui != null)
+      .filter((a: Action) => !onlyPublic || a.mcp?.public === true)
+      .map((a: Action) => a.name.replace(/:/g, "-"))
+      .sort();
+  }
+
+  test("tools/list shows anonymous clients only public tools, and authenticated clients every tool", async () => {
+    const anonTransport = new StreamableHTTPClientTransport(new URL(mcpUrl()));
+    const anonClient = new Client({ name: "anonymous", version: "1.0.0" });
+    await anonClient.connect(anonTransport);
+    let anonNames: string[];
+    try {
+      anonNames = (await anonClient.listTools()).tools
+        .map((t) => t.name)
+        .sort();
+    } finally {
+      await anonTransport.close().catch(() => {});
+    }
+
+    expect(anonNames).toEqual(expectedToolNames(true));
+    expect(anonNames).toContain("status");
+    expect(anonNames).toContain("status-markdown");
+    expect(anonNames).not.toContain("user-view");
+    expect(anonNames).not.toContain("message-create");
+
+    const accessToken = await getAccessToken();
+    const authTransport = new StreamableHTTPClientTransport(new URL(mcpUrl()), {
+      requestInit: { headers: { Authorization: `Bearer ${accessToken}` } },
+    });
+    const authClient = new Client({ name: "authenticated", version: "1.0.0" });
+    await authClient.connect(authTransport);
+    let authNames: string[];
+    try {
+      authNames = (await authClient.listTools()).tools
+        .map((t) => t.name)
+        .sort();
+    } finally {
+      await authTransport.close().catch(() => {});
+    }
+
+    expect(authNames).toEqual(expectedToolNames(false));
+    expect(authNames).toContain("user-view");
+    // Authenticated clients see a strict superset of the anonymous list.
+    for (const name of anonNames) expect(authNames).toContain(name);
+    expect(authNames.length).toBeGreaterThan(anonNames.length);
+  });
+
+  test("an anonymous call to a protected tool is challenged with 401", async () => {
+    const headers = {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+    };
+    const init = await fetch(mcpUrl(), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: LATEST_PROTOCOL_VERSION,
+          capabilities: {},
+          clientInfo: { name: "anonymous", version: "1.0.0" },
+        },
+      }),
+    });
+    expect(init.status).toBe(200);
+    const sessionId = init.headers.get("mcp-session-id")!;
+    await init.text();
+
+    const res = await fetch(mcpUrl(), {
+      method: "POST",
+      headers: {
+        ...headers,
+        "mcp-session-id": sessionId,
+        "mcp-protocol-version": LATEST_PROTOCOL_VERSION,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "user-view", arguments: { id: 1 } },
+      }),
+    });
+    expect(res.status).toBe(401);
+    expect(res.headers.get("www-authenticate")).toContain(
+      "/.well-known/oauth-protected-resource/mcp",
+    );
+  });
+});
+
 // --- Helper functions ---
 
 function randomString(length: number): string {

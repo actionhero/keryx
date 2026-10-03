@@ -95,6 +95,7 @@ The full `mcp` property is of type `McpActionConfig`:
 | Property         | Type                  | Default | Description                                                                        |
 | ---------------- | --------------------- | ------- | ---------------------------------------------------------------------------------- |
 | `tool`           | `boolean`             | `false` | Opt in to expose this action as an MCP tool (tools are opt-in)                     |
+| `public`         | `boolean`             | `false` | Let anonymous clients use this action when `MCP_AUTH_MODE=optional` (see [Public (Anonymous) Access](#public-anonymous-access)) |
 | `isLoginAction`  | `boolean`             | —       | Tag as the login action for the OAuth flow                                         |
 | `isSignupAction` | `boolean`             | —       | Tag as the signup action for the OAuth flow                                        |
 | `resource`       | `object`              | —       | Expose this action as an MCP resource (see [Resources](#resources) below)          |
@@ -438,9 +439,55 @@ The OAuth implementation includes several hardening measures:
 - **CORS** — OAuth and MCP endpoints respect the `allowedOrigins` configuration. When `allowedOrigins` is `"*"`, credentials headers are not sent, per the browser spec. Set a specific origin in production for credentialed requests to work.
 - **Browser MCP clients** — The MCP endpoint admits browser requests whose `Origin` is in `MCP_ALLOWED_ORIGINS` (comma-separated), in addition to `APPLICATION_URL` and `WEB_SERVER_ALLOWED_ORIGINS`. It defaults to the popular browser-based connectors (`https://claude.ai`, `https://claude.com`, `https://chatgpt.com`, `https://vscode.dev`, `https://github.dev`), so web connectors work out of the box even when `WEB_SERVER_ALLOWED_ORIGINS` is locked down. Requests with no `Origin` (CLI and other non-browser clients) always pass — the OAuth bearer token is the security boundary. The origin gate and the `Access-Control-Allow-Origin` response share one allowlist, so they never disagree.
 
+## Public (Anonymous) Access
+
+Authorization is optional in the MCP specification, so a server can also be public. Set `MCP_AUTH_MODE=optional` to let clients without an OAuth token connect, and mark the actions they may use with `mcp.public`:
+
+```ts
+export class Status implements Action {
+  name = "status";
+  mcp = { tool: true, public: true };
+  // ...
+}
+```
+
+The two modes:
+
+| `MCP_AUTH_MODE`        | Request without a token                          | Request with a valid token | Request with an invalid or expired token |
+| ---------------------- | ------------------------------------------------ | -------------------------- | ---------------------------------------- |
+| `required` (default)   | `401` challenge                                  | Full access                | `401` challenge                          |
+| `optional`             | Anonymous session, limited to `mcp.public` actions | Full access              | `401` challenge                          |
+
+A bad token is never downgraded to anonymous access. The spec requires an invalid or expired token to get a `401`, so the client refreshes or re-authorizes.
+
+### What anonymous sessions can do
+
+- **See and use only what's public.** `tools/list`, `resources/list`, `resources/templates/list`, and `prompts/list` return only entries whose action sets `mcp.public`; an authenticated client sees everything. A `tools/call`, `prompts/get`, or `resources/read` aimed at an action without `mcp.public` is refused.
+- **Run as a guest.** The action runs on a connection with no user in its session, exactly like an anonymous HTTP request, so `SessionMiddleware` and similar checks still reject it. `mcp.public` only opens the MCP gate; the action's own middleware still decides what a guest may do.
+- **Receive only public broadcasts.** PubSub notifications reach an anonymous session only for channels whose [authorization](/guide/channels) admits a subscriber with no user.
+
+`mcp.public` has no effect on HTTP, WebSocket, CLI, or background task access, and no effect at all while `MCP_AUTH_MODE` is `required`.
+
+### Signing in mid-session (step-up)
+
+Protected tools don't appear in an anonymous session's lists, but a client can still call one by name, for example a tool it remembers from an earlier signed-in session. When an anonymous client calls a protected tool, Keryx answers the HTTP request with the same `401` and `WWW-Authenticate: Bearer resource_metadata="…", scope="mcp"` challenge a tokenless client gets in `required` mode. MCP clients must handle a `401` on any request: they run the [OAuth flow](#oauth-2-1-authentication) and retry with the new token. A batch is challenged if any message in it targets a protected action.
+
+The retried request carries the token on the **same** `mcp-session-id`, and that upgrades the session: the shared registry record is rebound to the token's OAuth client and switches to the authenticated TTL. The session's hidden tools, resources, and prompts are enabled at the same moment, and the client is sent `notifications/tools/list_changed` (and the resource and prompt equivalents) so it can refresh its lists. From then on the usual ownership rules apply: a different client's token gets `403`, and dropping the token gets `401` (a session never downgrades back to anonymous).
+
+Clients differ in how well they handle a `401` that arrives mid-session. Some hosted connectors only decide whether to sign in when they first connect, and stay anonymous afterwards. Those clients report the `401` as a failed tool call, and the user has to reconnect with sign-in. (Independently of the HTTP challenge, every tool, resource, and prompt handler checks access itself, so a protected action never runs for an anonymous session.) If most of your tools need a user, `required` mode gives the more predictable experience: since anonymous sessions can't list protected tools, users who need them should connect with sign-in from the start.
+
+### Abuse protection
+
+Anonymous sessions cost memory and a Redis record, so they're more tightly limited than authenticated ones:
+
+- **Shorter idle TTL.** Anonymous sessions expire after `MCP_ANONYMOUS_SESSION_TTL` (default 1 hour) instead of `MCP_SESSION_TTL` (24 hours).
+- **Per-IP rate limits.** When rate limiting is enabled, every anonymous MCP request counts against `RATE_LIMIT_UNAUTH_LIMIT`. Opening a new anonymous session also counts against `RATE_LIMIT_MCP_ANON_INIT_LIMIT` (default 10 per minute). Requests over a limit get `429` with a `Retry-After` header.
+
+Put `RateLimitMiddleware` on public actions that are expensive to run, just as you would for a public HTTP endpoint.
+
 ## Session Management
 
-Each authenticated MCP connection creates its own `McpServer` instance. Sessions are tracked via the `mcp-session-id` header — the MCP SDK generates a UUID per session at `initialize` and the client includes it on every subsequent request.
+Each MCP connection, authenticated or anonymous, creates its own `McpServer` instance. Sessions are tracked via the `mcp-session-id` header — the MCP SDK generates a UUID per session at `initialize` and the client includes it on every subsequent request.
 
 ### Cluster-wide sessions (multi-node)
 
@@ -457,6 +504,8 @@ Sessions are recorded in a **shared Redis registry** (`mcp:session:<id>`) — in
 - **Unknown or expired `mcp-session-id` → `404 Not Found`** (JSON, no SSE stream is opened). This is the client's cue to re-`initialize` and recover automatically — for example after the session's TTL lapses or a `DELETE`.
 - **A non-`initialize` `POST` with no `mcp-session-id` → `400 Bad Request`.** Only `initialize` may open a new session.
 - **A session id owned by a different OAuth client → `403 Forbidden`.**
+- **An anonymous request (`MCP_AUTH_MODE=optional`) that targets a protected tool, prompt, or resource, or that uses a session owned by an authenticated client → `401 Unauthorized`** with a `WWW-Authenticate` challenge. See [Public (Anonymous) Access](#public-anonymous-access).
+- **An anonymous request over the per-IP rate limit → `429 Too Many Requests`** with `Retry-After`.
 - **A `POST` body that isn't JSON → `400 Bad Request`** with a JSON-RPC error response: `-32700 Parse error`, `id: null`.
 - **A `POST` body that is JSON but not a valid JSON-RPC message → `400 Bad Request`** with `-32600 Invalid Request`, `id: null`. JSON-RPC 2.0 reserves `-32700` for input that can't be parsed at all, so Keryx validates the envelope itself rather than letting the SDK transport report both cases as a parse error.
 - **A non-`initialize` request whose `MCP-Protocol-Version` header doesn't match the negotiated version → `400 Bad Request`.** See [Protocol Versions](#protocol-versions).
@@ -558,7 +607,9 @@ Delivery is authorized per channel, not broadcast to everyone. Each MCP session 
 | `oauthClientTtl`     | `MCP_OAUTH_CLIENT_TTL`     | `2592000`           | OAuth client registration TTL (seconds)  |
 | `oauthCodeTtl`       | `MCP_OAUTH_CODE_TTL`       | `300`               | Authorization code TTL (seconds)         |
 | `oauthCimdEnabled`   | `MCP_OAUTH_CIMD_ENABLED`   | `true`              | Accept [Client ID Metadata Documents](#client-id-metadata-documents) |
+| `authMode`           | `MCP_AUTH_MODE`            | `"required"`        | `"optional"` admits anonymous clients for `mcp.public` actions |
 | `sessionTtl`         | `MCP_SESSION_TTL`          | `86400`             | Shared MCP session registry TTL, refreshed on activity (seconds) |
+| `anonymousSessionTtl` | `MCP_ANONYMOUS_SESSION_TTL` | `3600`           | Idle TTL for anonymous sessions (seconds)  |
 | `markdownDepthLimit` | `MCP_MARKDOWN_DEPTH_LIMIT` | `5`                 | Max nesting depth for markdown rendering |
 
 ## Testing

@@ -33,7 +33,8 @@ export class Status implements Action {
   description =
     "Returns server health and runtime information including the server name, process ID, package version, uptime in milliseconds, memory consumption in MB, and dependency health checks for the database and Redis. Does not require authentication.";
   inputs = z.object({});
-  mcp = { tool: true };
+  // Public: anonymous MCP clients may call it when MCP_AUTH_MODE=optional.
+  mcp = { tool: true, public: true };
   web = { route: "/status", method: HTTP_METHOD.GET };
   tracing = false;
 
@@ -62,7 +63,11 @@ export class StatusMarkdown implements Action {
   name = "status:markdown";
   description = "Returns server status formatted as markdown.";
   inputs = z.object({});
-  mcp = { tool: true, responseFormat: MCP_RESPONSE_FORMAT.MARKDOWN };
+  mcp = {
+    tool: true,
+    public: true,
+    responseFormat: MCP_RESPONSE_FORMAT.MARKDOWN,
+  };
   web = { route: "/status/markdown", method: HTTP_METHOD.GET };
   tracing = false;
 
