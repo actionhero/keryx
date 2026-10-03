@@ -6,7 +6,6 @@ import { CONNECTION_TYPE } from "../classes/Connection";
 import type { TypedError } from "../classes/TypedError";
 import { ErrorType } from "../classes/TypedError";
 import { config } from "../config";
-import type { Redis } from "../initializers/redis";
 import { TransactionMiddleware } from "../middleware/transaction";
 import { withTransaction } from "../util/transaction";
 import { HOOK_TIMEOUT, useTestServer, waitFor } from "./setup";
@@ -193,18 +192,5 @@ describe("standalone mode (no postgres, no redis server)", () => {
     registerAction(action);
     await api.actions.enqueueRecurrent(action);
     await waitFor(() => recurringRuns >= 2, { timeout: 10_000 });
-  });
-
-  test("the expiry sweeper deletes expired keys nobody reads again", async () => {
-    const redisInitializer = api.initializers.find(
-      (i) => i.name === "redis",
-    ) as Redis;
-
-    await api.redis.redis.set("standalone:expiring", "x", "PX", 10);
-    await Bun.sleep(30);
-    // KEYS hides expired keys without deleting them...
-    expect(await api.redis.redis.keys("standalone:expiring")).toEqual([]);
-    // ...so only the sweeper actually reclaims the memory.
-    expect(redisInitializer.sweepExpiredKeys()).toBeGreaterThanOrEqual(1);
   });
 });

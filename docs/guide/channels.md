@@ -125,7 +125,7 @@ const members = await api.channels.members("room:123");
 // → ["user:1", "user:42", "user:7"]
 ```
 
-Presence data is stored in Redis, so `members()` returns a global view across all instances in a multi-server deployment. With the in-process Redis (`REDIS_URL="memory://"`), channels and presence work the same way — there's just only one instance to see.
+Presence data is stored in Redis, so `members()` returns a global view across all instances in a multi-server deployment. With the in-process Redis (`REDIS_URL="memory://"`), channels and presence work the same way — but there is no cross-instance communication. Only run a single node in this mode.
 
 Presence events are broadcast automatically via PubSub when a key joins or leaves:
 

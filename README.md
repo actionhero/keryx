@@ -123,7 +123,7 @@ bun install
 bun dev
 ```
 
-Requires Bun. PostgreSQL and Redis are recommended for production but optional — `bunx keryx new my-app --no-db --no-redis` runs with nothing else installed. See the [Getting Started guide](https://keryxjs.com/guide/) for full setup instructions.
+Requires Bun, PostgreSQL, and Redis. See the [Getting Started guide](https://keryxjs.com/guide/) for full setup instructions (including running without Postgres or Redis for quick prototypes).
 
 ### Developing the framework itself
 

@@ -171,8 +171,6 @@ REDIS_URL="memory://"    # in-process Redis
 - **More than one process.** The in-memory Redis is not shared, so you can't scale horizontally, split web and worker processes, or run more than one instance behind a load balancer. A `keryx` CLI action command runs in its own process with its own empty store — it can't enqueue work for your server or see its sessions.
 - **Redis instrumentation.** The [tracing](/plugins/tracing) and [Sentry](/plugins/sentry) plugins don't emit Redis spans in memory mode.
 
-Expired keys are reclaimed by a background sweep every `REDIS_MEMORY_SWEEP_INTERVAL_MS` (default one minute), so a long-running process doesn't accumulate dead sessions and rate-limit windows.
-
 When you outgrow it, set real URLs. `DATABASE_URL=postgres://…` and `REDIS_URL=redis://…` are the whole migration — your actions, tasks, and channels don't change.
 
 ## Process Management

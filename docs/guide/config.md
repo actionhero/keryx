@@ -176,10 +176,9 @@ Example JSON output:
 
 ### Redis
 
-| Key                     | Env Var                          | Default                      | Description                                                    |
-| ----------------------- | -------------------------------- | ---------------------------- | -------------------------------------------------------------- |
-| `connectionString`      | `REDIS_URL`                      | `"redis://localhost:6379/0"` | Redis server URL, or `memory://` for the in-process Redis      |
-| `memorySweepIntervalMs` | `REDIS_MEMORY_SWEEP_INTERVAL_MS` | `60000`                      | How often the in-memory Redis deletes keys whose TTL has passed |
+| Key                | Env Var     | Default                      | Description                                               |
+| ------------------ | ----------- | ---------------------------- | --------------------------------------------------------- |
+| `connectionString` | `REDIS_URL` | `"redis://localhost:6379/0"` | Redis server URL, or `memory://` for the in-process Redis |
 
 `REDIS_URL="memory://"` swaps the Redis server for [ioredis-mock](https://github.com/stipsan/ioredis-mock) running inside your process. Tasks, the scheduler, PubSub, presence, sessions, OAuth, rate limiting, and fan-out all keep working, and `api.redis.inMemory` is `true`. The catch: that state belongs to one process and is gone when it exits. See [Running Without Postgres or Redis](/guide/deployment#running-without-postgres-or-redis).
 
