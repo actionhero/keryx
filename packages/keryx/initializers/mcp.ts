@@ -43,6 +43,7 @@ import {
   refreshMcpSessionTtl,
   sanitizeSchemaForMcp,
   terminateMcpSession,
+  unlockMcpServer,
   upgradeAnonymousMcpSession,
   validateJsonRpcPayload,
   writeMcpSessionRecord,
@@ -83,6 +84,11 @@ export type McpTransportEntry = {
   clientId: string;
   /** The `McpServer` connected to `transport`. */
   mcpServer: McpServer;
+  /**
+   * `true` while the server still hides non-public entries from an anonymous
+   * session; cleared (via `unlockMcpServer`) once the session upgrades.
+   */
+  anonymous: boolean;
 };
 
 /** Whether a parsed POST body (single message or batch) contains an `initialize` request. */
@@ -434,7 +440,7 @@ export class McpInitializer extends Initializer {
         const protocolVersion = negotiateInitProtocolVersion(body);
 
         // New session — create a new McpServer + transport
-        const mcpServer = createMcpServer();
+        const mcpServer = createMcpServer({ anonymous: isAnonymous });
         mcpServers.push(mcpServer);
         // Capture the session's auth context so channel-broadcast delivery can
         // authorize this session (see sendNotification).
@@ -462,6 +468,7 @@ export class McpInitializer extends Initializer {
               transport,
               clientId: sessionClientId,
               mcpServer,
+              anonymous: isAnonymous,
             });
             for (const hook of api.hooks.mcp.onConnectHooks) {
               await hook(sid);
@@ -527,15 +534,6 @@ export class McpInitializer extends Initializer {
             );
           }
           record = current;
-          const local = transports.get(sessionId);
-          if (local && record.clientId === authInfo.clientId) {
-            local.clientId = authInfo.clientId;
-            api.mcp.mcpServerAuth.set(local.mcpServer, {
-              clientId: authInfo.clientId,
-              userId: authInfo.extra?.userId,
-              ip,
-            });
-          }
         }
 
         if (isAnonymous && !record.anonymous) {
@@ -559,7 +557,23 @@ export class McpInitializer extends Initializer {
             record.clientId,
             record.protocolVersion,
             { userId: authInfo.extra?.userId, ip },
+            record.anonymous === true,
           );
+        }
+
+        // The session has been upgraded (here or on another node) but this
+        // node's server still hides protected entries: rebind its broadcast
+        // auth to the token's user and reveal everything.
+        const local = transports.get(sessionId);
+        if (local?.anonymous && !record.anonymous) {
+          local.anonymous = false;
+          local.clientId = record.clientId;
+          api.mcp.mcpServerAuth.set(local.mcpServer, {
+            clientId: record.clientId,
+            userId: authInfo.extra?.userId,
+            ip,
+          });
+          unlockMcpServer(local.mcpServer);
         }
 
         await refreshMcpSessionTtl(sessionId, record.anonymous);

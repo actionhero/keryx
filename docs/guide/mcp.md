@@ -462,7 +462,7 @@ A bad token is never downgraded to anonymous access. The spec requires an invali
 
 ### What anonymous sessions can do
 
-- **See everything, call only what's public.** `tools/list`, `resources/list`, and `prompts/list` return the same entries an authenticated client sees. That keeps protected tools discoverable, so the client knows there's more behind a sign-in. A `tools/call`, `prompts/get`, or `resources/read` aimed at an action without `mcp.public` is refused.
+- **See and use only what's public.** `tools/list`, `resources/list`, `resources/templates/list`, and `prompts/list` return only entries whose action sets `mcp.public`; an authenticated client sees everything. A `tools/call`, `prompts/get`, or `resources/read` aimed at an action without `mcp.public` is refused.
 - **Run as a guest.** The action runs on a connection with no user in its session, exactly like an anonymous HTTP request, so `SessionMiddleware` and similar checks still reject it. `mcp.public` only opens the MCP gate; the action's own middleware still decides what a guest may do.
 - **Receive only public broadcasts.** PubSub notifications reach an anonymous session only for channels whose [authorization](/guide/channels) admits a subscriber with no user.
 
@@ -470,11 +470,11 @@ A bad token is never downgraded to anonymous access. The spec requires an invali
 
 ### Signing in mid-session (step-up)
 
-When an anonymous client calls a protected tool, Keryx answers the HTTP request with the same `401` and `WWW-Authenticate: Bearer resource_metadata="…", scope="mcp"` challenge a tokenless client gets in `required` mode. MCP clients must handle a `401` on any request: they run the [OAuth flow](#oauth-2-1-authentication) and retry with the new token. A batch is challenged if any message in it targets a protected action.
+Protected tools don't appear in an anonymous session's lists, but a client can still call one by name, for example a tool it remembers from an earlier signed-in session. When an anonymous client calls a protected tool, Keryx answers the HTTP request with the same `401` and `WWW-Authenticate: Bearer resource_metadata="…", scope="mcp"` challenge a tokenless client gets in `required` mode. MCP clients must handle a `401` on any request: they run the [OAuth flow](#oauth-2-1-authentication) and retry with the new token. A batch is challenged if any message in it targets a protected action.
 
-The retried request carries the token on the **same** `mcp-session-id`, and that upgrades the session: the shared registry record is rebound to the token's OAuth client and switches to the authenticated TTL. From then on the usual ownership rules apply: a different client's token gets `403`, and dropping the token gets `401` (a session never downgrades back to anonymous).
+The retried request carries the token on the **same** `mcp-session-id`, and that upgrades the session: the shared registry record is rebound to the token's OAuth client and switches to the authenticated TTL. The session's hidden tools, resources, and prompts are enabled at the same moment, and the client is sent `notifications/tools/list_changed` (and the resource and prompt equivalents) so it can refresh its lists. From then on the usual ownership rules apply: a different client's token gets `403`, and dropping the token gets `401` (a session never downgrades back to anonymous).
 
-Clients differ in how well they handle a `401` that arrives mid-session. Some hosted connectors only decide whether to sign in when they first connect, and stay anonymous afterwards. Those clients report the `401` as a failed tool call, and the user has to reconnect with sign-in. (Independently of the HTTP challenge, every tool, resource, and prompt handler checks access itself, so a protected action never runs for an anonymous session.) If most of your tools need a user, `required` mode gives the more predictable experience.
+Clients differ in how well they handle a `401` that arrives mid-session. Some hosted connectors only decide whether to sign in when they first connect, and stay anonymous afterwards. Those clients report the `401` as a failed tool call, and the user has to reconnect with sign-in. (Independently of the HTTP challenge, every tool, resource, and prompt handler checks access itself, so a protected action never runs for an anonymous session.) If most of your tools need a user, `required` mode gives the more predictable experience: since anonymous sessions can't list protected tools, users who need them should connect with sign-in from the start.
 
 ### Abuse protection
 

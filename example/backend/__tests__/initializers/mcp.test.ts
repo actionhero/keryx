@@ -1838,6 +1838,56 @@ describe("mcp anonymous access (MCP_AUTH_MODE=optional)", () => {
     }
   });
 
+  /** MCP tool names for the example app's actions, optionally only `mcp.public` ones. */
+  function expectedToolNames(onlyPublic: boolean): string[] {
+    return api.actions.actions
+      .filter((a: Action) => a.mcp?.tool === true || a.mcp?.ui != null)
+      .filter((a: Action) => !onlyPublic || a.mcp?.public === true)
+      .map((a: Action) => a.name.replace(/:/g, "-"))
+      .sort();
+  }
+
+  test("tools/list shows anonymous clients only public tools, and authenticated clients every tool", async () => {
+    const anonTransport = new StreamableHTTPClientTransport(new URL(mcpUrl()));
+    const anonClient = new Client({ name: "anonymous", version: "1.0.0" });
+    await anonClient.connect(anonTransport);
+    let anonNames: string[];
+    try {
+      anonNames = (await anonClient.listTools()).tools
+        .map((t) => t.name)
+        .sort();
+    } finally {
+      await anonTransport.close().catch(() => {});
+    }
+
+    expect(anonNames).toEqual(expectedToolNames(true));
+    expect(anonNames).toContain("status");
+    expect(anonNames).toContain("status-markdown");
+    expect(anonNames).not.toContain("user-view");
+    expect(anonNames).not.toContain("message-create");
+
+    const accessToken = await getAccessToken();
+    const authTransport = new StreamableHTTPClientTransport(new URL(mcpUrl()), {
+      requestInit: { headers: { Authorization: `Bearer ${accessToken}` } },
+    });
+    const authClient = new Client({ name: "authenticated", version: "1.0.0" });
+    await authClient.connect(authTransport);
+    let authNames: string[];
+    try {
+      authNames = (await authClient.listTools()).tools
+        .map((t) => t.name)
+        .sort();
+    } finally {
+      await authTransport.close().catch(() => {});
+    }
+
+    expect(authNames).toEqual(expectedToolNames(false));
+    expect(authNames).toContain("user-view");
+    // Authenticated clients see a strict superset of the anonymous list.
+    for (const name of anonNames) expect(authNames).toContain(name);
+    expect(authNames.length).toBeGreaterThan(anonNames.length);
+  });
+
   test("an anonymous call to a protected tool is challenged with 401", async () => {
     const headers = {
       "Content-Type": "application/json",

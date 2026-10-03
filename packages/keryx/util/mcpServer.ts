@@ -8,6 +8,7 @@ import { UriTemplate } from "@modelcontextprotocol/sdk/shared/uriTemplate.js";
 import {
   DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
   JSONRPCMessageSchema,
+  ListResourceTemplatesRequestSchema,
   type ServerNotification,
   type ServerRequest,
   SUPPORTED_PROTOCOL_VERSIONS,
@@ -656,6 +657,8 @@ const adoptionsInFlight = new Map<
  * @param protocolVersion - The negotiated protocol version from the registry record, if any.
  * @param auth - The adopting request's user id / ip, captured so channel-broadcast
  *   authorization ({@link isMcpSessionAuthorizedForChannel}) works for this session too.
+ * @param anonymous - Whether the session is anonymous (see
+ *   {@link McpSessionRecord.anonymous}); if so, non-public entries are hidden.
  * @returns The connected, initialized transport (also registered in `api.mcp.transports`).
  */
 export async function adoptMcpSession(
@@ -663,12 +666,13 @@ export async function adoptMcpSession(
   clientId: string,
   protocolVersion: string | undefined,
   auth?: Pick<McpSessionAuth, "userId" | "ip">,
+  anonymous = false,
 ): Promise<WebStandardStreamableHTTPServerTransport> {
   const inFlight = adoptionsInFlight.get(sessionId);
   if (inFlight) return inFlight;
 
   const promise = (async () => {
-    const mcpServer = createMcpServer();
+    const mcpServer = createMcpServer({ anonymous });
     api.mcp.mcpServers.push(mcpServer);
     api.mcp.mcpServerAuth.set(mcpServer, {
       clientId,
@@ -681,7 +685,12 @@ export async function adoptMcpSession(
         enableJsonResponse: true,
         // Local registration only — no hooks, no registry write (see doc above).
         onsessioninitialized: (sid) => {
-          api.mcp.transports.set(sid, { transport, clientId, mcpServer });
+          api.mcp.transports.set(sid, {
+            transport,
+            clientId,
+            mcpServer,
+            anonymous,
+          });
         },
         onsessionclosed: (sid) => terminateMcpSession(sid, mcpServer),
       });
@@ -709,11 +718,61 @@ export async function adoptMcpSession(
 }
 
 /**
+ * Tools, resources, and prompts registered on an anonymous session's
+ * `McpServer` but disabled (hidden from list results) because their action is
+ * not `mcp.public`. {@link unlockMcpServer} enables them on session upgrade.
+ */
+const gatedMcpItems = new WeakMap<McpServer, Array<{ enable(): void }>>();
+
+/**
+ * Hide a just-registered tool/resource/prompt from an anonymous session when its
+ * action is not `mcp.public`. The item stays registered (the SDK cannot add
+ * capabilities after `connect()`), so the session can be unlocked later.
+ */
+function gateForAnonymous(
+  mcpServer: McpServer,
+  action: Action,
+  item: { enable(): void; disable(): void },
+  anonymous: boolean,
+): void {
+  if (!anonymous || isActionPublicForMcp(action)) return;
+  item.disable();
+  const gated = gatedMcpItems.get(mcpServer) ?? [];
+  gated.push(item);
+  gatedMcpItems.set(mcpServer, gated);
+}
+
+/**
+ * Reveal every tool, resource, and prompt hidden from an anonymous session,
+ * after the session upgrades to an authenticated one. The SDK sends the
+ * client `notifications/tools/list_changed` (and the resource and prompt
+ * equivalents) as each item is enabled. A no-op for servers created for authenticated sessions or already
+ * unlocked.
+ *
+ * @param mcpServer - The session's `McpServer`, created via
+ *   `createMcpServer({ anonymous: true })`.
+ */
+export function unlockMcpServer(mcpServer: McpServer): void {
+  const gated = gatedMcpItems.get(mcpServer);
+  if (!gated) return;
+  gatedMcpItems.delete(mcpServer);
+  for (const item of gated) item.enable();
+}
+
+/**
  * Create a new McpServer instance with all actions registered as tools, resources, and prompts.
  * Each MCP session gets its own McpServer (the SDK requires 1:1 mapping).
  * Actions with `mcp.tool === false` are excluded from tool registration.
+ *
+ * @param options.anonymous - Build the server for an anonymous session
+ *   (`MCP_AUTH_MODE=optional`, no token): everything whose action is not
+ *   `mcp.public` is registered but disabled, so list results show only public
+ *   entries until {@link unlockMcpServer} is called on upgrade.
  */
-export function createMcpServer(): McpServer {
+export function createMcpServer(
+  options: { anonymous?: boolean } = {},
+): McpServer {
+  const anonymous = options.anonymous === true;
   // Advertise the MCP Apps UI extension so hosts negotiate UI support during
   // `initialize` (spec 2026-01-26, SEP-1724). Only declared when at least one
   // action ships a UI, keeping the capability surface minimal.
@@ -734,10 +793,10 @@ export function createMcpServer(): McpServer {
     },
   );
 
-  registerTools(mcpServer);
-  registerResources(mcpServer);
-  registerUiResources(mcpServer);
-  registerPrompts(mcpServer);
+  registerTools(mcpServer, anonymous);
+  registerResources(mcpServer, anonymous);
+  registerUiResources(mcpServer, anonymous);
+  registerPrompts(mcpServer, anonymous);
 
   return mcpServer;
 }
@@ -771,7 +830,7 @@ function buildUiMeta(ui: McpUiConfig): Record<string, unknown> {
   return meta;
 }
 
-function registerTools(mcpServer: McpServer) {
+function registerTools(mcpServer: McpServer, anonymous: boolean) {
   const registered = new Set<string>();
   for (const action of api.actions.actions) {
     // Tools are opt-in: register only actions that explicitly set `mcp.tool =
@@ -802,7 +861,7 @@ function registerTools(mcpServer: McpServer) {
       toolConfig._meta = { ui: { resourceUri: uiResourceUri(action) } };
     }
 
-    mcpServer.registerTool(
+    const tool = mcpServer.registerTool(
       toolName,
       toolConfig,
       async (
@@ -931,10 +990,12 @@ function registerTools(mcpServer: McpServer) {
         }
       },
     );
+    gateForAnonymous(mcpServer, action, tool, anonymous);
   }
 }
 
-function registerResources(mcpServer: McpServer) {
+function registerResources(mcpServer: McpServer, anonymous: boolean) {
+  let registeredTemplate = false;
   for (const action of api.actions.actions) {
     if (!action.mcp?.resource) continue;
     const { uri, uriTemplate, mimeType } = action.mcp.resource;
@@ -996,21 +1057,59 @@ function registerResources(mcpServer: McpServer) {
     };
 
     if (uriTemplate) {
-      mcpServer.registerResource(
+      const resource = mcpServer.registerResource(
         formatToolName(action.name),
         new ResourceTemplate(uriTemplate, { list: undefined }),
         { description: action.description, mimeType },
         readCb,
       );
+      gateForAnonymous(mcpServer, action, resource, anonymous);
+      registeredTemplate = true;
     } else if (uri) {
-      mcpServer.registerResource(
+      const resource = mcpServer.registerResource(
         formatToolName(action.name),
         uri,
         { description: action.description, mimeType },
         (mcpUri: URL, extra: any) => readCb(mcpUri, {}, extra),
       );
+      gateForAnonymous(mcpServer, action, resource, anonymous);
     }
   }
+
+  if (registeredTemplate) listOnlyEnabledResourceTemplates(mcpServer);
+}
+
+/**
+ * Replace the SDK's `resources/templates/list` handler with one that skips
+ * disabled templates. The SDK filters disabled entries out of `tools/list`,
+ * `prompts/list`, and `resources/list`, but not out of the template list, so
+ * without this an anonymous session would still see protected templates.
+ */
+function listOnlyEnabledResourceTemplates(mcpServer: McpServer): void {
+  mcpServer.server.setRequestHandler(
+    ListResourceTemplatesRequestSchema,
+    async () => {
+      const templates: Record<
+        string,
+        {
+          enabled: boolean;
+          resourceTemplate: ResourceTemplate;
+          metadata?: Record<string, unknown>;
+        }
+      > =
+        // @ts-expect-error -- the SDK keeps registered templates in a private field and exposes no public accessor
+        mcpServer._registeredResourceTemplates;
+      return {
+        resourceTemplates: Object.entries(templates)
+          .filter(([, template]) => template.enabled)
+          .map(([name, template]) => ({
+            name,
+            uriTemplate: template.resourceTemplate.uriTemplate.toString(),
+            ...template.metadata,
+          })),
+      };
+    },
+  );
 }
 
 /**
@@ -1019,7 +1118,7 @@ function registerResources(mcpServer: McpServer) {
  * and any `_meta.ui` (CSP, permissions, etc.). The matching tool is linked to it
  * via `_meta.ui.resourceUri` in `registerTools()`.
  */
-function registerUiResources(mcpServer: McpServer) {
+function registerUiResources(mcpServer: McpServer, anonymous: boolean) {
   const registered = new Set<string>();
   for (const action of api.actions.actions) {
     const ui = action.mcp?.ui;
@@ -1043,7 +1142,7 @@ function registerUiResources(mcpServer: McpServer) {
     const metadata: Record<string, unknown> = { mimeType: MCP_APP_MIME_TYPE };
     if (hasMeta) metadata._meta = { ui: uiMeta };
 
-    mcpServer.registerResource(
+    const uiResource = mcpServer.registerResource(
       `${formatToolName(action.name)}-ui`,
       resourceUri,
       metadata,
@@ -1063,10 +1162,11 @@ function registerUiResources(mcpServer: McpServer) {
         };
       },
     );
+    gateForAnonymous(mcpServer, action, uiResource, anonymous);
   }
 }
 
-function registerPrompts(mcpServer: McpServer) {
+function registerPrompts(mcpServer: McpServer, anonymous: boolean) {
   for (const action of api.actions.actions) {
     if (!action.mcp?.prompt) continue;
     const { title } = action.mcp.prompt;
@@ -1075,7 +1175,7 @@ function registerPrompts(mcpServer: McpServer) {
       ? sanitizeSchemaForMcp(action.inputs)?.shape
       : undefined;
 
-    mcpServer.registerPrompt(
+    const prompt = mcpServer.registerPrompt(
       formatToolName(action.name),
       {
         title: title ?? action.name,
@@ -1118,6 +1218,7 @@ function registerPrompts(mcpServer: McpServer) {
         }
       },
     );
+    gateForAnonymous(mcpServer, action, prompt, anonymous);
   }
 }
 

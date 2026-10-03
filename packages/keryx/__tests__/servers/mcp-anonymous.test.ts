@@ -19,6 +19,7 @@ import {
   createMcpServer,
   mcpSessionKey,
   readMcpSessionRecord,
+  unlockMcpServer,
 } from "../../util/mcpServer";
 import { serverUrl, useTestServer } from "../setup";
 
@@ -238,7 +239,7 @@ describe("anonymous MCP access", () => {
       expect(ttl).toBeLessThanOrEqual(config.server.mcp.anonymousSessionTtl);
     });
 
-    test("an anonymous SDK client lists every tool and calls a public one", async () => {
+    test("an anonymous SDK client lists only public tools and calls one", async () => {
       const transport = new StreamableHTTPClientTransport(new URL(mcpUrl()));
       const client = new Client({ name: "anon", version: "1.0.0" });
       await client.connect(transport);
@@ -246,7 +247,12 @@ describe("anonymous MCP access", () => {
         const { tools } = await client.listTools();
         const names = tools.map((t) => t.name);
         expect(names).toContain("test-anon-public");
-        expect(names).toContain("test-anon-private");
+        expect(names).not.toContain("test-anon-private");
+        // Every listed tool belongs to an `mcp.public` action.
+        const publicToolNames = api.actions.actions
+          .filter((a) => a.mcp?.public && (a.mcp?.tool || a.mcp?.ui))
+          .map((a) => a.name.replace(/:/g, "-"));
+        expect(names.sort()).toEqual(publicToolNames.sort());
 
         const result = await client.callTool({
           name: "test-anon-public",
@@ -260,6 +266,56 @@ describe("anonymous MCP access", () => {
         });
         expect((resource.contents[0] as { text: string }).text).toBe(
           "public resource",
+        );
+      } finally {
+        await transport.close().catch(() => {});
+      }
+    });
+
+    test("anonymous resource and prompt lists hide protected entries", async () => {
+      const transport = new StreamableHTTPClientTransport(new URL(mcpUrl()));
+      const client = new Client({ name: "anon", version: "1.0.0" });
+      await client.connect(transport);
+      try {
+        const { resources } = await client.listResources();
+        const uris = resources.map((r) => r.uri);
+        expect(uris).toContain("keryx://test-anon/public");
+
+        const { resourceTemplates } = await client.listResourceTemplates();
+        expect(resourceTemplates.map((t) => t.uriTemplate)).not.toContain(
+          "keryx://test-anon/private/{id}",
+        );
+
+        const { prompts } = await client.listPrompts();
+        expect(prompts.map((p) => p.name)).not.toContain(
+          "test-anon-private-prompt",
+        );
+      } finally {
+        await transport.close().catch(() => {});
+      }
+    });
+
+    test("an authenticated client lists every tool, resource, and prompt", async () => {
+      const token = await issueToken("list-client");
+      const transport = new StreamableHTTPClientTransport(new URL(mcpUrl()), {
+        requestInit: { headers: { Authorization: `Bearer ${token}` } },
+      });
+      const client = new Client({ name: "authed", version: "1.0.0" });
+      await client.connect(transport);
+      try {
+        const { tools } = await client.listTools();
+        const names = tools.map((t) => t.name);
+        expect(names).toContain("test-anon-public");
+        expect(names).toContain("test-anon-private");
+
+        const { resourceTemplates } = await client.listResourceTemplates();
+        expect(resourceTemplates.map((t) => t.uriTemplate)).toContain(
+          "keryx://test-anon/private/{id}",
+        );
+
+        const { prompts } = await client.listPrompts();
+        expect(prompts.map((p) => p.name)).toContain(
+          "test-anon-private-prompt",
         );
       } finally {
         await transport.close().catch(() => {});
@@ -351,6 +407,19 @@ describe("anonymous MCP access", () => {
         (a) => a.clientId === "upgrade-client",
       );
       expect(localAuth?.userId).toBe(7);
+
+      // The upgraded session now lists the protected tool too.
+      const listed = await post(
+        { jsonrpc: "2.0", id: ++rpcId, method: "tools/list" },
+        { sessionId, token },
+      );
+      expect(listed.status).toBe(200);
+      const listBody = (await listed.json()) as {
+        result: { tools: { name: string }[] };
+      };
+      expect(listBody.result.tools.map((t) => t.name)).toContain(
+        "test-anon-private",
+      );
 
       // No downgrade back to anonymous...
       const anon = await post(callToolMessage("test-anon-public"), {
@@ -467,6 +536,27 @@ describe("anonymous MCP access", () => {
       await client.connect(clientTransport);
       return { client, server };
     }
+
+    test("an anonymous server hides protected tools until unlocked", async () => {
+      const server = createMcpServer({ anonymous: true });
+      const [clientTransport, serverTransport] =
+        InMemoryTransport.createLinkedPair();
+      await server.connect(serverTransport);
+      const client = new Client({ name: "in-memory", version: "1.0.0" });
+      await client.connect(clientTransport);
+      try {
+        const before = (await client.listTools()).tools.map((t) => t.name);
+        expect(before).toContain("test-anon-public");
+        expect(before).not.toContain("test-anon-private");
+
+        unlockMcpServer(server);
+        const after = (await client.listTools()).tools.map((t) => t.name);
+        expect(after).toContain("test-anon-private");
+      } finally {
+        await client.close();
+        await server.close();
+      }
+    });
 
     test("a protected tool returns an authentication error without auth context", async () => {
       const { client, server } = await connectWithoutAuth();
