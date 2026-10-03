@@ -20,6 +20,7 @@ import {
   mcpSessionKey,
   readMcpSessionRecord,
   unlockMcpServer,
+  upgradeAnonymousMcpSession,
 } from "../../util/mcpServer";
 import { serverUrl, useTestServer } from "../setup";
 
@@ -434,6 +435,36 @@ describe("anonymous MCP access", () => {
         token: otherToken,
       });
       expect(other.status).toBe(403);
+    });
+
+    test("a node holding an anonymous transport catches up when another node ran the upgrade", async () => {
+      const sessionId = await openSession();
+      const record = await readMcpSessionRecord(sessionId);
+      // Simulate the upgrade happening on a different node: only the shared
+      // Redis record changes; this node's transport entry stays anonymous.
+      await upgradeAnonymousMcpSession(sessionId, record!, "remote-client");
+      const local = api.mcp.transports.get(sessionId);
+      expect(local?.anonymous).toBe(true);
+
+      const token = await issueToken("remote-client", 11);
+      const listed = await post(
+        { jsonrpc: "2.0", id: ++rpcId, method: "tools/list" },
+        { sessionId, token },
+      );
+      expect(listed.status).toBe(200);
+      const body = (await listed.json()) as {
+        result: { tools: { name: string }[] };
+      };
+      expect(body.result.tools.map((t) => t.name)).toContain(
+        "test-anon-private",
+      );
+
+      expect(local?.anonymous).toBe(false);
+      expect(local?.clientId).toBe("remote-client");
+      expect(api.mcp.mcpServerAuth.get(local!.mcpServer)).toMatchObject({
+        clientId: "remote-client",
+        userId: 11,
+      });
     });
 
     test("concurrent upgrades by two clients: exactly one wins", async () => {
