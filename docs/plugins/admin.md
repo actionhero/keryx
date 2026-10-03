@@ -16,7 +16,7 @@ Everything the dashboard does is an action, so the same surface is reachable fro
 bun add @keryxjs/admin
 ```
 
-Requires `keryx` 0.43.0 or newer, the version that introduced `api.db.schema`.
+Requires `keryx` 0.43.0 or newer, the version that introduced `api.db.schema`, and a PostgreSQL database. If the app runs without one (`DATABASE_URL` empty or `"none"`), every admin action fails with an error saying so.
 
 ## Configuration
 

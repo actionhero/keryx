@@ -160,6 +160,41 @@ describe("scaffoldProject", () => {
     expect(files).not.toContain("schema/users.ts");
   });
 
+  test(".env.example points at postgres and redis by default", async () => {
+    await scaffoldProject("with-services", targetDir("with-services"), {
+      includeDb: true,
+      includeExample: false,
+    });
+
+    const content = fs.readFileSync(
+      path.join(targetDir("with-services"), ".env.example"),
+      "utf-8",
+    );
+    expect(content).toContain(
+      'DATABASE_URL="postgres://$USER@localhost:5432/with-services"',
+    );
+    expect(content).toContain('REDIS_URL="redis://localhost:6379/0"');
+    expect(content).not.toContain("memory://");
+  });
+
+  test(".env.example disables the database and uses in-memory redis without services", async () => {
+    await scaffoldProject("standalone", targetDir("standalone"), {
+      includeDb: false,
+      includeRedis: false,
+      includeExample: true,
+    });
+
+    const content = fs.readFileSync(
+      path.join(targetDir("standalone"), ".env.example"),
+      "utf-8",
+    );
+    expect(content).toContain('DATABASE_URL=""');
+    expect(content).not.toContain('DATABASE_URL="postgres://');
+    expect(content).not.toContain("DATABASE_AUTO_MIGRATE");
+    expect(content).toContain('REDIS_URL="memory://"');
+    expect(content).not.toContain('REDIS_URL="redis://');
+  });
+
   test("index.ts sets rootDir", async () => {
     await scaffoldProject("check-index", targetDir("check-index"), {
       includeDb: false,

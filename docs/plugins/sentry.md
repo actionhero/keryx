@@ -181,7 +181,7 @@ The plugin is fully hook-based — it does **not** modify core Keryx code. It re
 - `api.hooks.actions.onEnqueue` — inject Sentry trace headers into task params
 - `api.hooks.resque.beforeJob` / `afterJob` — create and finalize the root `queue.process` transaction (continuing the enqueuer's trace when headers are present)
 
-When logs are enabled, the plugin also wraps the framework `logger.log` so the application's real logs are mirrored to `Sentry.logger` (restored on shutdown). The plugin also wraps `api.redis.redis.sendCommand` and the node-postgres `Pool` on `api.db.pool` after those initializers run. Only the checked-out client's `query` is wrapped (never `Pool.query`, which internally delegates to it), so each SQL statement is a single `pg.*` span. Drizzle goes through that pool, so `api.db.db.execute(...)` and query builders show up as `pg.*` spans.
+When logs are enabled, the plugin also wraps the framework `logger.log` so the application's real logs are mirrored to `Sentry.logger` (restored on shutdown). The plugin also wraps `api.redis.redis.sendCommand` and the node-postgres `Pool` on `api.db.pool` after those initializers run (each is skipped when unavailable — the in-process `memory://` Redis has no `sendCommand`, and a disabled database has no pool). Only the checked-out client's `query` is wrapped (never `Pool.query`, which internally delegates to it), so each SQL statement is a single `pg.*` span. Drizzle goes through that pool, so `api.db.db.execute(...)` and query builders show up as `pg.*` spans.
 
 Sentry's built-in `BunServer` integration is filtered out so you don't get a second, nameless HTTP transaction alongside the Keryx one.
 

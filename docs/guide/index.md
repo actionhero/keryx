@@ -12,13 +12,32 @@ The name **Keryx** (κῆρυξ) comes from ancient Greek, meaning "herald" or "
 
 ## Prerequisites
 
-You'll need these running locally:
+The only hard requirement is [Bun](https://bun.sh) (latest). For a real deployment you'll also want:
 
-- [Bun](https://bun.sh) (latest)
-- [PostgreSQL](https://www.postgresql.org/)
-- [Redis](https://redis.io/)
+- [PostgreSQL](https://www.postgresql.org/) — persistence and Drizzle models
+- [Redis](https://redis.io/) — shared state for tasks, PubSub, sessions, and caching across processes
+
+Both are optional while you're kicking the tires. Without Postgres you lose the database; without Redis, Keryx runs an in-memory Redis inside your process, and background tasks, scheduled jobs, PubSub, and sessions keep working. See [Running Without Postgres or Redis](/guide/deployment#running-without-postgres-or-redis) for the trade-offs.
+
+## Quickstart (Bun Only)
+
+Want to see it running before you install anything else?
+
+```bash
+curl -fsSL https://bun.sh/install | bash
+
+bunx keryx new my-app --no-db --no-redis
+cd my-app
+cp .env.example .env
+bun install
+bun dev
+```
+
+`--no-db` leaves `DATABASE_URL` empty, so the app runs without Postgres. `--no-redis` sets `REDIS_URL="memory://"`, so Redis runs in-process. Everything lives in one process and disappears on restart — fine for prototypes and single-process tools, not for production fleets.
 
 ## Installation (macOS)
+
+For the full setup with Postgres and Redis:
 
 ```bash
 # install bun
@@ -43,11 +62,13 @@ bun install
 
 The generated `.env` points `DATABASE_URL` at a database named after your project, and `DATABASE_URL_TEST` at `<project>-test` — so create both before starting the server. `keryx new` prints these same steps when it finishes.
 
-The `keryx new` command will prompt you for a project name and optional features (database setup, example action). You can also skip prompts with `--no-interactive`:
+The `keryx new` command will prompt you for a project name and optional features (database, Redis server, example action). You can also skip prompts with `--no-interactive`:
 
 ```bash
 bunx keryx new my-app --no-interactive
 ```
+
+Adding Postgres or Redis later is just configuration: set `DATABASE_URL` to a `postgres://` URL (and add `schema/`, `drizzle/`, and the `drizzle-orm`, `drizzle-zod`, and `drizzle-kit` packages), or set `REDIS_URL` to a `redis://` URL. Nothing else changes.
 
 ## Run the Dev Server
 
@@ -65,10 +86,10 @@ A new Keryx project looks like this:
 my-app/
 ├── actions/        # Transport-agnostic controllers
 ├── channels/       # WebSocket PubSub channels
-├── drizzle/        # Generated migration SQL
+├── drizzle/        # Generated migration SQL (not created with --no-db)
 ├── initializers/   # Lifecycle components (DB, Redis, etc.)
 ├── middleware/     # Action and channel middleware
-├── schema/         # Drizzle ORM table definitions
+├── schema/         # Drizzle ORM table definitions (not created with --no-db)
 ├── index.ts        # Sets api.rootDir, re-exports framework types
 ├── keryx.ts        # CLI entry point
 ├── .env.example    # Environment variable template

@@ -2,6 +2,7 @@ import { type AnyColumn, eq, type Table } from "drizzle-orm";
 import { z } from "zod/v4";
 import { api } from "../api";
 import { ErrorType, TypedError } from "../classes/TypedError";
+import { assertDatabaseEnabled } from "./transaction";
 
 // Zod v4: Extend GlobalMeta to support custom 'isSecret' metadata
 // This allows using .meta({ isSecret: true }) on any zod schema
@@ -100,6 +101,7 @@ export function zIdOrModel<TModel>(
       if (isModel(val)) {
         return val;
       }
+      assertDatabaseEnabled(`Loading ${entityName} by id`);
       const [record] = await api.db.db
         .select()
         .from(table)

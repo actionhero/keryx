@@ -4,13 +4,15 @@ import { z } from "zod";
 import pkg from "../package.json";
 
 export async function checkDependencies() {
-  let databaseHealthy = false;
-  try {
-    if (api.db?.db) {
+  // `null` = the database is disabled, so it is not part of the health verdict.
+  let databaseHealthy: boolean | null = null;
+  if (api.db?.enabled) {
+    databaseHealthy = false;
+    try {
       await api.db.db.execute(sql`SELECT NOW()`);
       databaseHealthy = true;
-    }
-  } catch {}
+    } catch {}
+  }
 
   let redisHealthy = false;
   try {
@@ -21,7 +23,7 @@ export async function checkDependencies() {
   } catch {}
 
   return {
-    healthy: databaseHealthy && redisHealthy,
+    healthy: databaseHealthy !== false && redisHealthy,
     checks: { database: databaseHealthy, redis: redisHealthy },
   };
 }

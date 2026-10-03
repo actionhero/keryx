@@ -100,10 +100,21 @@ export class Resque extends Initializer {
     this.dependsOn = ["redis", "db", "actions", "process", "hooks"];
   }
 
+  /**
+   * Connection options shared by the resque Queue, Scheduler and Workers. They all reuse
+   * `api.redis.redis`. With the in-memory Redis, `pkg: "ioredis-mock"` tells node-resque
+   * to skip its `cjson`-based Lua script (unsupported by ioredis-mock) and fall back to
+   * plain commands when workers pop jobs.
+   */
+  connectionOptions = () => ({
+    redis: api.redis.redis,
+    ...(api.redis.inMemory ? { pkg: "ioredis-mock" } : {}),
+  });
+
   /** Create and connect the resque `Queue` instance (used for enqueuing jobs). */
   startQueue = async () => {
     api.resque.queue = new Queue(
-      { connection: { redis: api.redis.redis } },
+      { connection: this.connectionOptions() },
       api.resque.jobs,
     );
 
@@ -125,7 +136,7 @@ export class Resque extends Initializer {
   startScheduler = async () => {
     if (config.tasks.enabled === true) {
       api.resque.scheduler = new Scheduler({
-        connection: { redis: api.redis.redis },
+        connection: this.connectionOptions(),
         timeout: config.tasks.timeout,
         stuckWorkerTimeout: config.tasks.stuckWorkerTimeout,
         retryStuckJobs: config.tasks.retryStuckJobs,
@@ -177,7 +188,7 @@ export class Resque extends Initializer {
     while (id < config.tasks.taskProcessors) {
       const worker = new Worker(
         {
-          connection: { redis: api.redis.redis },
+          connection: this.connectionOptions(),
           queues: Array.isArray(config.tasks.queues)
             ? config.tasks.queues
             : await config.tasks.queues(),

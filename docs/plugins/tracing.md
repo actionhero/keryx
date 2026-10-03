@@ -146,7 +146,7 @@ The plugin is fully hook-based — it does **not** modify core Keryx code. It re
 - `api.hooks.actions.onEnqueue` — inject trace context into task params
 - `api.hooks.resque.beforeJob` — extract trace context when a worker picks up a task
 
-The plugin also wraps `api.redis.redis.sendCommand` and attaches `@kubiks/otel-drizzle` to `api.db.db` after those initializers run.
+The plugin also wraps `api.redis.redis.sendCommand` and attaches `@kubiks/otel-drizzle` to `api.db.db` after those initializers run. With the in-process Redis (`REDIS_URL="memory://"`) there's no `sendCommand` to wrap, so no `redis.*` spans are emitted; without a database there are no `drizzle.*` spans either.
 
 Because everything runs through hooks and the OTel global APIs, you can mix-and-match — register your own span processors, swap the exporter, or install custom propagators — and Keryx's instrumentation will continue to work.
 

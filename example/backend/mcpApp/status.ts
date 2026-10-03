@@ -68,7 +68,14 @@ function render(data: StatusData) {
     health.textContent = data.healthy ? "Healthy" : "Unhealthy";
     health.className = `pill ${data.healthy ? "healthy" : "unhealthy"}`;
   }
-  setText("database", data.checks.database ? "✓" : "✗");
+  setText(
+    "database",
+    data.checks.database === null
+      ? "disabled"
+      : data.checks.database
+        ? "✓"
+        : "✗",
+  );
   setText("redis", data.checks.redis ? "✓" : "✗");
 
   const updated = element("updated");

@@ -7,7 +7,7 @@ import packageJSON from "../package.json";
 export class Status implements Action {
   name = "status";
   description =
-    "Returns server health and runtime information including the server name, process ID, package version, uptime in milliseconds, memory consumption in MB, and dependency health checks for the database and Redis. Does not require authentication.";
+    "Returns server health and runtime information including the server name, process ID, package version, uptime in milliseconds, memory consumption in MB, and dependency health checks for the database and Redis. A check is `null` when that dependency is disabled (e.g. no `DATABASE_URL`), and disabled checks do not affect `healthy`. Does not require authentication.";
   inputs = z.object({});
   web = { route: "/status", method: HTTP_METHOD.GET };
   tracing = false;
@@ -16,13 +16,15 @@ export class Status implements Action {
     const consumedMemoryMB =
       Math.round((process.memoryUsage().heapUsed / 1024 / 1024) * 100) / 100;
 
-    let databaseHealthy = false;
-    try {
-      if (api.db?.db) {
+    // `null` = the database is disabled, so it is not part of the health verdict.
+    let databaseHealthy: boolean | null = null;
+    if (api.db?.enabled) {
+      databaseHealthy = false;
+      try {
         await api.db.db.execute(sql`SELECT NOW()`);
         databaseHealthy = true;
-      }
-    } catch {}
+      } catch {}
+    }
 
     let redisHealthy = false;
     try {
@@ -32,7 +34,7 @@ export class Status implements Action {
       }
     } catch {}
 
-    const healthy = databaseHealthy && redisHealthy;
+    const healthy = databaseHealthy !== false && redisHealthy;
 
     return {
       name: api.process.name,

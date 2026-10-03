@@ -32,7 +32,9 @@ export function instrumentRedis(
   isSuppressed: () => boolean = () => false,
 ) {
   const client = api.redis?.redis;
-  if (!client) return;
+  // The in-memory Redis (ioredis-mock, `REDIS_URL=memory://`) has no `sendCommand`
+  // to wrap, so Redis commands are not instrumented in that mode.
+  if (!client || typeof client.sendCommand !== "function") return;
   const originalSendCommand = client.sendCommand.bind(client);
   client.sendCommand = function (
     ...args: Parameters<typeof originalSendCommand>

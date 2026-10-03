@@ -1,5 +1,6 @@
 import {
   type ActionMiddleware,
+  api,
   type Connection,
   config,
   ErrorType,
@@ -30,12 +31,14 @@ export function resolvedRole(connection?: Connection): AdminRole | undefined {
 /**
  * Build the middleware that gates every admin action.
  *
- * Three checks, in order:
+ * Four checks, in order:
  *
  * 1. When `config.admin.enabled` is false, fail as if the route doesn't exist (404).
  *    Turning the dashboard off shouldn't advertise that it was ever there.
- * 2. Resolve the caller's role. No role means no access (401).
- * 3. Write actions require `full`; `read-only` callers are refused (403).
+ * 2. When the app runs without a database (`DATABASE_URL` empty or `"none"`), fail with
+ *    a clear error — the dashboard has nothing to browse.
+ * 3. Resolve the caller's role. No role means no access (401).
+ * 4. Write actions require `full`; `read-only` callers are refused (403).
  *
  * The role is resolved once per request and cached on `connection.metadata`, so actions
  * can branch on it — the table list reports the caller's role so the UI knows whether to
@@ -55,6 +58,14 @@ export function createAdminAuthMiddleware(
         throw new TypedError({
           message: "Admin dashboard is not enabled",
           type: ErrorType.CONNECTION_ACTION_NOT_FOUND,
+        });
+      }
+
+      if (api.db?.enabled === false) {
+        throw new TypedError({
+          message:
+            'The admin dashboard requires a database, but the database is disabled (DATABASE_URL is empty or "none")',
+          type: ErrorType.SERVER_INITIALIZATION,
         });
       }
 

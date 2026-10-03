@@ -29,6 +29,22 @@ export type Transaction = NodePgDatabase<Record<string, never>>;
 export type DbOrTransaction = NodePgDatabase<Record<string, never>>;
 
 /**
+ * Throw a clear error when code that needs Postgres runs while the database is
+ * disabled (`DATABASE_URL` empty or `"none"`). Without this, callers would fail with
+ * an opaque `cannot read properties of undefined` on `api.db.pool` / `api.db.db`.
+ *
+ * @param feature - What needed the database, included in the error message.
+ * @throws {TypedError} With `ErrorType.SERVER_INITIALIZATION` when `api.db.enabled` is `false`.
+ */
+export function assertDatabaseEnabled(feature: string) {
+  if (api.db?.enabled) return;
+  throw new TypedError({
+    message: `${feature} requires a database, but the database is disabled (DATABASE_URL is empty or "none")`,
+    type: ErrorType.SERVER_INITIALIZATION,
+  });
+}
+
+/**
  * Run a callback inside a database transaction with automatic commit/rollback.
  *
  * Acquires a dedicated `PoolClient` from `api.db.pool`, issues `BEGIN`, and
@@ -44,7 +60,8 @@ export type DbOrTransaction = NodePgDatabase<Record<string, never>>;
  *   All queries executed through `tx` participate in the same transaction.
  * @returns The value returned by `fn`.
  * @throws {TypedError} Re-throws `TypedError` directly. Wraps other errors in
- *   a `TypedError` with `ErrorType.CONNECTION_ACTION_RUN`.
+ *   a `TypedError` with `ErrorType.CONNECTION_ACTION_RUN`. Throws
+ *   `ErrorType.SERVER_INITIALIZATION` when the database is disabled.
  *
  * @example
  * ```ts
@@ -58,6 +75,7 @@ export type DbOrTransaction = NodePgDatabase<Record<string, never>>;
 export async function withTransaction<T>(
   fn: (tx: Transaction) => Promise<T>,
 ): Promise<T> {
+  assertDatabaseEnabled("withTransaction");
   const client = await api.db.pool.connect();
   try {
     await client.query("BEGIN");

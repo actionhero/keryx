@@ -8,7 +8,7 @@ Keryx uses cookie-based sessions stored in Redis. Authentication is handled thro
 
 ## Sessions
 
-When a user logs in, a session is created in Redis and a cookie is set on the response. The session stores arbitrary typed data (like `userId`) and has a configurable TTL (default: 24 hours).
+When a user logs in, a session is created in Redis and a cookie is set on the response. The session stores arbitrary typed data (like `userId`) and has a configurable TTL (default: 24 hours). With `REDIS_URL="memory://"` sessions live in process memory, so every restart (including a `bun dev` reload) logs everyone out.
 
 ```ts
 // Define your session data shape

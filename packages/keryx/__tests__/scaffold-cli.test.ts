@@ -172,4 +172,47 @@ describe("keryx new (CLI integration)", () => {
       fs.rmSync(yTmpDir, { recursive: true, force: true });
     }
   });
+
+  test("-y flag respects --no-db and --no-redis", async () => {
+    const yTmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "keryx-cli-scaffold-standalone-"),
+    );
+    try {
+      const proc = Bun.spawn(
+        [
+          "bun",
+          keryxTs,
+          "new",
+          "standalone-app",
+          "-y",
+          "--no-db",
+          "--no-redis",
+        ],
+        {
+          cwd: yTmpDir,
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      );
+
+      const exitCode = await proc.exited;
+      const stdout = await new Response(proc.stdout).text();
+      if (exitCode !== 0) {
+        const stderr = await new Response(proc.stderr).text();
+        throw new Error(
+          `keryx new -y failed with exit code ${exitCode}: ${stderr}`,
+        );
+      }
+
+      const envExample = fs.readFileSync(
+        path.join(yTmpDir, "standalone-app", ".env.example"),
+        "utf-8",
+      );
+      expect(envExample).toContain('REDIS_URL="memory://"');
+      expect(envExample).toContain('DATABASE_URL=""');
+      expect(stdout).not.toContain("createdb");
+    } finally {
+      fs.rmSync(yTmpDir, { recursive: true, force: true });
+    }
+  });
 });

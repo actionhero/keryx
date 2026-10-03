@@ -24,8 +24,11 @@ Options:
 
 - `-y` / `--yes` — skip prompts, use defaults
 - `--no-interactive` — skip prompts, use defaults (same effect as `-y`)
-- `--no-db` — skip database setup files
+- `--no-db` — run without PostgreSQL: no Drizzle files or dependencies, and an empty `DATABASE_URL` so the app boots without a database
+- `--no-redis` — run without a Redis server: `REDIS_URL="memory://"` uses an in-process Redis (single process, not persisted)
 - `--no-example` — skip the example action
+
+`bunx keryx new my-app --no-db --no-redis` gives you a project that runs with nothing but Bun installed — background tasks and scheduled jobs included.
 - `--force` — scaffold into an existing directory; files that already exist are left untouched (merge-skip, never overwrite)
 
 `keryx new` also scaffolds OAuth template files into `templates/` (login/signup page, shared CSS, and the lion SVG). These are customizable — see the [MCP guide](/guide/mcp#oauth-templates) for details.

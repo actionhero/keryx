@@ -7,8 +7,17 @@ import pkg from "../package.json";
 import { loadScaffoldTemplate as loadTemplate } from "./componentRegistry";
 
 export interface ScaffoldOptions {
+  /**
+   * Generate Postgres/Drizzle files and point `DATABASE_URL` at a local database. When
+   * false, `DATABASE_URL` is left empty so the app runs without a database.
+   */
   includeDb: boolean;
   includeExample: boolean;
+  /**
+   * Point `REDIS_URL` at a local Redis server. When false, `REDIS_URL` is `memory://`,
+   * which runs an in-process Redis (single process, not persisted). Defaults to `true`.
+   */
+  includeRedis?: boolean;
   /**
    * When true, scaffold into an existing directory instead of refusing.
    * Files that already exist on disk are left untouched (merge-skip); only
@@ -46,10 +55,17 @@ export async function interactiveScaffold(
     projectName = await prompt("Project name:", "my-keryx-app");
   }
 
-  const includeDb = await promptYesNo("Include database setup?", true);
+  const includeDb = await promptYesNo(
+    "Include database setup? (PostgreSQL — if no, the app runs without a database)",
+    true,
+  );
+  const includeRedis = await promptYesNo(
+    "Use a Redis server? (if no, an in-memory Redis is used: single process, not persisted)",
+    true,
+  );
   const includeExample = await promptYesNo("Include example action?", true);
 
-  return { projectName, options: { includeDb, includeExample } };
+  return { projectName, options: { includeDb, includeRedis, includeExample } };
 }
 
 /**
@@ -280,7 +296,12 @@ export async function scaffoldProject(
 
   fs.mkdirSync(targetDir, { recursive: true });
 
-  const view = { projectName, keryxVersion };
+  const view = {
+    projectName,
+    keryxVersion,
+    includeDb: options.includeDb,
+    includeRedis: options.includeRedis !== false,
+  };
 
   const write = async (filePath: string, content: string) => {
     const fullPath = path.join(targetDir, filePath);
