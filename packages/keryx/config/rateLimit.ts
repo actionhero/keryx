@@ -19,4 +19,14 @@ export const configRateLimit = {
     "RATE_LIMIT_OAUTH_REGISTER_WINDOW_MS",
     3_600_000,
   ),
+  /** Stricter limit on new anonymous MCP sessions (`initialize` without a token), per IP per window. */
+  mcpAnonymousInitLimit: await loadFromEnvIfSet(
+    "RATE_LIMIT_MCP_ANON_INIT_LIMIT",
+    10,
+  ),
+  /** Window for the anonymous MCP session-creation rate limit (default: 1 minute). */
+  mcpAnonymousInitWindowMs: await loadFromEnvIfSet(
+    "RATE_LIMIT_MCP_ANON_INIT_WINDOW_MS",
+    60_000,
+  ),
 };

@@ -10,6 +10,10 @@ import { api, logger } from "../api";
 import { Initializer } from "../classes/Initializer";
 import { ErrorType, TypedError } from "../classes/TypedError";
 import { config } from "../config";
+import {
+  checkRateLimit,
+  rateLimitExceededResponse,
+} from "../middleware/rateLimit";
 import { ansi } from "../util/ansi";
 import {
   buildCorsHeaders,
@@ -20,10 +24,14 @@ import {
 import { resolveMcpAppUiResources } from "../util/mcpAppBundler";
 import {
   adoptMcpSession,
+  buildAnonymousMcpAuthInfo,
   createMcpServer,
+  findMcpTargetAction,
   forgetMcpSession,
   formatToolName,
   handleTransportRequest,
+  isAnonymousMcpAuth,
+  isMcpAccessAllowed,
   isMcpSessionAuthorizedForChannel,
   MCP_JSONRPC_ERROR,
   type McpAuthInfo,
@@ -35,6 +43,7 @@ import {
   refreshMcpSessionTtl,
   sanitizeSchemaForMcp,
   terminateMcpSession,
+  upgradeAnonymousMcpSession,
   validateJsonRpcPayload,
   writeMcpSessionRecord,
 } from "../util/mcpServer";
@@ -66,6 +75,78 @@ export type OnMcpMessageHook = (
 export type OnMcpDisconnectHook = (sessionId: string) => Promise<void> | void;
 
 const namespace = "mcp";
+
+/** A live, node-local MCP session: its transport, owning client, and server. */
+export type McpTransportEntry = {
+  transport: WebStandardStreamableHTTPServerTransport;
+  /** OAuth client id that owns the session (the anonymous sentinel if anonymous). */
+  clientId: string;
+  /** The `McpServer` connected to `transport`. */
+  mcpServer: McpServer;
+};
+
+/** Whether a parsed POST body (single message or batch) contains an `initialize` request. */
+function containsInitializeRequest(body: unknown): boolean {
+  return Array.isArray(body)
+    ? body.some(isInitializeRequest)
+    : isInitializeRequest(body);
+}
+
+/**
+ * Build the 401 response that sends an MCP client into the OAuth flow: a
+ * `WWW-Authenticate` challenge pointing at the protected resource metadata
+ * (RFC 9728). Returned when a token is missing (in `required` mode), invalid or
+ * expired (always), or when an anonymous request targets a protected action or
+ * an authenticated session (in `optional` mode).
+ */
+function mcpAuthChallenge(
+  req: Request,
+  corsHeaders: Record<string, string>,
+): Response {
+  const origin = getExternalOrigin(req, new URL(req.url));
+  const resourceMetadataUrl = `${origin}/.well-known/oauth-protected-resource${config.server.mcp.route}`;
+  return mcpJsonResponse(
+    { error: "Authentication required" },
+    401,
+    corsHeaders,
+    {
+      "WWW-Authenticate": `Bearer resource_metadata="${resourceMetadataUrl}", scope="mcp"`,
+    },
+  );
+}
+
+/**
+ * Rate-limit an anonymous MCP request by IP: every request counts against the
+ * unauthenticated limit, and a session-creating `initialize` also counts
+ * against the stricter anonymous-session limit.
+ *
+ * @returns A 429 response if a limit is exceeded, otherwise `undefined`.
+ */
+async function checkAnonymousMcpRateLimit(
+  ip: string,
+  isInitialize: boolean,
+  corsHeaders: Record<string, string>,
+): Promise<Response | undefined> {
+  if (!config.rateLimit.enabled) return undefined;
+  const keyPrefix = config.rateLimit.keyPrefix;
+  const info = await checkRateLimit(`ip:${ip}`, false, {
+    keyPrefix: `${keyPrefix}:mcp-anon`,
+  });
+  if (info.retryAfter !== undefined) {
+    return rateLimitExceededResponse(info, corsHeaders);
+  }
+  if (isInitialize) {
+    const initInfo = await checkRateLimit(`ip:${ip}`, false, {
+      limit: config.rateLimit.mcpAnonymousInitLimit,
+      windowMs: config.rateLimit.mcpAnonymousInitWindowMs,
+      keyPrefix: `${keyPrefix}:mcp-anon-init`,
+    });
+    if (initInfo.retryAfter !== undefined) {
+      return rateLimitExceededResponse(initInfo, corsHeaders);
+    }
+  }
+  return undefined;
+}
 
 /**
  * Resolve the protocol version an `initialize` request body (single message or
@@ -125,13 +206,7 @@ export class McpInitializer extends Initializer {
     // Per-session auth context, so a broadcast is delivered only to sessions
     // whose user is authorized for its channel (see sendNotification).
     const mcpServerAuth = new Map<McpServer, McpSessionAuth>();
-    const transports = new Map<
-      string,
-      {
-        transport: WebStandardStreamableHTTPServerTransport;
-        clientId: string;
-      }
-    >();
+    const transports = new Map<string, McpTransportEntry>();
 
     // Deliver a PubSub broadcast to MCP sessions as a logging notification, but
     // ONLY to sessions whose user is authorized to subscribe to the broadcast's
@@ -264,35 +339,30 @@ export class McpInitializer extends Initializer {
         return new Response(null, { status: 405, headers: corsHeaders });
       }
 
-      // Extract and verify Bearer token for auth
+      // Extract and verify the Bearer token. A token that is present but
+      // invalid or expired is always rejected with 401 (the spec requires it),
+      // never downgraded to anonymous access.
       let authInfo: McpAuthInfo | undefined;
       const authHeader = req.headers.get("authorization");
       if (authHeader?.startsWith("Bearer ")) {
         const token = authHeader.slice(7);
         const tokenData = await api.oauth.verifyAccessToken(token);
-        if (tokenData) {
-          authInfo = {
-            token,
-            clientId: tokenData.clientId,
-            scopes: tokenData.scopes ?? [],
-            extra: { userId: tokenData.userId, ip },
-          };
-        }
+        if (!tokenData) return mcpAuthChallenge(req, corsHeaders);
+        authInfo = {
+          token,
+          clientId: tokenData.clientId,
+          scopes: tokenData.scopes ?? [],
+          extra: { userId: tokenData.userId, ip },
+        };
+      } else if (config.server.mcp.authMode === "optional") {
+        // No token, but anonymous access is enabled: serve the request as an
+        // anonymous session limited to `mcp.public` actions.
+        authInfo = buildAnonymousMcpAuthInfo(ip);
+      } else {
+        // Require authentication — return 401 so MCP clients initiate the OAuth flow
+        return mcpAuthChallenge(req, corsHeaders);
       }
-
-      // Require authentication — return 401 so MCP clients initiate the OAuth flow
-      if (!authInfo) {
-        const origin = getExternalOrigin(req, new URL(req.url));
-        const resourceMetadataUrl = `${origin}/.well-known/oauth-protected-resource${config.server.mcp.route}`;
-        return mcpJsonResponse(
-          { error: "Authentication required" },
-          401,
-          corsHeaders,
-          {
-            "WWW-Authenticate": `Bearer resource_metadata="${resourceMetadataUrl}", scope="mcp"`,
-          },
-        );
-      }
+      const isAnonymous = isAnonymousMcpAuth(authInfo);
 
       const sessionId = req.headers.get("mcp-session-id");
 
@@ -326,15 +396,35 @@ export class McpInitializer extends Initializer {
         }
       }
 
+      if (isAnonymous) {
+        const limited = await checkAnonymousMcpRateLimit(
+          ip,
+          method === "POST" && !sessionId && containsInitializeRequest(body),
+          corsHeaders,
+        );
+        if (limited) return limited;
+
+        // Step-up: an anonymous call to a protected tool, prompt, or resource
+        // gets a 401 challenge before dispatch, so the client runs the OAuth
+        // flow and retries with a token (which upgrades the session below).
+        if (method === "POST") {
+          const messages = Array.isArray(body) ? body : [body];
+          const needsAuth = messages.some((message) => {
+            const action = findMcpTargetAction(message);
+            return (
+              action !== undefined && !isMcpAccessAllowed(action, authInfo)
+            );
+          });
+          if (needsAuth) return mcpAuthChallenge(req, corsHeaders);
+        }
+      }
+
       if (method === "POST" && !sessionId) {
         // Only an `initialize` request may create a new session. Any other
         // request without a session id is a protocol error → 400. We must gate
         // here rather than delegating, otherwise a non-initialize POST spins up
         // an McpServer that never initializes and leaks into `mcpServers`.
-        const isInit = Array.isArray(body)
-          ? body.some(isInitializeRequest)
-          : isInitializeRequest(body);
-        if (!isInit) {
+        if (!containsInitializeRequest(body)) {
           return mcpJsonResponse(
             { error: "Mcp-Session-Id header required" },
             400,
@@ -366,8 +456,13 @@ export class McpInitializer extends Initializer {
               clientId: sessionClientId,
               protocolVersion,
               createdAt: Date.now(),
+              ...(isAnonymous ? { anonymous: true } : {}),
             });
-            transports.set(sid, { transport, clientId: sessionClientId });
+            transports.set(sid, {
+              transport,
+              clientId: sessionClientId,
+              mcpServer,
+            });
             for (const hook of api.hooks.mcp.onConnectHooks) {
               await hook(sid);
             }
@@ -398,7 +493,7 @@ export class McpInitializer extends Initializer {
         // The shared Redis registry — not the node-local map — is the source of
         // truth for session existence and ownership, so a request that a load
         // balancer routes to any node resolves consistently.
-        const record = await readMcpSessionRecord(sessionId);
+        let record = await readMcpSessionRecord(sessionId);
         if (!record) {
           // Unknown/expired session → 404 (the client's cue to re-`initialize`).
           // Evict any stale local transport so it can never bypass this gate.
@@ -414,7 +509,40 @@ export class McpInitializer extends Initializer {
           );
         }
 
-        if (record.clientId !== authInfo.clientId) {
+        if (record.anonymous && !isAnonymous) {
+          // Upgrade: the first request on an anonymous session that carries a
+          // valid token rebinds the session to that token's client (with the
+          // authenticated TTL). The swap is atomic, so only one client can
+          // ever claim a given anonymous session.
+          const current = await upgradeAnonymousMcpSession(
+            sessionId,
+            record,
+            authInfo.clientId,
+          );
+          if (!current) {
+            return mcpJsonResponse(
+              { error: "Session not found" },
+              404,
+              corsHeaders,
+            );
+          }
+          record = current;
+          const local = transports.get(sessionId);
+          if (local && record.clientId === authInfo.clientId) {
+            local.clientId = authInfo.clientId;
+            api.mcp.mcpServerAuth.set(local.mcpServer, {
+              clientId: authInfo.clientId,
+              userId: authInfo.extra?.userId,
+              ip,
+            });
+          }
+        }
+
+        if (isAnonymous && !record.anonymous) {
+          // Never downgrade an authenticated session to anonymous access.
+          return mcpAuthChallenge(req, corsHeaders);
+        }
+        if (!isAnonymous && record.clientId !== authInfo.clientId) {
           return mcpJsonResponse(
             { error: "Token does not match session" },
             403,
@@ -434,7 +562,7 @@ export class McpInitializer extends Initializer {
           );
         }
 
-        await refreshMcpSessionTtl(sessionId);
+        await refreshMcpSessionTtl(sessionId, record.anonymous);
 
         for (const hook of api.hooks.mcp.onMessageHooks) {
           await hook(sessionId);

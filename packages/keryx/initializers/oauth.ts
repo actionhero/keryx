@@ -1,7 +1,10 @@
 import { api } from "../api";
 import { Initializer } from "../classes/Initializer";
 import { config } from "../config";
-import { checkRateLimit } from "../middleware/rateLimit";
+import {
+  checkRateLimit,
+  rateLimitExceededResponse,
+} from "../middleware/rateLimit";
 import {
   appendHeaders,
   buildCorsHeaders,
@@ -121,22 +124,7 @@ export class OAuthInitializer extends Initializer {
             : undefined;
         const info = await checkRateLimit(`ip:${ip}`, false, overrides);
         if (info.retryAfter !== undefined) {
-          return new Response(
-            JSON.stringify({
-              error: "rate_limit_exceeded",
-              error_description: `Rate limit exceeded. Try again in ${info.retryAfter} seconds.`,
-            }),
-            {
-              status: 429,
-              headers: {
-                "Content-Type": "application/json",
-                "Retry-After": String(info.retryAfter),
-                "X-RateLimit-Limit": String(info.limit),
-                "X-RateLimit-Remaining": "0",
-                "X-RateLimit-Reset": String(info.resetAt),
-              },
-            },
-          );
+          return rateLimitExceededResponse(info);
         }
       }
 

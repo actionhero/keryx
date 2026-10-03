@@ -301,6 +301,8 @@ See the [Security guide](/guide/security) for details on how rate limiting works
 | `keyPrefix`             | `RATE_LIMIT_KEY_PREFIX`               | `"ratelimit"`             |
 | `oauthRegisterLimit`    | `RATE_LIMIT_OAUTH_REGISTER_LIMIT`     | `5`                       |
 | `oauthRegisterWindowMs` | `RATE_LIMIT_OAUTH_REGISTER_WINDOW_MS` | `3600000` (1 hour)        |
+| `mcpAnonymousInitLimit` | `RATE_LIMIT_MCP_ANON_INIT_LIMIT`     | `10`                      |
+| `mcpAnonymousInitWindowMs` | `RATE_LIMIT_MCP_ANON_INIT_WINDOW_MS` | `60000` (1 min)       |
 
 ### CLI
 
@@ -315,6 +317,8 @@ See the [Security guide](/guide/security) for details on how rate limiting works
 | -------------------- | -------------------------- | ------------------- |
 | `enabled`            | `MCP_SERVER_ENABLED`       | `false`             |
 | `route`              | `MCP_SERVER_ROUTE`         | `"/mcp"`            |
+| `authMode`           | `MCP_AUTH_MODE`            | `"required"`        |
+| `anonymousSessionTtl` | `MCP_ANONYMOUS_SESSION_TTL` | `3600`           |
 | `allowedOrigins`     | `MCP_ALLOWED_ORIGINS`      | Claude/ChatGPT/VS Code Web |
 | `instructions`       | `MCP_SERVER_INSTRUCTIONS`  | package description |
 | `oauthClientTtl`     | `MCP_OAUTH_CLIENT_TTL`     | `2592000`           |

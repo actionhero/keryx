@@ -97,6 +97,15 @@ export type McpActionConfig = {
    * via `ui` implies a tool unless `tool` is explicitly `false`.
    */
   tool?: boolean;
+  /**
+   * Allow anonymous MCP clients to use this action. Only takes effect when the
+   * server runs with `MCP_AUTH_MODE=optional`: a client without a bearer token
+   * may then call this tool, read this resource or prompt, or load this MCP App
+   * UI. Anonymous calls to non-public actions get a 401 challenge so the client
+   * can authenticate. Has no effect in the default `required` mode, and never
+   * changes HTTP/WebSocket access — that is still governed by `middleware`.
+   */
+  public?: boolean;
   /** Tag as the OAuth login action */
   isLoginAction?: boolean;
   /** Tag as the OAuth signup action */

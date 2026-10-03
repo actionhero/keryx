@@ -164,6 +164,15 @@ OAuth client registration (`POST /oauth/register`) has a separate, stricter rate
 | `oauthRegisterLimit`    | `RATE_LIMIT_OAUTH_REGISTER_LIMIT`     | `5`       | Max registrations per window |
 | `oauthRegisterWindowMs` | `RATE_LIMIT_OAUTH_REGISTER_WINDOW_MS` | `3600000` | Window size (1 hour)         |
 
+### Anonymous MCP Sessions
+
+With `MCP_AUTH_MODE=optional`, clients without a token can open MCP sessions and call actions marked `mcp.public`. Every anonymous MCP request counts against the unauthenticated per-IP limit, and opening a session also counts against a stricter one. Anonymous sessions also expire sooner (`MCP_ANONYMOUS_SESSION_TTL`, default 1 hour). See [Public (Anonymous) Access](/guide/mcp#public-anonymous-access).
+
+| Config Key                 | Env Var                              | Default | Description                              |
+| -------------------------- | ------------------------------------ | ------- | ---------------------------------------- |
+| `mcpAnonymousInitLimit`    | `RATE_LIMIT_MCP_ANON_INIT_LIMIT`     | `10`    | Max new anonymous sessions per window    |
+| `mcpAnonymousInitWindowMs` | `RATE_LIMIT_MCP_ANON_INIT_WINDOW_MS` | `60000` | Window size (1 minute)                   |
+
 ## Error Stack Traces
 
 By default, error responses include stack traces in development but omit them in production:

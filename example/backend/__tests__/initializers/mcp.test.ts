@@ -1806,6 +1806,82 @@ describe("mcp protocol version negotiation", () => {
   });
 });
 
+describe("mcp anonymous access (MCP_AUTH_MODE=optional)", () => {
+  beforeAll(async () => {
+    config.server.mcp.enabled = true;
+    config.server.mcp.authMode = "optional";
+    config.rateLimit.enabled = false;
+    await api.start();
+  }, HOOK_TIMEOUT);
+
+  afterAll(async () => {
+    const keys = await api.redis.redis.keys("mcp:session:*");
+    if (keys.length > 0) await api.redis.redis.del(...keys);
+    await api.stop();
+    config.server.mcp.enabled = false;
+    config.server.mcp.authMode = "required";
+    config.rateLimit.enabled = true;
+  }, HOOK_TIMEOUT);
+
+  test("an anonymous client can call the public status tool", async () => {
+    const transport = new StreamableHTTPClientTransport(new URL(mcpUrl()));
+    const client = new Client({ name: "anonymous", version: "1.0.0" });
+    await client.connect(transport);
+    try {
+      const result = await client.callTool({ name: "status", arguments: {} });
+      expect(result.isError).toBeFalsy();
+      expect(
+        (result.structuredContent as { healthy?: boolean }).healthy,
+      ).toBeBoolean();
+    } finally {
+      await transport.close().catch(() => {});
+    }
+  });
+
+  test("an anonymous call to a protected tool is challenged with 401", async () => {
+    const headers = {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+    };
+    const init = await fetch(mcpUrl(), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: LATEST_PROTOCOL_VERSION,
+          capabilities: {},
+          clientInfo: { name: "anonymous", version: "1.0.0" },
+        },
+      }),
+    });
+    expect(init.status).toBe(200);
+    const sessionId = init.headers.get("mcp-session-id")!;
+    await init.text();
+
+    const res = await fetch(mcpUrl(), {
+      method: "POST",
+      headers: {
+        ...headers,
+        "mcp-session-id": sessionId,
+        "mcp-protocol-version": LATEST_PROTOCOL_VERSION,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "user-view", arguments: { id: 1 } },
+      }),
+    });
+    expect(res.status).toBe(401);
+    expect(res.headers.get("www-authenticate")).toContain(
+      "/.well-known/oauth-protected-resource/mcp",
+    );
+  });
+});
+
 // --- Helper functions ---
 
 function randomString(length: number): string {

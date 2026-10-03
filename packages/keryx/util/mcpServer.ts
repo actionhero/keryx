@@ -4,6 +4,7 @@ import {
 } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import { UriTemplate } from "@modelcontextprotocol/sdk/shared/uriTemplate.js";
 import {
   DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
   JSONRPCMessageSchema,
@@ -57,6 +58,132 @@ export type McpAuthInfo = {
 };
 
 /**
+ * Sentinel OAuth client id recorded for anonymous MCP sessions (served when
+ * `config.server.mcp.authMode` is `"optional"` and the request has no bearer
+ * token). It can never collide with a real client id: registered clients get a
+ * UUID and CIMD clients an `https://` URL.
+ */
+export const ANONYMOUS_MCP_CLIENT_ID = "keryx:anonymous";
+
+/**
+ * Build the auth context for an anonymous MCP request. It is passed to the
+ * transport like a verified token's, so the client IP still reaches
+ * `Connection.identifier` (and IP-keyed rate limiting inside actions), but it
+ * carries no token and is flagged `extra.anonymous` so access checks can deny
+ * non-public actions.
+ *
+ * @param ip - The remote IP of the request.
+ */
+export function buildAnonymousMcpAuthInfo(ip: string): McpAuthInfo {
+  return {
+    token: "",
+    clientId: ANONYMOUS_MCP_CLIENT_ID,
+    scopes: [],
+    extra: { ip, anonymous: true },
+  };
+}
+
+/**
+ * Whether an MCP request's auth context is anonymous. A missing auth context
+ * counts as anonymous, so every access check fails closed.
+ */
+export function isAnonymousMcpAuth(authInfo: McpAuthInfo | undefined): boolean {
+  return !authInfo || authInfo.extra?.anonymous === true;
+}
+
+/** Whether an action opted in to anonymous MCP access via `mcp.public`. */
+export function isActionPublicForMcp(action: Action): boolean {
+  return action.mcp?.public === true;
+}
+
+/**
+ * Whether an action is registered as an MCP tool. Tools are opt-in: an action
+ * must set `mcp.tool = true`, or declare an MCP App (`mcp.ui`) without opting
+ * out.
+ */
+export function isMcpTool(action: Action): boolean {
+  return (
+    action.mcp?.tool === true ||
+    (action.mcp?.ui != null && action.mcp?.tool !== false)
+  );
+}
+
+/**
+ * Find the action an MCP resource URI is served by: a static `mcp.resource.uri`,
+ * a match against an `mcp.resource.uriTemplate`, or an MCP App's `ui://` URI.
+ *
+ * @param uri - The URI from a `resources/read` request.
+ * @returns The matching action, or `undefined` if no action serves the URI.
+ */
+export function findActionForResourceUri(uri: string): Action | undefined {
+  for (const action of api.actions.actions) {
+    const resource = action.mcp?.resource;
+    if (resource?.uri && resource.uri === uri) return action;
+    if (resource?.uriTemplate && !resource.uri) {
+      try {
+        if (new UriTemplate(resource.uriTemplate).match(uri)) return action;
+      } catch {
+        // malformed template or URI — not a match
+      }
+    }
+    if (action.mcp?.ui && uiResourceUri(action) === uri) return action;
+  }
+  return undefined;
+}
+
+/**
+ * Find the action a single JSON-RPC message would invoke: `tools/call` and
+ * `prompts/get` by name, `resources/read` by URI. Used to challenge anonymous
+ * requests for protected actions with a 401 before they are dispatched.
+ *
+ * @param message - One JSON-RPC message from a POST body.
+ * @returns The targeted action, or `undefined` for any other message or an
+ *   unknown target (the SDK then answers with its own not-found error).
+ */
+export function findMcpTargetAction(message: unknown): Action | undefined {
+  if (!message || typeof message !== "object") return undefined;
+  const { method, params } = message as {
+    method?: unknown;
+    params?: { name?: unknown; uri?: unknown };
+  };
+  if (method === "tools/call" && typeof params?.name === "string") {
+    return api.actions.actions.find(
+      (a: Action) => isMcpTool(a) && formatToolName(a.name) === params.name,
+    );
+  }
+  if (method === "prompts/get" && typeof params?.name === "string") {
+    return api.actions.actions.find(
+      (a: Action) =>
+        a.mcp?.prompt != null && formatToolName(a.name) === params.name,
+    );
+  }
+  if (method === "resources/read" && typeof params?.uri === "string") {
+    return findActionForResourceUri(params.uri);
+  }
+  return undefined;
+}
+
+/**
+ * Whether an MCP request may run an action: authenticated requests always may
+ * (the action's own middleware still applies), anonymous requests only when the
+ * action is marked `mcp.public`.
+ */
+export function isMcpAccessAllowed(
+  action: Action,
+  authInfo: McpAuthInfo | undefined,
+): boolean {
+  return !isAnonymousMcpAuth(authInfo) || isActionPublicForMcp(action);
+}
+
+/** The error raised when an anonymous MCP request targets a non-public action. */
+function mcpAuthenticationRequiredError(action: Action): TypedError {
+  return new TypedError({
+    message: `Authentication required: '${formatToolName(action.name)}' is not available to anonymous MCP clients. Reconnect with an OAuth access token.`,
+    type: ErrorType.CONNECTION_SESSION_NOT_FOUND,
+  });
+}
+
+/**
  * Create an authenticated MCP Connection from the auth info attached to an MCP request.
  * Shared by tool, resource, and prompt handlers to avoid duplicating connection setup.
  */
@@ -75,7 +202,9 @@ export async function createMcpConnection(
     clientIp,
     randomUUID(),
     undefined,
-    authInfo?.token,
+    // Anonymous requests carry an empty token; leave the session id unset so
+    // the connection gets its own throwaway session rather than a shared "".
+    isAnonymousMcpAuth(authInfo) ? undefined : authInfo?.token,
   );
 
   if (authInfo?.extra?.userId) {
@@ -298,6 +427,20 @@ export interface McpSessionRecord {
   protocolVersion?: string;
   /** Creation timestamp (ms since epoch). */
   createdAt: number;
+  /**
+   * `true` for an anonymous session (opened without a token in `optional` auth
+   * mode). Such a session expires after `anonymousSessionTtl`, and may be
+   * upgraded once — by the first request carrying a valid token — to a session
+   * owned by that token's client.
+   */
+  anonymous?: boolean;
+}
+
+/** The idle TTL (seconds) for a session registry record. */
+function mcpSessionTtl(anonymous: boolean | undefined): number {
+  return anonymous
+    ? config.server.mcp.anonymousSessionTtl
+    : config.server.mcp.sessionTtl;
 }
 
 /** Redis key for a session registry record. */
@@ -320,7 +463,7 @@ export async function writeMcpSessionRecord(
     mcpSessionKey(sessionId),
     JSON.stringify(record),
     "EX",
-    config.server.mcp.sessionTtl,
+    mcpSessionTtl(record.anonymous),
   );
 }
 
@@ -342,12 +485,52 @@ export async function readMcpSessionRecord(
  * TTL behaves as an idle timeout across the cluster.
  *
  * @param sessionId - The transport session id (`Mcp-Session-Id`).
+ * @param anonymous - Whether the session is anonymous (see
+ *   {@link McpSessionRecord.anonymous}), which selects the shorter TTL.
  */
-export async function refreshMcpSessionTtl(sessionId: string): Promise<void> {
+export async function refreshMcpSessionTtl(
+  sessionId: string,
+  anonymous?: boolean,
+): Promise<void> {
   await api.redis.redis.expire(
     mcpSessionKey(sessionId),
-    config.server.mcp.sessionTtl,
+    mcpSessionTtl(anonymous),
   );
+}
+
+/**
+ * Atomically upgrade an anonymous session to one owned by an authenticated
+ * OAuth client. A compare-and-set on the stored record (Lua, so it is atomic
+ * across the cluster) guarantees only one upgrade can win: if two clients race
+ * to claim the same anonymous session, the loser sees the winner's record and
+ * gets the normal ownership check (403).
+ *
+ * @param sessionId - The transport session id (`Mcp-Session-Id`).
+ * @param anonymousRecord - The anonymous record as just read from Redis.
+ * @param clientId - The OAuth client id of the token presented on this request.
+ * @returns The upgraded record, or the record as it now stands if another
+ *   request changed it first (`null` if it was deleted meanwhile).
+ */
+export async function upgradeAnonymousMcpSession(
+  sessionId: string,
+  anonymousRecord: McpSessionRecord,
+  clientId: string,
+): Promise<McpSessionRecord | null> {
+  const { anonymous: _anonymous, ...rest } = anonymousRecord;
+  const upgraded: McpSessionRecord = { ...rest, clientId };
+  const swapped = await api.redis.redis.eval(
+    `if redis.call("GET", KEYS[1]) == ARGV[1] then
+       redis.call("SET", KEYS[1], ARGV[2], "EX", ARGV[3])
+       return 1
+     end
+     return 0`,
+    1,
+    mcpSessionKey(sessionId),
+    JSON.stringify(anonymousRecord),
+    JSON.stringify(upgraded),
+    mcpSessionTtl(false),
+  );
+  return swapped === 1 ? upgraded : readMcpSessionRecord(sessionId);
 }
 
 /**
@@ -498,7 +681,7 @@ export async function adoptMcpSession(
         enableJsonResponse: true,
         // Local registration only — no hooks, no registry write (see doc above).
         onsessioninitialized: (sid) => {
-          api.mcp.transports.set(sid, { transport, clientId });
+          api.mcp.transports.set(sid, { transport, clientId, mcpServer });
         },
         onsessionclosed: (sid) => terminateMcpSession(sid, mcpServer),
       });
@@ -594,10 +777,7 @@ function registerTools(mcpServer: McpServer) {
     // Tools are opt-in: register only actions that explicitly set `mcp.tool =
     // true`, or that declare an MCP App (`mcp.ui`) without opting out. Every
     // other action — including those with no `mcp` config — is never exposed.
-    const isTool =
-      action.mcp?.tool === true ||
-      (action.mcp?.ui != null && action.mcp?.tool !== false);
-    if (!isTool) continue;
+    if (!isMcpTool(action)) continue;
 
     const toolName = formatToolName(action.name);
     if (registered.has(toolName)) continue;
@@ -629,6 +809,24 @@ function registerTools(mcpServer: McpServer) {
         args: Record<string, unknown>,
         extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
       ) => {
+        // Anonymous sessions may only call public tools. The HTTP layer already
+        // answers such a call with a 401 challenge; this is the backstop.
+        if (!isMcpAccessAllowed(action, extra.authInfo)) {
+          const denied = mcpAuthenticationRequiredError(action);
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify({
+                  error: denied.message,
+                  type: denied.type,
+                }),
+              },
+            ],
+            isError: true,
+          };
+        }
+
         const mcpSessionId = extra.sessionId || "";
         const connection = await createMcpConnection(extra, mcpServer);
 
@@ -746,6 +944,9 @@ function registerResources(mcpServer: McpServer) {
       variables: Record<string, string | string[]>,
       extra: any,
     ) => {
+      if (!isMcpAccessAllowed(action, extra.authInfo)) {
+        throw mcpAuthenticationRequiredError(action);
+      }
       const mcpSessionId = extra.sessionId || "";
       const connection = await createMcpConnection(extra, mcpServer);
 
@@ -846,16 +1047,21 @@ function registerUiResources(mcpServer: McpServer) {
       `${formatToolName(action.name)}-ui`,
       resourceUri,
       metadata,
-      (mcpUri: URL) => ({
-        contents: [
-          {
-            uri: mcpUri.toString(),
-            mimeType: MCP_APP_MIME_TYPE,
-            text: html,
-            ...(hasMeta ? { _meta: { ui: uiMeta } } : {}),
-          },
-        ],
-      }),
+      (mcpUri: URL, extra: { authInfo?: McpAuthInfo }) => {
+        if (!isMcpAccessAllowed(action, extra.authInfo)) {
+          throw mcpAuthenticationRequiredError(action);
+        }
+        return {
+          contents: [
+            {
+              uri: mcpUri.toString(),
+              mimeType: MCP_APP_MIME_TYPE,
+              text: html,
+              ...(hasMeta ? { _meta: { ui: uiMeta } } : {}),
+            },
+          ],
+        };
+      },
     );
   }
 }
@@ -865,16 +1071,24 @@ function registerPrompts(mcpServer: McpServer) {
     if (!action.mcp?.prompt) continue;
     const { title } = action.mcp.prompt;
 
+    const argsSchema = action.inputs
+      ? sanitizeSchemaForMcp(action.inputs)?.shape
+      : undefined;
+
     mcpServer.registerPrompt(
       formatToolName(action.name),
       {
         title: title ?? action.name,
         description: action.description,
-        argsSchema: action.inputs
-          ? sanitizeSchemaForMcp(action.inputs)?.shape
-          : undefined,
+        argsSchema,
       },
-      async (args: any, extra: any) => {
+      async (...cbArgs: any[]) => {
+        // The SDK calls `cb(args, extra)` when the prompt declares an
+        // argsSchema, but `cb(extra)` when it doesn't.
+        const [args, extra] = argsSchema ? cbArgs : [{}, cbArgs[0]];
+        if (!isMcpAccessAllowed(action, extra.authInfo)) {
+          throw mcpAuthenticationRequiredError(action);
+        }
         const mcpSessionId = extra.sessionId || "";
         const connection = await createMcpConnection(extra, mcpServer);
 

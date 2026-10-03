@@ -83,6 +83,38 @@ export async function checkRateLimit(
 }
 
 /**
+ * Build the HTTP 429 response for a request that exceeded a rate limit checked
+ * outside the action pipeline (OAuth endpoints, the MCP endpoint). The body is
+ * an OAuth-style `{ error, error_description }` object, and `Retry-After` plus
+ * the `X-RateLimit-*` headers tell the client when to try again.
+ *
+ * @param info - The result of {@link checkRateLimit}; must have `retryAfter` set.
+ * @param extraHeaders - Additional headers to include (e.g. CORS headers).
+ */
+export function rateLimitExceededResponse(
+  info: RateLimitInfo,
+  extraHeaders: Record<string, string> = {},
+): Response {
+  return new Response(
+    JSON.stringify({
+      error: "rate_limit_exceeded",
+      error_description: `Rate limit exceeded. Try again in ${info.retryAfter} seconds.`,
+    }),
+    {
+      status: 429,
+      headers: {
+        "Content-Type": "application/json",
+        ...extraHeaders,
+        "Retry-After": String(info.retryAfter),
+        "X-RateLimit-Limit": String(info.limit),
+        "X-RateLimit-Remaining": "0",
+        "X-RateLimit-Reset": String(info.resetAt),
+      },
+    },
+  );
+}
+
+/**
  * Action middleware that enforces per-connection rate limiting. Add to an action's
  * `middleware` array to apply. Throws `ErrorType.CONNECTION_RATE_LIMITED` when exceeded.
  */
