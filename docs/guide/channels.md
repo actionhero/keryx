@@ -231,6 +231,10 @@ ws.send(
 | `"subscribe"`   | `channel`                                  | Subscribe to a channel     |
 | `"unsubscribe"` | `channel`                                  | Unsubscribe from a channel |
 
+### Message Ordering
+
+Messages from one connection are handled in the order they were sent.
+
 ## Reference
 
 - [`Channel` class reference](/reference/classes#channel) — full API, including `ChannelMiddleware`
