@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { api } from "../../api";
 import { type Action, HTTP_METHOD } from "../../classes/Action";
 import { Router } from "../../classes/Router";
-import { ErrorType } from "../../classes/TypedError";
+import { ErrorType, TypedError } from "../../classes/TypedError";
 import { config } from "../../config";
 import {
   checkBodySize,
@@ -149,7 +149,46 @@ describe("parseRequestParams", () => {
         await parseRequestParams(req, parsedUrl());
         throw new Error("should have thrown");
       } catch (e: any) {
-        expect(e.type).toBe(ErrorType.CONNECTION_ACTION_RUN);
+        expect(e.type).toBe(ErrorType.CONNECTION_ACTION_PARAM_VALIDATION);
+        expect(e.message).toContain("cannot parse request body");
+      }
+    });
+
+    for (const [label, body] of [
+      ["an empty JSON body", ""],
+      ["a JSON array body", "[1, 2]"],
+      ["a JSON null body", "null"],
+      ["a JSON scalar body", "5"],
+    ] as const) {
+      test(`throws TypedError for ${label}`, async () => {
+        const req = new Request("http://localhost/test", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body,
+        });
+        try {
+          await parseRequestParams(req, parsedUrl());
+          throw new Error("should have thrown");
+        } catch (e: any) {
+          expect(e).toBeInstanceOf(TypedError);
+          expect(e.type).toBe(ErrorType.CONNECTION_ACTION_PARAM_VALIDATION);
+          expect(e.message).toContain("cannot parse request body");
+        }
+      });
+    }
+
+    test("throws TypedError for a malformed multipart body", async () => {
+      const req = new Request("http://localhost/test", {
+        method: "POST",
+        headers: { "content-type": "multipart/form-data" },
+        body: "garbage",
+      });
+      try {
+        await parseRequestParams(req, parsedUrl());
+        throw new Error("should have thrown");
+      } catch (e: any) {
+        expect(e).toBeInstanceOf(TypedError);
+        expect(e.type).toBe(ErrorType.CONNECTION_ACTION_PARAM_VALIDATION);
         expect(e.message).toContain("cannot parse request body");
       }
     });

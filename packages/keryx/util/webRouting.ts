@@ -178,8 +178,11 @@ export type ParseRequestParamsOptions = {
  *   unread — nothing is consumed off `req`, so a later reader (typically the
  *   action, via `connection.rawRequest`) still sees the bytes exactly as sent.
  * @returns A plain object containing all merged parameters.
- * @throws {TypedError} With type {@link ErrorType.CONNECTION_ACTION_RUN} when a
- *   JSON body cannot be parsed, or when the body exceeds
+ * @throws {TypedError} With type
+ *   {@link ErrorType.CONNECTION_ACTION_PARAM_VALIDATION} when a JSON or form
+ *   body cannot be parsed (an empty or malformed JSON body, or one that is not
+ *   a JSON object), or with type {@link ErrorType.CONNECTION_ACTION_RUN} and a
+ *   "Payload Too Large" message when the body exceeds
  *   {@link config.server.web.maxBodySize}.
  */
 export async function parseRequestParams(
@@ -203,22 +206,32 @@ export async function parseRequestParams(
   const contentType = options?.rawBody ? null : baseMediaType(req);
 
   if (req.method !== "GET" && contentType === "application/json") {
+    // Use streaming reader that aborts early if the body exceeds the
+    // configured limit — never allocates the full oversized payload.
+    const text = await readBodyWithLimit(req);
+    let bodyContent: unknown;
     try {
-      // Use streaming reader that aborts early if the body exceeds the
-      // configured limit — never allocates the full oversized payload.
-      const text = await readBodyWithLimit(req);
-      const bodyContent = JSON.parse(text) as Record<string, unknown>;
-      // Merge JSON body directly — preserves types (objects, arrays, booleans, numbers)
-      for (const [key, value] of Object.entries(bodyContent)) {
-        params[key] = value;
-      }
+      bodyContent = JSON.parse(text);
     } catch (e) {
-      if (e instanceof TypedError) throw e;
       throw new TypedError({
         message: `cannot parse request body: ${e}`,
-        type: ErrorType.CONNECTION_ACTION_RUN,
+        type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
         cause: e,
       });
+    }
+    if (
+      bodyContent === null ||
+      typeof bodyContent !== "object" ||
+      Array.isArray(bodyContent)
+    ) {
+      throw new TypedError({
+        message: "cannot parse request body: a JSON body must be an object",
+        type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+      });
+    }
+    // Merge JSON body directly — preserves types (objects, arrays, booleans, numbers)
+    for (const [key, value] of Object.entries(bodyContent)) {
+      params[key] = value;
     }
   } else if (
     req.method !== "GET" &&
@@ -234,7 +247,13 @@ export async function parseRequestParams(
       await readBodyWithLimit(req.clone() as Request);
     }
 
-    const f = await req.formData();
+    const f = await req.formData().catch((e: unknown) => {
+      throw new TypedError({
+        message: `cannot parse request body: ${e}`,
+        type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+        cause: e,
+      });
+    });
     f.forEach((value, key) => appendParam(params, key, value));
   }
 
