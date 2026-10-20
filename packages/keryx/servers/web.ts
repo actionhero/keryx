@@ -131,6 +131,13 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
   url: string = "";
   /** Per-connection message rate tracking (keyed by connection id). */
   private wsRateMap = new Map<string, { count: number; windowStart: number }>();
+  /**
+   * Tail of each connection's queue of subscribe/unsubscribe frames (keyed by connection id).
+   * Bun doesn't wait for one `message` callback to finish before calling the next, so channel
+   * operations are chained here to apply in the order the client sent them. The stored
+   * promise never rejects.
+   */
+  private wsChannelOpQueue = new Map<string, Promise<void>>();
   /** Set to true when the server is shutting down; rejects new WS upgrades. */
   private shuttingDown = false;
 
@@ -419,6 +426,17 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
   /**
    * Called when a WebSocket message arrives. Parses JSON, enforces per-connection rate limiting,
    * and dispatches to action, subscribe, or unsubscribe handlers based on `messageType`.
+   *
+   * Bun invokes this for each frame without waiting for the previous call to settle, so frames
+   * are ordered per connection: subscribe and unsubscribe frames run one at a time, in the order
+   * they were sent. An action frame waits for the channel operations sent before it, but doesn't
+   * hold up later frames, so actions (including long-running streams) still run concurrently.
+   *
+   * @param ws - The Bun WebSocket the frame arrived on. Its `data` identifies the {@link Connection}.
+   * @param message - The raw frame. Expected to be a JSON object with a `messageType` of
+   *   `"action"`, `"subscribe"`, or `"unsubscribe"`; anything else gets an error frame back.
+   * @throws {TypedError} When no connection is registered for the socket, or rethrown from an
+   *   `onMessage` hook.
    */
   async handleWebSocketConnectionMessage(
     ws: ServerWebSocket,
@@ -464,13 +482,58 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
       }
     }
 
+    // Parse up front (synchronously, in arrival order) so we know whether this frame
+    // joins the connection's channel-op queue. Parse errors are reported after the hooks run.
+    let parsedMessage: any;
+    let parseError: unknown;
+    try {
+      parsedMessage = JSON.parse(message.toString());
+    } catch (e) {
+      parseError = e;
+    }
+    const messageType = parsedMessage?.["messageType"];
+    const isChannelOp =
+      messageType === "subscribe" || messageType === "unsubscribe";
+
+    const previous = this.wsChannelOpQueue.get(connection.id);
+    const handled = this.processWebSocketMessage(
+      connection,
+      ws,
+      message,
+      parsedMessage,
+      parseError,
+      previous,
+    );
+    if (isChannelOp) {
+      this.wsChannelOpQueue.set(
+        connection.id,
+        handled.catch(() => {}),
+      );
+    }
+    await handled;
+  }
+
+  /**
+   * Runs one inbound WebSocket frame after the connection's earlier channel operations settle:
+   * the `onMessage` hooks, then the action / subscribe / unsubscribe handler.
+   */
+  private async processWebSocketMessage(
+    connection: Connection,
+    ws: ServerWebSocket,
+    message: string | Buffer,
+    parsedMessage: any,
+    parseError: unknown,
+    previous: Promise<void> | undefined,
+  ) {
+    if (previous) await previous;
+
     for (const hook of api.hooks.ws.onMessageHooks) {
       await hook(connection, message);
     }
 
     let messageId: unknown;
     try {
-      const parsedMessage = JSON.parse(message.toString());
+      if (parseError) throw parseError;
       messageId = parsedMessage["messageId"];
       if (parsedMessage["messageType"] === "action") {
         await handleWebsocketAction(connection, ws, parsedMessage);
@@ -509,6 +572,11 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
       ws.data.wsConnectionId,
     );
     if (!connection) return;
+
+    // Let in-flight subscribe/unsubscribe frames finish so presence cleanup sees the final set
+    const pendingChannelOps = this.wsChannelOpQueue.get(connection.id);
+    if (pendingChannelOps) await pendingChannelOps;
+    this.wsChannelOpQueue.delete(connection.id);
 
     for (const hook of api.hooks.ws.onDisconnectHooks) {
       await hook(connection);

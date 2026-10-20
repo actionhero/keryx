@@ -1,8 +1,10 @@
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { z } from "zod";
 import { api } from "../../api";
+import type { Action } from "../../classes/Action";
 import { Channel } from "../../classes/Channel";
 import { config } from "../../config";
-import { buildWebSocket, serverUrl, useTestServer } from "./../setup";
+import { buildWebSocket, serverUrl, useTestServer, waitFor } from "./../setup";
 
 useTestServer({ clearDatabase: true });
 
@@ -409,4 +411,150 @@ test("allows WebSocket upgrade with wildcard allowedOrigins", async () => {
   } finally {
     (config.server.web as any).allowedOrigins = originalOrigins;
   }
+});
+
+describe("per-connection ordering of channel operations", () => {
+  /** How long the slow channel's middleware stalls each subscribe, in ms. */
+  const MIDDLEWARE_DELAY = 100;
+
+  class SlowChannel extends Channel {
+    constructor() {
+      super({
+        name: /^ordered-chan:.*$/,
+        middleware: [
+          {
+            runBefore: async () => {
+              await Bun.sleep(MIDDLEWARE_DELAY);
+            },
+          },
+        ],
+      });
+    }
+  }
+  const slowChannel = new SlowChannel();
+
+  const slowAction = {
+    name: "test:ws-slow",
+    inputs: z.object({}),
+    timeout: 0,
+    run: async () => {
+      await Bun.sleep(MIDDLEWARE_DELAY * 3);
+      return { slow: true };
+    },
+  } as unknown as Action;
+
+  beforeAll(() => {
+    api.channels.channels.push(slowChannel);
+    api.actions.actions.push(slowAction);
+  });
+
+  afterAll(() => {
+    const channelIdx = api.channels.channels.indexOf(slowChannel);
+    if (channelIdx !== -1) api.channels.channels.splice(channelIdx, 1);
+    const actionIdx = api.actions.actions.indexOf(slowAction);
+    if (actionIdx !== -1) api.actions.actions.splice(actionIdx, 1);
+  });
+
+  /** Ack/response frames for our messageIds, in arrival order (presence broadcasts excluded). */
+  const replies = (messages: MessageEvent[]) =>
+    messages
+      .map((m) => JSON.parse(m.data))
+      .filter((m) => m.messageId !== undefined);
+
+  test("subscribe then unsubscribe in one tick ends unsubscribed (#550)", async () => {
+    const channel = `ordered-chan:${crypto.randomUUID()}`;
+    const { socket, messages } = await buildWebSocket();
+
+    socket.send(
+      JSON.stringify({ messageType: "subscribe", channel, messageId: 1 }),
+    );
+    socket.send(
+      JSON.stringify({ messageType: "unsubscribe", channel, messageId: 2 }),
+    );
+
+    await waitFor(() => replies(messages).length >= 2);
+    const acks = replies(messages);
+    expect(acks[0]).toEqual({ messageId: 1, subscribed: { channel } });
+    expect(acks[1]).toEqual({ messageId: 2, unsubscribed: { channel } });
+
+    await api.pubsub.broadcast(channel, "PING", "repro");
+    await Bun.sleep(200);
+    const pings = messages
+      .map((m) => JSON.parse(m.data))
+      .filter((m) => m.message?.message === "PING");
+    expect(pings).toHaveLength(0);
+
+    socket.close();
+  });
+
+  test("subscribe, unsubscribe, subscribe acks in send order and ends subscribed", async () => {
+    const channel = `ordered-chan:${crypto.randomUUID()}`;
+    const { socket, messages } = await buildWebSocket();
+
+    socket.send(
+      JSON.stringify({ messageType: "subscribe", channel, messageId: 1 }),
+    );
+    socket.send(
+      JSON.stringify({ messageType: "unsubscribe", channel, messageId: 2 }),
+    );
+    socket.send(
+      JSON.stringify({ messageType: "subscribe", channel, messageId: 3 }),
+    );
+
+    await waitFor(() => replies(messages).length >= 3);
+    expect(replies(messages).map((m) => m.messageId)).toEqual([1, 2, 3]);
+
+    await api.pubsub.broadcast(channel, "PING", "repro");
+    await waitFor(() =>
+      messages.some((m) => JSON.parse(m.data).message?.message === "PING"),
+    );
+
+    socket.close();
+  });
+
+  test("an action waits for channel operations sent before it", async () => {
+    const channel = `ordered-chan:${crypto.randomUUID()}`;
+    const { socket, messages } = await buildWebSocket();
+
+    socket.send(
+      JSON.stringify({ messageType: "subscribe", channel, messageId: 1 }),
+    );
+    socket.send(
+      JSON.stringify({
+        messageType: "action",
+        action: "status",
+        messageId: 2,
+        params: {},
+      }),
+    );
+
+    await waitFor(() => replies(messages).length >= 2);
+    expect(replies(messages).map((m) => m.messageId)).toEqual([1, 2]);
+
+    socket.close();
+  });
+
+  test("a slow action doesn't hold up later frames", async () => {
+    const channel = `ordered-chan:${crypto.randomUUID()}`;
+    const { socket, messages } = await buildWebSocket();
+
+    socket.send(
+      JSON.stringify({
+        messageType: "action",
+        action: "test:ws-slow",
+        messageId: 1,
+        params: {},
+      }),
+    );
+    socket.send(
+      JSON.stringify({ messageType: "subscribe", channel, messageId: 2 }),
+    );
+
+    await waitFor(() => replies(messages).length >= 2);
+    const acks = replies(messages);
+    expect(acks.map((m) => m.messageId)).toEqual([2, 1]);
+    expect(acks[1].response).toEqual({ slow: true });
+
+    socket.close();
+  });
 });

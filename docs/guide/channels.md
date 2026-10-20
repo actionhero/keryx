@@ -231,6 +231,12 @@ ws.send(
 | `"subscribe"`   | `channel`                                  | Subscribe to a channel     |
 | `"unsubscribe"` | `channel`                                  | Unsubscribe from a channel |
 
+### Message Ordering
+
+Messages from one connection are applied in the order they were sent. `subscribe` and `unsubscribe` messages run one at a time, so sending `subscribe` then `unsubscribe` in quick succession (a React StrictMode remount, for example) always leaves the connection unsubscribed, and the acks arrive in the same order.
+
+An `action` message waits for any `subscribe` or `unsubscribe` sent before it, so an action that broadcasts to a channel you just subscribed to reaches you. Actions don't wait for each other or block later messages, so a slow or streaming action never holds up your subscriptions.
+
 ## Reference
 
 - [`Channel` class reference](/reference/classes#channel) — full API, including `ChannelMiddleware`
