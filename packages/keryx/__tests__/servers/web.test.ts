@@ -676,6 +676,45 @@ describe("raw request bodies", () => {
     expect(body.hello).toBe("world");
   });
 
+  for (const [label, payload, contentType] of [
+    ["an empty JSON body", "", "application/json"],
+    ["a malformed JSON body", "{not json", "application/json"],
+    ["a JSON body that is not an object", "[1, 2]", "application/json"],
+    ["a malformed multipart body", "garbage", "multipart/form-data"],
+  ] as const) {
+    test(`${label} gets a 400 JSON error with CORS headers, and no leaked connection`, async () => {
+      const original = config.server.web.allowedOrigins;
+      (config.server.web as any).allowedOrigins = "*";
+      const connectionsBefore = api.connections.connections.size;
+      try {
+        const res = await fetch(getUrl() + "/api/test/parsed-body", {
+          method: "POST",
+          headers: { "content-type": contentType },
+          body: payload,
+        });
+        expect(res.status).toBe(400);
+        expect(res.headers.get("content-type")).toContain("application/json");
+        expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
+        const body = (await res.json()) as {
+          error: { message: string; type: string };
+        };
+        expect(body.error.message).toContain("cannot parse request body");
+        expect(body.error.type).toBe("CONNECTION_ACTION_PARAM_VALIDATION");
+        expect(api.connections.connections.size).toBe(connectionsBefore);
+      } finally {
+        (config.server.web as any).allowedOrigins = original;
+      }
+
+      // The server keeps answering normally afterwards
+      const ok = await fetch(getUrl() + "/api/test/parsed-body", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ hello: "world" }),
+      });
+      expect(ok.status).toBe(200);
+    });
+  }
+
   test("swagger documents a raw-body endpoint as opaque bytes", async () => {
     const res = await fetch(getUrl() + "/api/swagger");
     const doc = (await res.json()) as {

@@ -673,14 +673,23 @@ export class WebServer extends Server<ReturnType<typeof Bun.serve>> {
         rawBody,
       });
     } catch (e) {
-      if (
-        e instanceof TypedError &&
-        e.message.startsWith("Payload Too Large")
-      ) {
-        connection.destroy();
-        return { response: buildError(connection, e, 413, requestOrigin) };
-      }
-      throw e;
+      // An oversized or unparseable body is the client's fault: answer it with
+      // the JSON error envelope (and CORS headers) rather than letting it
+      // escape to Bun's default 500 handler, and never leak the connection.
+      connection.destroy();
+      const error =
+        e instanceof TypedError
+          ? e
+          : new TypedError({
+              message: `cannot parse request body: ${e}`,
+              type: ErrorType.CONNECTION_ACTION_PARAM_VALIDATION,
+              cause: e,
+            });
+      const status = error.message.startsWith("Payload Too Large") ? 413 : 400;
+      return {
+        response: buildError(connection, error, status, requestOrigin),
+        actionName: actionName ?? undefined,
+      };
     }
 
     const { response, error } = await connection.act(

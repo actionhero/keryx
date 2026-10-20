@@ -49,6 +49,8 @@ Param loading order matters — later sources override earlier ones:
 
 Body parsing keys off the base media type, so `application/json` and `application/json; charset=utf-8` are treated the same. Actions that declare [`web.rawBody`](/guide/actions#raw-request-bodies) skip step 5's body read entirely — they get path and query params only, and read the untouched body themselves via `connection.rawRequest`.
 
+A body the server can't parse never reaches the action. That covers an empty or malformed JSON body, a JSON body that isn't an object, and a malformed multipart body. The server answers `400` with the usual `{ error: { message, type } }` envelope and CORS headers, and the error type is `CONNECTION_ACTION_PARAM_VALIDATION`. A body over `maxBodySize` gets `413` in the same envelope.
+
 ### WebSocket Message Flow
 
 WebSocket connections are long-lived. After the initial HTTP upgrade, the client sends JSON messages with a `messageType` field:
