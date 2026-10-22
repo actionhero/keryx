@@ -283,16 +283,17 @@ All HTTP responses include these headers. Each is configurable:
 
 ### Tasks
 
-| Key                  | Env Var           | Default                   |
-| -------------------- | ----------------- | ------------------------- |
-| `enabled`            | `TASKS_ENABLED`   | `true`                    |
-| `queues`             | —                 | `["*"]`                   |
-| `timeout`            | `TASK_TIMEOUT`    | `5000`                    |
-| `taskProcessors`     | `TASK_PROCESSORS` | `1` (`0` in test)         |
-| `checkTimeout`       | —                 | `500`                     |
-| `maxEventLoopDelay`  | —                 | `5`                       |
-| `stuckWorkerTimeout` | —                 | `3600000` (1 hour)        |
-| `retryStuckJobs`     | —                 | `false`                   |
+| Key                    | Env Var                       | Default              |
+| ---------------------- | ----------------------------- | -------------------- |
+| `enabled`              | `TASKS_ENABLED`               | `true`               |
+| `queues`               | —                             | `["*"]`              |
+| `timeout`              | `TASK_TIMEOUT`                | `5000`               |
+| `taskProcessors`       | `TASK_PROCESSORS`             | `1` (`0` in test)    |
+| `checkTimeout`         | —                             | `500`                |
+| `maxEventLoopDelay`    | —                             | `5`                  |
+| `stuckWorkerTimeout`   | —                             | `3600000` (1 hour)   |
+| `retryStuckJobs`       | —                             | `false`              |
+| `recurringLockTimeout` | `TASK_RECURRING_LOCK_TIMEOUT` | `15000` (15 seconds) |
 
 ### Rate Limiting
 

@@ -19,6 +19,7 @@ import {
 import { Initializer } from "../classes/Initializer";
 import { LogFormat } from "../classes/Logger";
 import { TypedError } from "../classes/TypedError";
+import { RecurringTaskLock } from "../util/recurringTaskLock";
 import type { TaskInputs } from "./actionts";
 
 const namespace = "resque";
@@ -459,9 +460,11 @@ export class Resque extends Initializer {
     };
 
     if (action.task && action.task.frequency && action.task.frequency > 0) {
-      job.plugins!.push("JobLock");
-      job.pluginOptions!.JobLock = { reEnqueue: false };
+      // QueueLock goes first so its lock is released as soon as a worker pops the job, even
+      // when RecurringTaskLock then refuses the run. Otherwise that stale lock would block
+      // the re-enqueue for an hour.
       job.plugins!.push("QueueLock");
+      job.plugins!.push(RecurringTaskLock);
       job.plugins!.push("DelayQueueLock");
     }
 

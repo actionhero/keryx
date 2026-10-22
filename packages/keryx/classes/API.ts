@@ -108,7 +108,9 @@ export class API {
    * @param runMode - Whether to start in SERVER mode (HTTP/WebSocket) or CLI mode.
    *   Defaults to `RUN_MODE.SERVER`. Initializers can opt out of specific modes via their
    *   `runModes` property.
-   * @throws {TypedError} With `ErrorType.SERVER_START` if any initializer fails to start.
+   * @throws {TypedError} With `ErrorType.SERVER_START` if any initializer fails to start. Before
+   *   throwing, the initializers that started (and the one that failed) are stopped in reverse
+   *   order, so a failed boot doesn't leave resque workers or open ports behind.
    */
   async start(runMode: RUN_MODE = RUN_MODE.SERVER) {
     this.stopped = false;
@@ -118,6 +120,7 @@ export class API {
 
     this.logger.warn("--- 🔼  Starting process ---");
 
+    const startedInitializers: Initializer[] = [];
     for (const initializer of this.initializers) {
       if (!initializer.runModes.includes(runMode)) {
         this.logger.debug(
@@ -129,8 +132,14 @@ export class API {
       try {
         this.logger.debug(`Starting initializer ${initializer.name}`);
         await initializer.start?.();
+        startedInitializers.push(initializer);
         this.logger.debug(`Started initializer ${initializer.name}`);
       } catch (e) {
+        // The failing initializer may have started something before it threw, so stop it too.
+        await this.stopStartedInitializers([
+          ...startedInitializers,
+          initializer,
+        ]);
         throw new TypedError({
           message: `Failed to start initializer "${initializer.name}": ${e instanceof Error ? e.message : e}`,
           type: ErrorType.SERVER_START,
@@ -177,6 +186,23 @@ export class API {
     this.stopped = true;
     this.started = false;
     this.logger.warn("--- 🔽  Stopping complete ---");
+  }
+
+  /**
+   * Best-effort shutdown after a failed `start()`: stop the given initializers in reverse order, so that, for example, resque workers don't die mid-job when the process
+   * exits. Errors are logged rather than thrown so the original start error surfaces.
+   */
+  private async stopStartedInitializers(startedInitializers: Initializer[]) {
+    for (const initializer of [...startedInitializers].reverse()) {
+      try {
+        await initializer.stop?.();
+      } catch (e) {
+        this.logger.error(
+          `Failed to stop initializer "${initializer.name}" after a failed start: ${e instanceof Error ? e.message : e}`,
+        );
+      }
+    }
+    this.stopped = true;
   }
 
   /**

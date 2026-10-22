@@ -8,7 +8,7 @@ import {
   test,
 } from "bun:test";
 import { z } from "zod";
-import { Action, api, Connection, logger } from "../../api";
+import { Action, api, Connection, config, logger } from "../../api";
 import { DEFAULT_QUEUE } from "../../classes/Action";
 import { HOOK_TIMEOUT, waitFor } from "./../setup";
 
@@ -157,6 +157,80 @@ describe("with workers and scheduler", () => {
     await api.resque.startScheduler();
     await waitFor(() => runs.length > 1);
     expect(runs.length).toBeGreaterThan(1);
+  });
+
+  describe("recurring task lock (issue #554)", () => {
+    const originalLockTimeout = config.tasks.recurringLockTimeout;
+    const lockKey = `resque:workerslock:recurring_test_action:${DEFAULT_QUEUE}:[{}]`;
+
+    afterEach(() => {
+      config.tasks.recurringLockTimeout = originalLockTimeout;
+    });
+
+    test("a recurring task resumes after a dead worker's lock lapses", async () => {
+      config.tasks.recurringLockTimeout = 500;
+      const runs: number[] = [];
+
+      class RecurringTestAction implements Action {
+        name = "recurring_test_action";
+        task = { frequency: 100, queue: DEFAULT_QUEUE };
+        run = async () => {
+          runs.push(Date.now());
+        };
+      }
+      const instance = new RecurringTestAction();
+      api.resque.jobs[instance.name] = api.resque.wrapActionAsJob(instance);
+      api.actions.actions.push(instance);
+
+      // A worker that died mid-run leaves its lock behind.
+      await api.redis.redis.set(lockKey, "dead-worker", "PX", 500);
+      const lockedUntil = Date.now() + 500;
+
+      await api.resque.startWorkers();
+      await api.resque.startScheduler();
+      await waitFor(() => runs.length > 1);
+
+      // Refused while the lock was held, then re-armed and run once it lapsed.
+      expect(runs[0]).toBeGreaterThanOrEqual(lockedUntil - 50);
+      expect(runs.length).toBeGreaterThan(1);
+    });
+
+    test("the lock is renewed while a long run is in progress and released after", async () => {
+      config.tasks.recurringLockTimeout = 200;
+      let running = 0;
+      let maxConcurrent = 0;
+      let finished = 0;
+      let lockHeldMidRun = false;
+
+      class RecurringTestAction implements Action {
+        name = "recurring_test_action";
+        task = { frequency: 50, queue: DEFAULT_QUEUE };
+        run = async () => {
+          running++;
+          maxConcurrent = Math.max(maxConcurrent, running);
+          await Bun.sleep(700); // several lease lengths
+          lockHeldMidRun = (await api.redis.redis.pttl(lockKey)) > 0;
+          running--;
+          finished++;
+        };
+      }
+      const instance = new RecurringTestAction();
+      api.resque.jobs[instance.name] = api.resque.wrapActionAsJob(instance);
+      api.actions.actions.push(instance);
+
+      const originalProcessors = config.tasks.taskProcessors;
+      config.tasks.taskProcessors = 2;
+      try {
+        await api.resque.startWorkers();
+        await api.resque.startScheduler();
+        await waitFor(() => finished > 0, { timeout: 5000 });
+      } finally {
+        config.tasks.taskProcessors = originalProcessors;
+      }
+
+      expect(lockHeldMidRun).toBe(true);
+      expect(maxConcurrent).toBe(1);
+    });
   });
 
   test("task actions receive a task-typed connection with an empty session (fresh start)", async () => {

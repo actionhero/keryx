@@ -38,6 +38,8 @@ export class MessagesCleanup implements Action {
 - **`queue`** — which Resque queue to put this job on (required)
 - **`frequency`** — how often to run it, in milliseconds (optional — omit for one-shot tasks)
 
+A recurring task never runs twice at once. While a run is in progress, its worker holds a short lock in Redis and keeps renewing it. If that worker dies mid-run (a crash, an OOM kill, a deploy that outlasts the shutdown grace), the lock lapses after `config.tasks.recurringLockTimeout` (15 seconds by default), and the task picks up again on its normal schedule.
+
 You can also run this same action from the CLI (`./keryx.ts "messages:cleanup" --age 3600000 -q`) or hit it via HTTP if you add a `web` property. It's all the same code.
 
 ## Queue Priority

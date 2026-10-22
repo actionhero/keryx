@@ -255,6 +255,52 @@ describe("API lifecycle error wrapping", () => {
     expect(err.cause).toBe(inner);
   });
 
+  test("a failed start stops the initializers that started, in reverse order (issue #554)", async () => {
+    const stopped: string[] = [];
+    class RecordingInitializer extends Initializer {
+      constructor(name: string) {
+        super(name);
+        this.declaresAPIProperty = false;
+      }
+      async stop() {
+        stopped.push(this.name);
+      }
+    }
+    class FailsToStart extends RecordingInitializer {
+      async start() {
+        throw new Error("boom");
+      }
+    }
+    class FailsToStop extends RecordingInitializer {
+      async stop() {
+        stopped.push(this.name);
+        throw new Error("stop failed");
+      }
+    }
+
+    const testApi = buildTestAPI([
+      new RecordingInitializer("first"),
+      new FailsToStop("second"),
+      new FailsToStart("failing"),
+      new RecordingInitializer("never-started"),
+    ]);
+    testApi.initialized = true;
+
+    let caught: unknown;
+    try {
+      await testApi.start();
+    } catch (e) {
+      caught = e;
+    }
+
+    // The start error surfaces, not the stop error.
+    expect((caught as TypedError).type).toBe(ErrorType.SERVER_START);
+    expect((caught as TypedError).message).toContain("boom");
+    expect(stopped).toEqual(["failing", "second", "first"]);
+    expect(testApi.started).toBe(false);
+    expect(testApi.stopped).toBe(true);
+  });
+
   test("stop wraps thrown error with initializer name and preserves cause", async () => {
     const inner = new Error("stop failed");
     const testApi = buildTestAPI([

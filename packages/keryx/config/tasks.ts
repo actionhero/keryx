@@ -21,6 +21,12 @@ export const configTasks = {
   maxEventLoopDelay: 5,
   // how long before we mark a resque worker / task processor as stuck/dead?
   stuckWorkerTimeout: 1000 * 60 * 60,
+  // how long (ms) a recurring task's run lock lasts without renewal. A running job renews it
+  // every third of this; if the worker dies mid-run, the task resumes once the lock lapses.
+  recurringLockTimeout: await loadFromEnvIfSet(
+    "TASK_RECURRING_LOCK_TIMEOUT",
+    15_000,
+  ),
   // should the scheduler automatically try to retry failed tasks which were failed due to being 'stuck'?
   retryStuckJobs: false,
 };
