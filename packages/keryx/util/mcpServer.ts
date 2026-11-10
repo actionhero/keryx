@@ -889,6 +889,48 @@ async function runToolCall(
   extra: ToolExtra,
   mcpServer?: McpServer,
 ): Promise<CallToolResult> {
+  const { response, error } = await actForToolCall(
+    action,
+    args,
+    extra,
+    mcpServer,
+  );
+  if (error) return toolErrorResult(error);
+  // Forward streamed chunks as logging messages for real-time visibility.
+  return toCallToolResult(
+    action,
+    response,
+    mcpServer
+      ? (chunk) => {
+          mcpServer.server
+            .sendLoggingMessage({ level: "info", data: chunk })
+            .catch(() => {
+              // Logging message delivery is best-effort
+            });
+        }
+      : undefined,
+  );
+}
+
+/**
+ * Run an action for a tool call as the caller, without rendering the result.
+ * The one place a tool call's connection is built, so a durable task's start
+ * gets the same elicitation support as a plain call.
+ *
+ * @param action - The action to run.
+ * @param args - The tool call's arguments.
+ * @param extra - The SDK's handler extra (auth, session id, abort signal).
+ * @param mcpServer - The session's server, for a call answered in the request
+ *   (enables elicitation); omit it for a task's background run.
+ * @returns The action's response, or the error it failed with.
+ * @throws {UrlElicitationRequiredError} When the action needs the user to visit a URL first.
+ */
+async function actForToolCall(
+  action: Action,
+  args: Record<string, unknown> | undefined,
+  extra: ToolExtra,
+  mcpServer?: McpServer,
+): Promise<{ response: unknown; error?: TypedError }> {
   const connection = await createMcpConnection(
     mcpServer
       ? extra
@@ -902,29 +944,10 @@ async function runToolCall(
       "",
       extra.sessionId || "",
     );
-    if (error) {
-      if (error instanceof McpUrlElicitationRequiredError) {
-        throw new UrlElicitationRequiredError(
-          error.elicitations,
-          error.message,
-        );
-      }
-      return toolErrorResult(error);
+    if (error instanceof McpUrlElicitationRequiredError) {
+      throw new UrlElicitationRequiredError(error.elicitations, error.message);
     }
-    // Forward streamed chunks as logging messages for real-time visibility.
-    return await toCallToolResult(
-      action,
-      response,
-      mcpServer
-        ? (chunk) => {
-            mcpServer.server
-              .sendLoggingMessage({ level: "info", data: chunk })
-              .catch(() => {
-                // Logging message delivery is best-effort
-              });
-          }
-        : undefined,
-    );
+    return { response, error };
   } finally {
     connection.destroy();
   }
@@ -936,9 +959,11 @@ async function runToolCall(
  *
  * - A **plain call** to an `optional` tool runs the action right here and is
  *   answered with its result, exactly like a tool without `mcp.task`.
- * - A **durable** task runs the action now; its response is the handle that the
- *   action's `status` callback is asked about from then on. A failing action
- *   ends the task as `failed` immediately.
+ * - A **durable** task runs the action now, in the request (so it can still
+ *   elicit); its response is the handle that the action's `status` callback is
+ *   asked about from then on. A failing action ends the task as `failed`
+ *   immediately; one that needs a URL elicitation fails the call instead, so
+ *   the client can send the user there and retry.
  * - A **managed** task is saved as `working` and the action runs in the
  *   background on this node, its result recorded when it settles.
  */
@@ -974,32 +999,25 @@ function buildToolTaskHandler(
       }
 
       if (taskConfig.status) {
-        const connection = await createMcpConnection({
-          authInfo: extra.authInfo,
-          sessionId: extra.sessionId,
-        });
-        try {
-          const { response, error } = await connection.act(
-            action.name,
-            args && typeof args === "object" ? args : {},
-            "",
-            extra.sessionId || "",
-          );
-          if (error) {
-            return {
-              task: await taskStore.save(
-                { ...task, status: "failed", statusMessage: error.message },
-                action,
-                { result: toolErrorResult(error) },
-              ),
-            };
-          }
+        // Started in the request, so the action can still elicit.
+        const { response, error } = await actForToolCall(
+          action,
+          args,
+          extra,
+          mcpServer,
+        );
+        if (error) {
           return {
-            task: await taskStore.save(task, action, { handle: response }),
+            task: await taskStore.save(
+              { ...task, status: "failed", statusMessage: error.message },
+              action,
+              { result: toolErrorResult(error) },
+            ),
           };
-        } finally {
-          connection.destroy();
         }
+        return {
+          task: await taskStore.save(task, action, { handle: response }),
+        };
       }
 
       const saved = await taskStore.save(task, action);

@@ -11,6 +11,7 @@ import { z } from "zod";
 import { api } from "../../api";
 import { Action, type McpTaskState } from "../../classes/Action";
 import type { Connection } from "../../classes/Connection";
+import { McpUrlElicitationRequiredError } from "../../classes/McpUrlElicitationRequiredError";
 import { ErrorType, TypedError } from "../../classes/TypedError";
 import { config } from "../../config";
 import { MCP_TASK_LIST_PAGE_SIZE, mcpTaskKey } from "../../util/mcpTasks";
@@ -101,6 +102,16 @@ class TestDurableTask extends Action {
   }
 
   async run(params: { jobId: string }) {
+    if (params.jobId === "needs-link") {
+      throw new McpUrlElicitationRequiredError([
+        {
+          mode: "url",
+          message: "Link your account",
+          url: "https://example.com/link",
+          elicitationId: "durable-link",
+        },
+      ]);
+    }
     if (params.jobId === "reject") {
       throw new TypedError({
         message: "cannot start that job",
@@ -486,6 +497,35 @@ describe("MCP tasks", () => {
       expect(task.status).toBe("failed");
       expect(task.statusMessage).toBe("cannot start that job");
       expect((await taskResult(client, task.taskId)).isError).toBe(true);
+    });
+
+    test("an action that needs a URL elicitation fails the call, not the task", async () => {
+      const lister = await session(await mintToken(freshUserId()));
+      await expect(
+        startTask(lister, "test-task-durable", { jobId: "needs-link" }),
+      ).rejects.toMatchObject({
+        code: -32042,
+        data: {
+          elicitations: [{ mode: "url", elicitationId: "durable-link" }],
+        },
+      } satisfies Partial<McpError>);
+      expect((await lister.experimental.tasks.listTasks()).tasks).toEqual([]);
+    });
+
+    test("a status change keeps the task's expiry", async () => {
+      const task = await startTask(
+        client,
+        "test-task-durable",
+        { jobId: "job-ttl" },
+        60_000,
+      );
+      jobs.get("job-ttl")!.state = { status: "input_required" };
+      expect(
+        (await client.experimental.tasks.getTask(task.taskId)).status,
+      ).toBe("input_required");
+      const pttl = await api.redis.redis.pttl(mcpTaskKey(task.taskId));
+      expect(pttl).toBeGreaterThan(0);
+      expect(pttl).toBeLessThanOrEqual(60_000);
     });
 
     test("a status callback that throws keeps the last known state", async () => {
