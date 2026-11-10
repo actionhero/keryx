@@ -9,7 +9,12 @@ import {
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CallToolResultSchema,
+  CreateTaskResultSchema,
+  LATEST_PROTOCOL_VERSION,
+  McpError,
+} from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { api } from "../../api";
 import { Action, HTTP_METHOD } from "../../classes/Action";
@@ -38,6 +43,20 @@ class PublicTool extends Action {
   }
   async run(params: { name?: string }) {
     return { greeting: `hello ${params.name ?? "anon"}` };
+  }
+}
+
+class PublicTaskTool extends Action {
+  constructor() {
+    super({
+      name: "test:anon-public-task",
+      description: "A task-capable tool anonymous clients may call",
+      inputs: z.object({}),
+      mcp: { tool: true, public: true, task: { support: "optional" } },
+    });
+  }
+  async run() {
+    return { done: true };
   }
 }
 
@@ -193,6 +212,7 @@ describe("anonymous MCP access", () => {
   beforeAll(() => {
     testActions.push(
       new PublicTool(),
+      new PublicTaskTool(),
       new PrivateTool(),
       new PublicResource(),
       new PrivateResource(),
@@ -270,6 +290,49 @@ describe("anonymous MCP access", () => {
         );
       } finally {
         await transport.close().catch(() => {});
+      }
+    });
+
+    test("an anonymous session's tasks belong to that session alone", async () => {
+      const connect = async () => {
+        const transport = new StreamableHTTPClientTransport(new URL(mcpUrl()));
+        const client = new Client({ name: "anon", version: "1.0.0" });
+        await client.connect(transport);
+        return { client, transport };
+      };
+      const mine = await connect();
+      const theirs = await connect();
+      try {
+        const { task } = await mine.client.request(
+          {
+            method: "tools/call",
+            params: { name: "test-anon-public-task", arguments: {}, task: {} },
+          },
+          CreateTaskResultSchema,
+        );
+        const result = await mine.client.request(
+          { method: "tasks/result", params: { taskId: task.taskId } },
+          CallToolResultSchema,
+        );
+        expect(result.structuredContent).toEqual({ done: true });
+        expect(
+          (await mine.client.experimental.tasks.listTasks()).tasks.map(
+            (t) => t.taskId,
+          ),
+        ).toEqual([task.taskId]);
+
+        // Every anonymous session shares one client id, so binding to it would
+        // hand each anonymous client everybody else's tasks.
+        expect(
+          (await theirs.client.experimental.tasks.listTasks()).tasks,
+        ).toEqual([]);
+        const error = await theirs.client.experimental.tasks
+          .getTask(task.taskId)
+          .catch((e: unknown) => e);
+        expect(error).toBeInstanceOf(McpError);
+      } finally {
+        await mine.transport.close().catch(() => {});
+        await theirs.transport.close().catch(() => {});
       }
     });
 

@@ -72,4 +72,13 @@ export const configServerMcp = {
     "MCP_ANONYMOUS_SESSION_TTL",
     60 * 60,
   ),
+  // MCP Tasks (`mcp.task`): how long a task record lives in Redis (seconds)
+  // when the client asks for no particular `ttl`, and the ceiling on the `ttl`
+  // a client may ask for. A task is forgotten once its TTL lapses, whatever its
+  // status — a durable task's own work carries on; only tracking stops.
+  taskTtl: await loadFromEnvIfSet("MCP_TASK_TTL", 60 * 60),
+  taskMaxTtl: await loadFromEnvIfSet("MCP_TASK_MAX_TTL", 60 * 60 * 24),
+  // Suggested gap (ms) between a client's `tasks/get` polls, unless the action
+  // sets `mcp.task.pollInterval`.
+  taskPollInterval: await loadFromEnvIfSet("MCP_TASK_POLL_INTERVAL", 1000),
 };
