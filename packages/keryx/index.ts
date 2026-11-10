@@ -19,7 +19,13 @@ import "./initializers/signals";
 import "./initializers/swagger";
 
 export * from "./api";
-export type { ActionMiddleware, McpUiConfig } from "./classes/Action";
+export type {
+  ActionMiddleware,
+  McpTaskConfig,
+  McpTaskState,
+  McpTaskStatus,
+  McpUiConfig,
+} from "./classes/Action";
 export {
   HTTP_METHOD,
   MCP_APP_MIME_TYPE,

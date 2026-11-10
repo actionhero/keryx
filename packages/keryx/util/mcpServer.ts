@@ -3,12 +3,18 @@ import {
   ResourceTemplate,
 } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import type {
+  RequestHandlerExtra,
+  RequestTaskStore,
+} from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { UriTemplate } from "@modelcontextprotocol/sdk/shared/uriTemplate.js";
 import {
+  type CallToolResult,
   DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
+  ErrorCode,
   JSONRPCMessageSchema,
   ListResourceTemplatesRequestSchema,
+  McpError,
   type ServerNotification,
   type ServerRequest,
   SUPPORTED_PROTOCOL_VERSIONS,
@@ -17,18 +23,17 @@ import {
 import { randomUUID } from "crypto";
 import * as z4mini from "zod/v4-mini";
 import { api, logger } from "../api";
-import type { Action, McpUiConfig } from "../classes/Action";
-import { MCP_APP_MIME_TYPE, MCP_RESPONSE_FORMAT } from "../classes/Action";
+import type { Action, McpTaskConfig, McpUiConfig } from "../classes/Action";
+import { MCP_APP_MIME_TYPE } from "../classes/Action";
 import { CONNECTION_TYPE, Connection } from "../classes/Connection";
 import { McpUrlElicitationRequiredError } from "../classes/McpUrlElicitationRequiredError";
-import { StreamingResponse } from "../classes/StreamingResponse";
 import { ErrorType, TypedError } from "../classes/TypedError";
-import { UIResponse } from "../classes/UIResponse";
 import { config } from "../config";
 import pkg from "../package.json";
 import { appendHeaders } from "../util/http";
 import { getResolvedMcpAppHtml } from "../util/mcpAppBundler";
-import { toMarkdown } from "../util/toMarkdown";
+import { McpTaskStore, mcpTaskOwnerFor } from "../util/mcpTasks";
+import { toCallToolResult, toolErrorResult } from "../util/mcpToolResult";
 
 /**
  * Convert a Keryx action name to a valid MCP tool name.
@@ -777,23 +782,56 @@ export function createMcpServer(
   // `initialize` (spec 2026-01-26, SEP-1724). Only declared when at least one
   // action ships a UI, keeping the capability surface minimal.
   const hasUiActions = api.actions.actions.some((a: Action) => a.mcp?.ui);
-  const mcpServer = new McpServer(
+  // Advertise MCP Tasks (spec 2025-11-25) only when some tool is task-capable.
+  // The SDK answers `tasks/*` from the store; it is per-session because every
+  // read is scoped to the session's owner (see McpTaskStore).
+  const hasTaskActions = api.actions.actions.some(
+    (a: Action) => isMcpTool(a) && a.mcp?.task,
+  );
+  let mcpServer: McpServer | undefined;
+  const taskStore = hasTaskActions
+    ? new McpTaskStore(() => {
+        const auth = mcpServer && api.mcp.mcpServerAuth.get(mcpServer);
+        if (!auth) return undefined;
+        return mcpTaskOwnerFor(
+          auth,
+          auth.clientId === ANONYMOUS_MCP_CLIENT_ID,
+          mcpServer?.server.transport?.sessionId,
+        );
+      })
+    : undefined;
+  mcpServer = new McpServer(
     { name: pkg.name, version: pkg.version },
     {
       instructions: config.server.mcp.instructions,
-      ...(hasUiActions
-        ? {
-            capabilities: {
+      capabilities: {
+        ...(hasUiActions
+          ? {
               extensions: {
                 [UI_EXTENSION_ID]: { mimeTypes: [MCP_APP_MIME_TYPE] },
               },
-            },
+            }
+          : {}),
+        ...(taskStore
+          ? {
+              tasks: {
+                list: {},
+                cancel: {},
+                requests: { tools: { call: {} } },
+              },
+            }
+          : {}),
+      },
+      ...(taskStore
+        ? {
+            taskStore,
+            defaultTaskPollInterval: config.server.mcp.taskPollInterval,
           }
         : {}),
     },
   );
 
-  registerTools(mcpServer, anonymous);
+  registerTools(mcpServer, anonymous, taskStore);
   registerResources(mcpServer, anonymous);
   registerUiResources(mcpServer, anonymous);
   registerPrompts(mcpServer, anonymous);
@@ -830,7 +868,162 @@ function buildUiMeta(ui: McpUiConfig): Record<string, unknown> {
   return meta;
 }
 
-function registerTools(mcpServer: McpServer, anonymous: boolean) {
+/** Extra the SDK hands a tool handler (task handlers get a `taskStore` too). */
+type ToolExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
+
+/**
+ * Run an action for a tool call and render its result. Shared by plain tool
+ * calls, inline calls to `optional` task tools, and task runs.
+ *
+ * @param action - The action to run.
+ * @param args - The tool call's arguments.
+ * @param extra - The SDK's handler extra (auth, session id, abort signal).
+ * @param mcpServer - The session's server. Pass it for a call answered in the
+ *   request, so the action can elicit and stream log messages; omit it for a
+ *   task's background run, which has no live request to talk back over.
+ * @throws {UrlElicitationRequiredError} When the action needs the user to visit a URL first.
+ */
+async function runToolCall(
+  action: Action,
+  args: Record<string, unknown> | undefined,
+  extra: ToolExtra,
+  mcpServer?: McpServer,
+): Promise<CallToolResult> {
+  const connection = await createMcpConnection(
+    mcpServer
+      ? extra
+      : { authInfo: extra.authInfo, sessionId: extra.sessionId },
+    mcpServer,
+  );
+  try {
+    const { response, error } = await connection.act(
+      action.name,
+      args && typeof args === "object" ? args : {},
+      "",
+      extra.sessionId || "",
+    );
+    if (error) {
+      if (error instanceof McpUrlElicitationRequiredError) {
+        throw new UrlElicitationRequiredError(
+          error.elicitations,
+          error.message,
+        );
+      }
+      return toolErrorResult(error);
+    }
+    // Forward streamed chunks as logging messages for real-time visibility.
+    return await toCallToolResult(
+      action,
+      response,
+      mcpServer
+        ? (chunk) => {
+            mcpServer.server
+              .sendLoggingMessage({ level: "info", data: chunk })
+              .catch(() => {
+                // Logging message delivery is best-effort
+              });
+          }
+        : undefined,
+    );
+  } finally {
+    connection.destroy();
+  }
+}
+
+/**
+ * The handlers for a task-capable tool (`mcp.task`). The SDK routes every call
+ * of such a tool — task-augmented or not — through `createTask`.
+ *
+ * - A **plain call** to an `optional` tool runs the action right here and is
+ *   answered with its result, exactly like a tool without `mcp.task`.
+ * - A **durable** task runs the action now; its response is the handle that the
+ *   action's `status` callback is asked about from then on. A failing action
+ *   ends the task as `failed` immediately.
+ * - A **managed** task is saved as `working` and the action runs in the
+ *   background on this node, its result recorded when it settles.
+ */
+function buildToolTaskHandler(
+  action: Action,
+  taskConfig: McpTaskConfig,
+  mcpServer: McpServer,
+  taskStore: McpTaskStore,
+) {
+  return {
+    createTask: async (
+      args: Record<string, unknown> | undefined,
+      extra: ToolExtra & { taskStore: RequestTaskStore },
+    ) => {
+      // Anonymous sessions may only call public tools. The HTTP layer already
+      // answers such a call with a 401 challenge; this is the backstop.
+      if (!isMcpAccessAllowed(action, extra.authInfo)) {
+        throw new McpError(
+          ErrorCode.InvalidRequest,
+          mcpAuthenticationRequiredError(action).message,
+        );
+      }
+
+      const minted = await extra.taskStore.createTask({
+        ttl: extra.taskRequestedTtl,
+        pollInterval: taskConfig.pollInterval,
+      });
+      const { task, inline } = taskStore.claim(minted.taskId);
+
+      if (inline) {
+        const result = await runToolCall(action, args, extra, mcpServer);
+        return { task: taskStore.finishInline(task, result) };
+      }
+
+      if (taskConfig.status) {
+        const connection = await createMcpConnection({
+          authInfo: extra.authInfo,
+          sessionId: extra.sessionId,
+        });
+        try {
+          const { response, error } = await connection.act(
+            action.name,
+            args && typeof args === "object" ? args : {},
+            "",
+            extra.sessionId || "",
+          );
+          if (error) {
+            return {
+              task: await taskStore.save(
+                { ...task, status: "failed", statusMessage: error.message },
+                action,
+                { result: toolErrorResult(error) },
+              ),
+            };
+          }
+          return {
+            task: await taskStore.save(task, action, { handle: response }),
+          };
+        } finally {
+          connection.destroy();
+        }
+      }
+
+      const saved = await taskStore.save(task, action);
+      taskStore.runInBackground(task.taskId, () =>
+        runToolCall(action, args, extra),
+      );
+      return { task: saved };
+    },
+    getTask: async (
+      _args: Record<string, unknown> | undefined,
+      extra: ToolExtra & { taskId: string; taskStore: RequestTaskStore },
+    ) => extra.taskStore.getTask(extra.taskId),
+    getTaskResult: async (
+      _args: Record<string, unknown> | undefined,
+      extra: ToolExtra & { taskId: string; taskStore: RequestTaskStore },
+    ) => (await extra.taskStore.getTaskResult(extra.taskId)) as CallToolResult,
+  };
+}
+
+function registerTools(
+  mcpServer: McpServer,
+  anonymous: boolean,
+  taskStore: McpTaskStore | undefined,
+) {
   const registered = new Set<string>();
   for (const action of api.actions.actions) {
     // Tools are opt-in: register only actions that explicitly set `mcp.tool =
@@ -861,133 +1054,31 @@ function registerTools(mcpServer: McpServer, anonymous: boolean) {
       toolConfig._meta = { ui: { resourceUri: uiResourceUri(action) } };
     }
 
+    const taskConfig = action.mcp?.task;
+    if (taskConfig && taskStore) {
+      const tool = mcpServer.experimental.tasks.registerToolTask(
+        toolName,
+        {
+          ...toolConfig,
+          inputSchema: toolConfig.inputSchema,
+          execution: { taskSupport: taskConfig.support },
+        },
+        buildToolTaskHandler(action, taskConfig, mcpServer, taskStore),
+      );
+      gateForAnonymous(mcpServer, action, tool, anonymous);
+      continue;
+    }
+
     const tool = mcpServer.registerTool(
       toolName,
       toolConfig,
-      async (
-        args: Record<string, unknown>,
-        extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
-      ) => {
+      async (args: Record<string, unknown>, extra: ToolExtra) => {
         // Anonymous sessions may only call public tools. The HTTP layer already
         // answers such a call with a 401 challenge; this is the backstop.
         if (!isMcpAccessAllowed(action, extra.authInfo)) {
-          const denied = mcpAuthenticationRequiredError(action);
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: JSON.stringify({
-                  error: denied.message,
-                  type: denied.type,
-                }),
-              },
-            ],
-            isError: true,
-          };
+          return toolErrorResult(mcpAuthenticationRequiredError(action));
         }
-
-        const mcpSessionId = extra.sessionId || "";
-        const connection = await createMcpConnection(extra, mcpServer);
-
-        try {
-          const params =
-            args && typeof args === "object"
-              ? (args as Record<string, unknown>)
-              : {};
-
-          const { response, error } = await connection.act(
-            action.name,
-            params,
-            "",
-            mcpSessionId,
-          );
-
-          if (error) {
-            if (error instanceof McpUrlElicitationRequiredError) {
-              throw new UrlElicitationRequiredError(
-                error.elicitations,
-                error.message,
-              );
-            }
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: JSON.stringify({
-                    error: error.message,
-                    type: error.type,
-                  }),
-                },
-              ],
-              isError: true,
-            };
-          }
-
-          // For streaming responses, consume the stream and accumulate into a single result.
-          // Send incremental chunks as MCP logging messages for real-time visibility.
-          if (response instanceof StreamingResponse) {
-            const reader = response.stream.getReader();
-            const decoder = new TextDecoder();
-            let accumulated = "";
-            try {
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                const chunk = decoder.decode(value);
-                accumulated += chunk;
-                try {
-                  mcpServer.server.sendLoggingMessage({
-                    level: "info",
-                    data: chunk,
-                  });
-                } catch (_e) {
-                  // Logging message delivery is best-effort
-                }
-              }
-            } finally {
-              response.onClose?.();
-            }
-            return {
-              content: [{ type: "text" as const, text: accumulated }],
-            };
-          }
-
-          // MCP App responses carry both a text block (added to model context)
-          // and structuredContent (delivered to the app UI for rendering).
-          // ext-apps hosts render the UI from the tool's `_meta.ui.resourceUri`
-          // and the separate `ui://` resource — the content array stays text-only.
-          if (response instanceof UIResponse) {
-            return {
-              content: [{ type: "text" as const, text: response.text }],
-              structuredContent: response.structuredContent,
-            };
-          }
-
-          const format = action.mcp?.responseFormat ?? MCP_RESPONSE_FORMAT.JSON;
-          const text =
-            format === MCP_RESPONSE_FORMAT.MARKDOWN
-              ? toMarkdown(response, {
-                  maxDepth: config.server.mcp.markdownDepthLimit,
-                })
-              : JSON.stringify(response);
-
-          // Promote plain object responses to structuredContent so MCP Apps can
-          // bind without JSON.parse (same shape UIResponse already provides).
-          const structuredContent =
-            format === MCP_RESPONSE_FORMAT.JSON &&
-            response !== null &&
-            typeof response === "object" &&
-            !Array.isArray(response)
-              ? (response as Record<string, unknown>)
-              : undefined;
-
-          return {
-            content: [{ type: "text" as const, text }],
-            ...(structuredContent ? { structuredContent } : {}),
-          };
-        } finally {
-          connection.destroy();
-        }
+        return runToolCall(action, args, extra, mcpServer);
       },
     );
     gateForAnonymous(mcpServer, action, tool, anonymous);

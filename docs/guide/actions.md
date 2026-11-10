@@ -43,7 +43,7 @@ The built-in `status` action also sets [`tracing = false`](#opting-out-of-tracin
 | `web`         | `{ route, method, … }`  | HTTP routing. Routes are strings with `:param` placeholders or RegExp patterns |
 | `task`        | `{ queue, frequency? }` | Makes this action schedulable as a background job                              |
 | `middleware`  | `ActionMiddleware[]`    | Runs before/after the action (auth, logging, etc.)                             |
-| `mcp`         | `McpActionConfig`       | Controls MCP exposure: tool, resource, and/or prompt (tools are opt-in)       |
+| `mcp`         | `McpActionConfig`       | Controls MCP exposure: tool (optionally task-capable), resource, and/or prompt (tools are opt-in) |
 | `timeout`     | `number`                | Per-action timeout in ms (overrides `config.actions.timeout`; `0` disables)    |
 | `tracing`     | `boolean`               | Set `false` to [skip distributed tracing](#opting-out-of-tracing) for this action. Unset means traced. |
 

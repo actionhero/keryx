@@ -75,6 +75,94 @@ export type McpUiConfig = {
   domain?: string;
 };
 
+/**
+ * The lifecycle states of an MCP task (MCP `2025-11-25`). `completed`, `failed`,
+ * and `cancelled` are terminal: once a task reaches one it never changes again.
+ */
+export type McpTaskStatus =
+  | "working"
+  | "input_required"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+/**
+ * What an action's {@link McpTaskConfig.status} callback reports about a durable
+ * task. Keryx stores it and answers `tasks/get` from it.
+ */
+export type McpTaskState = {
+  /** The task's current status. A terminal status is final. */
+  status: McpTaskStatus;
+  /** Optional human-readable detail, surfaced to the client as `statusMessage`. */
+  statusMessage?: string;
+  /**
+   * For a terminal status, the value `tasks/result` delivers. It is rendered
+   * exactly like an action response (honoring `mcp.responseFormat`), and a
+   * `failed` result is flagged `isError`. Defaults to the action's original
+   * response when omitted.
+   */
+  result?: unknown;
+};
+
+/**
+ * Publishes an MCP tool as **task-capable** (MCP Tasks, `2025-11-25`). A client
+ * can then call the tool with `task: { ttl }`, get a task id back immediately,
+ * and check on it later with `tasks/get`, `tasks/result`, `tasks/list`, and
+ * `tasks/cancel` — from the same session or a later one, on any node.
+ *
+ * There are two kinds of task:
+ *
+ * - **Managed** (no `status`): Keryx runs the action in the background, and the
+ *   task ends when `run()` does. Use it for an action that is merely slow.
+ * - **Durable** (`status` set): `run()` starts work that lives in your own
+ *   storage (a job row, a workflow execution) and returns a handle to it. The
+ *   task stays `working` until `status(handle)` reports a terminal state, so it
+ *   can outlive the request, the session, and the node that created it.
+ *
+ * @see {@link https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks}
+ */
+export type McpTaskConfig = {
+  /**
+   * `"optional"`: a plain `tools/call` still runs the action and returns its
+   * response directly, exactly as without `task`; only a call that asks for a
+   * task gets one. `"required"`: the tool may only be called as a task.
+   */
+  support: "optional" | "required";
+  /**
+   * Suggested interval (ms) between a client's `tasks/get` polls. Also how
+   * often a blocked `tasks/result` re-checks. Defaults to
+   * `config.server.mcp.taskPollInterval`.
+   */
+  pollInterval?: number;
+  /**
+   * Makes the task **durable**: report its state from your own storage. Called
+   * on `tasks/get` (and while `tasks/result` waits) for as long as the task is
+   * non-terminal, never after.
+   *
+   * @param response - What the action's `run()` returned when the task was
+   *   created — the handle to your work.
+   * @param connection - An MCP connection authenticated as the task's owner,
+   *   so `connection.act(...)` runs the target action's middleware as that user.
+   * @returns The task's current state. A thrown error is logged and the task
+   *   keeps its last known state, so a transient failure doesn't end it.
+   */
+  status?: (
+    response: any,
+    connection: Connection,
+  ) => Promise<McpTaskState> | McpTaskState;
+  /**
+   * Called on `tasks/cancel` for a non-terminal **durable** task, before it is
+   * marked `cancelled`. Throw to refuse: the client gets an error and the task
+   * keeps running. Without it, cancelling a durable task only stops tracking
+   * it. A managed task's background run is never interrupted; its result is
+   * discarded.
+   *
+   * @param response - What the action's `run()` returned when the task was created.
+   * @param connection - An MCP connection authenticated as the task's owner.
+   */
+  cancel?: (response: any, connection: Connection) => Promise<void> | void;
+};
+
 export enum HTTP_METHOD {
   GET = "GET",
   POST = "POST",
@@ -145,6 +233,11 @@ export type McpActionConfig = {
    * `MCP_RESPONSE_FORMAT.MARKDOWN` returns a human-readable markdown rendering via `toMarkdown()`.
    */
   responseFormat?: MCP_RESPONSE_FORMAT;
+  /**
+   * Make the tool task-capable (MCP Tasks), so a client can start it and check
+   * on it later instead of holding one request open. See {@link McpTaskConfig}.
+   */
+  task?: McpTaskConfig;
 };
 
 export type ActionConstructorInputs = {

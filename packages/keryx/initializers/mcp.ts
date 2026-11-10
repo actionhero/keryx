@@ -48,6 +48,7 @@ import {
   validateJsonRpcPayload,
   writeMcpSessionRecord,
 } from "../util/mcpServer";
+import { settleMcpTasks } from "../util/mcpTasks";
 import type { PubSubMessage } from "./pubsub";
 
 type McpHandleRequest = (req: Request, ip: string) => Promise<Response>;
@@ -605,6 +606,10 @@ export class McpInitializer extends Initializer {
 
   async stop() {
     if (!config.server.mcp.enabled) return;
+
+    // Let managed MCP tasks running in the background record their results
+    // while Redis is still up, rather than leaving them `working` until expiry.
+    await settleMcpTasks();
 
     // Close all transports
     for (const { transport } of api.mcp.transports.values()) {

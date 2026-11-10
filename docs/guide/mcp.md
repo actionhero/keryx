@@ -1,5 +1,5 @@
 ---
-description: MCP server configuration — how actions become tools, controlling tool exposure, McpActionConfig options, elicitation, response formats, resources, and prompts.
+description: MCP server configuration — how actions become tools, controlling tool exposure, McpActionConfig options, elicitation, response formats, tasks, resources, and prompts.
 ---
 
 # MCP Server
@@ -102,6 +102,7 @@ The full `mcp` property is of type `McpActionConfig`:
 | `prompt`         | `object`              | —       | Expose this action as an MCP prompt (see [Prompts](#prompts) below)                |
 | `ui`             | `McpUiConfig`         | —       | Render the tool's result as an interactive UI (see [MCP Apps](./mcp-apps.md))      |
 | `responseFormat` | `MCP_RESPONSE_FORMAT` | `JSON`  | Response format for MCP tool calls (see [Response Format](#response-format) below) |
+| `task`           | `McpTaskConfig`       | —       | Let clients start the tool and check on it later (see [Tasks](#tasks) below)        |
 
 The `isLoginAction` and `isSignupAction` markers tell the OAuth system which actions to invoke when users authenticate through the MCP authorization page. These actions must return `OAuthActionResponse` (`{ user: { id: number } }`).
 
@@ -246,6 +247,148 @@ The depth limit controls how many levels of nesting are rendered as markdown bef
 ::: tip
 Error responses always use JSON regardless of the requested format, so agents can reliably parse error details programmatically.
 :::
+
+## Tasks
+
+A tool call normally holds one request open until the action returns. For work that takes minutes or hours, that is the wrong shape: the client's request times out, the session ends, or the node restarts. [MCP Tasks](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks) (spec `2025-11-25`) let a client start the tool, get a task id back straight away, and then check on it:
+
+| Request        | What it does                                                    |
+| -------------- | --------------------------------------------------------------- |
+| `tasks/get`    | The task's current status, with an optional `statusMessage`      |
+| `tasks/result` | Waits until the task is finished, then returns its tool result   |
+| `tasks/list`   | The caller's tasks, newest first, 50 per page                    |
+| `tasks/cancel` | Stops the task (see [Cancelling](#cancelling))                   |
+
+A task's status is `working`, `input_required`, `completed`, `failed`, or `cancelled`. The last three are terminal, and a terminal task never changes again.
+
+Set `mcp.task` to make a tool task-capable:
+
+```ts
+export class ReportBuild implements Action {
+  name = "report:build";
+  description = "Build the quarterly report";
+  inputs = z.object({ quarter: z.string() });
+  mcp = { tool: true, task: { support: "optional" } };
+
+  async run(params: { quarter: string }) {
+    return { report: await buildReport(params.quarter) }; // slow
+  }
+}
+```
+
+`support` decides who gets a task:
+
+- **`"optional"`.** A plain `tools/call` still runs the action and returns its response in the same request, exactly as it would without `mcp.task`. Only a call that sends `task: { ttl }` gets a task. Adding `mcp.task` to an existing tool changes nothing for clients that don't use tasks.
+- **`"required"`.** The tool can only be called as a task. A plain call gets a tool error.
+
+Keryx advertises the `tasks` capability, and lists each tool's `execution.taskSupport`, only when at least one tool sets `mcp.task`.
+
+### Managed and durable tasks
+
+There are two kinds of task, depending on where the work lives.
+
+**Managed tasks** are the example above, with no `status` callback. Keryx runs the action in the background on the node that received the call, and the task ends when `run()` does. A thrown error makes the task `failed`, with the error as its result. Use a managed task for an action that is merely slow. If that node stops while the action is still running, the task stays `working` until its TTL expires. On a clean shutdown, Keryx waits for background runs to record their results first.
+
+**Durable tasks** set `status`. `run()` starts work that is stored somewhere you own, such as a job row or a workflow execution, and returns a handle to it. The task then stays open until `status` says it has finished:
+
+```ts
+import type { Connection, McpTaskState } from "keryx";
+
+export class WorkflowStart implements Action {
+  name = "workflow:start";
+  inputs = z.object({ workflowId: z.number() });
+  mcp = {
+    tool: true,
+    task: {
+      support: "optional",
+      pollInterval: 5000,
+      // Called on tasks/get while the task is not yet terminal.
+      status: async (
+        started: { execution: { id: number } },
+        connection: Connection,
+      ): Promise<McpTaskState> => {
+        const { response, error } = await connection.act("workflow:view", {
+          executionId: started.execution.id,
+        });
+        if (error) throw error; // logged; the task keeps its last state
+        const { execution } = response as { execution: { status: string } };
+        switch (execution.status) {
+          case "succeeded":
+            return { status: "completed", result: response };
+          case "failed":
+            return { status: "failed", result: response };
+          case "cancelled":
+            return { status: "cancelled" };
+          default:
+            return { status: "working", statusMessage: execution.status };
+        }
+      },
+      // Called on tasks/cancel. Throw to refuse.
+      cancel: async (started, connection) => {
+        const { error } = await connection.act("workflow:cancel", {
+          executionId: started.execution.id,
+        });
+        if (error) throw error;
+      },
+    },
+  };
+
+  async run(params: { workflowId: number }) {
+    return { execution: await startExecution(params.workflowId) };
+  }
+}
+```
+
+- **The handle** is whatever `run()` returned. It is stored with the task, so it must be JSON-serializable. If `run()` fails, the task is `failed` immediately.
+- **`status(handle, connection)`** runs on every `tasks/get`, and while `tasks/result` waits, until it reports a terminal status. After that it is never called again. `connection` is authenticated as the task's owner, so `connection.act(...)` runs the target action's middleware as that user. A `status` callback that throws is logged, and the task keeps its last known state, so a database blip does not end it.
+- **`result`** on a terminal state is what `tasks/result` returns. It is rendered like any action response and honors `responseFormat`. A `failed` result is flagged `isError`. If you leave `result` out, the client gets the handle.
+
+Because a durable task's state lives in your storage, any node can answer for it, and so can a later session.
+
+### Cancelling
+
+`tasks/cancel` on a durable task calls `cancel(handle, connection)` and then marks the task `cancelled`. If `cancel` throws, the client gets an error and the task carries on. Without a `cancel` callback, cancelling a durable task only stops tracking it; the work itself continues.
+
+A managed task's background run is not interrupted. The task is marked `cancelled` and the run's result is discarded when it arrives. A task that is already terminal cannot be cancelled.
+
+### Who can see a task
+
+Tasks are stored in Redis (`mcp:task:<id>`), so every node in a cluster can serve them. Each task belongs to the OAuth client **and** the user that created it, not to the MCP session:
+
+- The owner sees the task from any later session, on any node, for example after reconnecting.
+- Another user, or the same user on a different OAuth client, gets exactly the error an unknown task id gets, and the task is left out of their `tasks/list`.
+- An anonymous session (`MCP_AUTH_MODE=optional`, a `public` tool) has no user, so its tasks belong to that session alone. If the session later signs in, those tasks are not carried over.
+
+### Lifetime
+
+A client may ask for a `ttl` (in milliseconds) when it starts a task. Keryx uses `MCP_TASK_TTL` (1 hour) when the client asks for none, and caps any request at `MCP_TASK_MAX_TTL` (24 hours). The granted value is returned as the task's `ttl`. When it runs out, the task is forgotten, whatever its status. Tracking stops, but a durable task's own work is unaffected.
+
+`tasks/list` returns each task's last recorded status. Call `tasks/get` to refresh a durable task. `pollInterval` (from `mcp.task.pollInterval`, otherwise `MCP_TASK_POLL_INTERVAL`, 1 second) tells clients how often to poll. It is also how often a waiting `tasks/result` checks again.
+
+### Calling a task from a client
+
+With the SDK client:
+
+```ts
+import {
+  CallToolResultSchema,
+  CreateTaskResultSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+
+const { task } = await client.request(
+  {
+    method: "tools/call",
+    params: { name: "workflow-start", arguments: { workflowId: 7 }, task: {} },
+  },
+  CreateTaskResultSchema,
+);
+
+await client.experimental.tasks.getTask(task.taskId); // { status: "working", … }
+const result = await client.request(
+  { method: "tasks/result", params: { taskId: task.taskId } },
+  CallToolResultSchema,
+); // waits until the task is finished
+```
 
 ## Resources
 
@@ -611,6 +754,9 @@ Delivery is authorized per channel, not broadcast to everyone. Each MCP session 
 | `sessionTtl`         | `MCP_SESSION_TTL`          | `86400`             | Shared MCP session registry TTL, refreshed on activity (seconds) |
 | `anonymousSessionTtl` | `MCP_ANONYMOUS_SESSION_TTL` | `3600`           | Idle TTL for anonymous sessions (seconds)  |
 | `markdownDepthLimit` | `MCP_MARKDOWN_DEPTH_LIMIT` | `5`                 | Max nesting depth for markdown rendering |
+| `taskTtl`            | `MCP_TASK_TTL`             | `3600`              | [Task](#tasks) lifetime when the client requests no `ttl` (seconds) |
+| `taskMaxTtl`         | `MCP_TASK_MAX_TTL`         | `86400`             | Longest task `ttl` a client may request (seconds) |
+| `taskPollInterval`   | `MCP_TASK_POLL_INTERVAL`   | `1000`              | Suggested gap between `tasks/get` polls, unless `mcp.task.pollInterval` is set (ms) |
 
 ## Testing
 
