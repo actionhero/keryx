@@ -15,6 +15,10 @@ const pkg = JSON.parse(
 );
 const version: string = pkg.version;
 
+/** keryxjs.com redirects to www, so absolute URLs use the final host. */
+const SITE_URL = "https://www.keryxjs.com";
+const OG_IMAGE = `${SITE_URL}/images/og-image.png`;
+
 type SidebarItem = { text: string; link: string };
 type SidebarGroup = { text: string; items: SidebarItem[] };
 
@@ -195,9 +199,36 @@ export default defineConfig({
   title: "Keryx",
   description:
     "The fullstack TypeScript framework for MCP and APIs — transport-agnostic actions for HTTP, WebSocket, CLI, background tasks, and MCP, built on Bun.",
-  transformHead({ pageData }) {
+  transformHead({ pageData, siteData }) {
     const mdUrl = "/" + pageData.relativePath;
-    return [["link", { rel: "alternate", type: "text/markdown", href: mdUrl }]];
+    // Social unfurls (Slack, X, LinkedIn, Discord) need absolute URLs and a
+    // raster image — SVGs are ignored, which leaves an empty placeholder card.
+    const path = pageData.relativePath
+      .replace(/(^|\/)index\.md$/, "$1")
+      .replace(/\.md$/, ".html");
+    const url = `${SITE_URL}/${path}`;
+    const title =
+      pageData.frontmatter.layout === "home" || !pageData.title
+        ? siteData.title
+        : `${pageData.title} | ${siteData.title}`;
+    const description = pageData.description || siteData.description;
+    return [
+      ["link", { rel: "alternate", type: "text/markdown", href: mdUrl }],
+      ["link", { rel: "canonical", href: url }],
+      ["meta", { property: "og:type", content: "website" }],
+      ["meta", { property: "og:site_name", content: siteData.title }],
+      ["meta", { property: "og:title", content: title }],
+      ["meta", { property: "og:description", content: description }],
+      ["meta", { property: "og:url", content: url }],
+      ["meta", { property: "og:image", content: OG_IMAGE }],
+      ["meta", { property: "og:image:width", content: "1200" }],
+      ["meta", { property: "og:image:height", content: "630" }],
+      ["meta", { property: "og:image:alt", content: "Keryx herald" }],
+      ["meta", { name: "twitter:card", content: "summary_large_image" }],
+      ["meta", { name: "twitter:title", content: title }],
+      ["meta", { name: "twitter:description", content: description }],
+      ["meta", { name: "twitter:image", content: OG_IMAGE }],
+    ];
   },
 
   head: [
@@ -285,7 +316,7 @@ export default defineConfig({
     },
   },
 
-  sitemap: { hostname: "https://keryxjs.com" },
+  sitemap: { hostname: SITE_URL },
 
   vite: {
     plugins: [

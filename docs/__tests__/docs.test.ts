@@ -330,6 +330,49 @@ describe("llms.txt", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Social cards
+// ---------------------------------------------------------------------------
+
+describe("social cards", () => {
+  const distDir = resolve(docsDir, ".vitepress", "dist");
+  const meta = (html: string, key: string) =>
+    html.match(
+      new RegExp(`<meta (?:property|name)="${key}" content="([^"]*)"`),
+    )?.[1];
+
+  test("every built page has absolute og/twitter tags with a raster image", () => {
+    const pages = [
+      resolve(distDir, "index.html"),
+      ...contentFiles.map((f) =>
+        resolve(distDir, relative(docsDir, f).replace(/\.md$/, ".html")),
+      ),
+    ];
+    const problems: string[] = [];
+    for (const page of pages) {
+      const html = readFileSync(page, "utf-8");
+      const rel = relative(distDir, page);
+      for (const key of ["og:title", "og:description", "og:url"]) {
+        if (!meta(html, key)) problems.push(`${rel}: missing ${key}`);
+      }
+      for (const key of ["og:image", "twitter:image"]) {
+        const image = meta(html, key);
+        // Unfurlers (Slack, X, LinkedIn) need an absolute URL and ignore SVG.
+        if (!image?.match(/^https:\/\/.+\.(png|jpe?g)$/)) {
+          problems.push(`${rel}: bad ${key} ${image}`);
+          continue;
+        }
+        const file = resolve(publicDir, new URL(image).pathname.slice(1));
+        if (!existsSync(file)) problems.push(`${rel}: ${key} not in public/`);
+      }
+      if (meta(html, "twitter:card") !== "summary_large_image") {
+        problems.push(`${rel}: twitter:card`);
+      }
+    }
+    expect(problems).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // LLM markdown routing
 // ---------------------------------------------------------------------------
 
